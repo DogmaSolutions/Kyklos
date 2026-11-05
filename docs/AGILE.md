@@ -16,7 +16,7 @@ A Kyklos unit of work is a *story*, an issue in the tracker (see [Storages](STOR
     - Acceptance criteria
 - a risk register
 
-The agent works through it in phases that it cannot skip (see the [complete workflow](WORKFLOW.md)):
+The agent works through it in **phases** that it cannot skip (see the [complete workflow](WORKFLOW.md)):
 
 ```
 Requirements → Design → Implementation → Testing → Deployment → Review → Close

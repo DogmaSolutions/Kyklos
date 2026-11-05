@@ -2,6 +2,17 @@
 
 [← Back to the WORKFLOW](WORKFLOW.md)  
 
+> Before we explore the workflow and rules of this specific scenario, this is a memento of [the cardinal rules of the Kyklos SSDLC workflow](WORKFLOW.md):  
+> - Rule 1: The deliverable is on the remote, and merged
+> - Rule 2: No commit of the story is left behind
+> - Rule 3: The evidence describes the merged result
+> - Rule 4: The review saw the finished code
+> - Rule 5: A merge request merges itself, and only on the merged result
+
+
+
+## Scenario 1 - High-level workflow
+
 This is the ideal scenario; and complete and autonomous CI-driven workflow:
 
 1. The agent commits on `feature/story-<id>-<slug>`, builds and tests on the host through the Bridge, and collects the Test Discipline token and coverage receipt, the duplication report and the

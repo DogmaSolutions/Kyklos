@@ -2,6 +2,16 @@
 
 [← Back to the WORKFLOW](WORKFLOW.md)
 
+> Before we explore the workflow and rules of this specific scenario, this is a memento of [the cardinal rules of the Kyklos SSDLC workflow](WORKFLOW.md):
+> - Rule 1: The deliverable is on the remote, and merged
+> - Rule 2: No commit of the story is left behind
+> - Rule 3: The evidence describes the merged result
+> - Rule 4: The review saw the finished code
+> - Rule 5: A merge request merges itself, and only on the merged result
+
+
+
+## Scenario 2 - High-level workflow
 The agent works exactly as above but cannot push. A person pushes the story branch, and the merge request is created armed in that push (or the agent creates and arms it through the Bridge once
 the branch is on the remote).  
 Until that push the story **cannot close**: the deliverable is not on the remote (rule 1), the story's commits are not on the trunk (rule 2), and the four remote rows stay open. The agent marks the

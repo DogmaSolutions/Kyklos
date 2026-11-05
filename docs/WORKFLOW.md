@@ -62,13 +62,13 @@ In *Kyklos* a story closes only when its change is **merged into the trunk on th
 taken from that merged state.  
 This page explains the rules the close applies, which rows of the [Proof Table](PROOF.md) depend on them, and how the flow works in each kind of project.
 
-## The rules the workflow applies
+## The cardinal rules the workflow applies
 
 The workflow is enforced by hooks, skills and driven through the [`Kyklos Bridge`](COMPONENTS.md), which **checks every rule below mechanically**. A fact the Bridge cannot read (the remote does not answer, a history cannot be read)
 refuses the close: it is never read as "fine". The only way past rules 1 to 4 (below) is an *override label* that a **person** applies on the story, and that override is recorded; the conditions
 listed under *Other close conditions* cannot be overridden at all.
 
-### 1. The deliverable is on the remote, and merged
+### Rule 1: The deliverable is on the remote, and merged
 
 The workflow names the story's **deliverable**: the merge request, the commit or the branch that carries the change. It may live in the story's own project or in another one (written
 `group/project!<number>` for a merge request, `group/project@<commit>` for a commit). Every item named must be **merged into a trunk on the remote**:
@@ -79,7 +79,7 @@ The workflow names the story's **deliverable**: the merge request, the commit or
 
 Being pushed is not enough: a story closed while its merge request was still open would record "done" for work that never shipped.
 
-### 2. No commit of the story is left behind
+### Rule 2: No commit of the story is left behind
 
 Every commit whose message names the story in its `Refs:` line must be reachable from the trunk: `develop` or `main` in a [GitFlow](https://nvie.com/posts/a-successful-git-branching-model/)
 repository (a hotfix lands on `main` first), `main` in a [trunk-based](https://trunkbaseddevelopment.com/) one. The check fetches from the remote first, then looks at every local branch, every remote
@@ -88,7 +88,7 @@ A change that reached the trunk through a rebase, a cherry-pick or a squash merg
 
 This catches the fix that was committed, named after the story, and then forgotten on a branch nobody merged.
 
-### 3. The evidence describes the merged result
+### Rule 3: The evidence describes the merged result
 
 What the close certifies is the **trunk with the story merged**, not the story branch on its own:
 
@@ -100,7 +100,7 @@ What the close certifies is the **trunk with the story merged**, not the story b
 - When another story changed the same files in the meantime, the merge is reviewed for the interaction (both behaviours kept, no conflict hidden by a clean textual merge) and the test suites of
   both stories run on the combined result.
 
-### 4. The review saw the finished code
+### Rule 4: The review saw the finished code
 
 For a development story whose change touches code that the coverage run measures, the [adversarial review](ADVERSARIAL_REVIEW.md) on record must be **newer than the moment the remote received the
 last change to that code**. That moment is taken from the merge request that carried the commit, a time the server records and the author cannot set.
@@ -110,7 +110,7 @@ Two consequences:
 - a fix pushed after the review needs a new review before the close;
 - such code must reach the trunk **through a merge request**: a code commit that arrived on the trunk without one has no recorded arrival time, and the close refuses it.
 
-### 5. A merge request merges itself, and only on the merged result
+### Rule 5: A merge request merges itself, and only on the merged result
 
 Where the repository has a pipeline, the agent never merges by hand:
 

@@ -5,9 +5,9 @@
 AI coding agents are fast, and that is the problem. They write code faster than anyone can review it, they report "done" when it only compiles, and they forget the rule they were given an hour ago.
 Writing better instructions does not fix this. Instructions are advice, and an agent under pressure treats advice as optional.
 
-## A workflow that the AI agent cannot skip or cheat
+## A Quality Assurance-driven workflow that the AI agent cannot skip or cheat
 
-**Kyklos focuses on robustness, correctness, cybersecurity, and makes the engineering process something the agent cannot bypass.**
+> Kyklos focuses on Quality Assurance, Robustness, Correctness, Cybersecurity, and makes the engineering process something the agent cannot bypass.
 
 - Every rule that can be checked by a machine is checked by a machine, at the moment the agent tries to break it.
 - Every claim the agent makes about its own work ("tested", "reviewed", "documented") has to be backed by evidence that a tool produced, never by the agent's word.

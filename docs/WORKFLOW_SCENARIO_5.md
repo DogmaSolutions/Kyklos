@@ -2,6 +2,17 @@
 
 [← Back to the WORKFLOW](WORKFLOW.md)
 
+> Before we explore the workflow and rules of this specific scenario, this is a memento of [the cardinal rules of the Kyklos SSDLC workflow](WORKFLOW.md):
+> - Rule 1: The deliverable is on the remote, and merged
+> - Rule 2: No commit of the story is left behind
+> - Rule 3: The evidence describes the merged result
+> - Rule 4: The review saw the finished code
+> - Rule 5: A merge request merges itself, and only on the merged result
+
+
+
+## Scenario 5 - High-level workflow
+
 The story's kind decides which rows it must prove (see the [Proof Table](PROOF.md)):
 
 - A **documentation** story proves Completeness, Documentation and Adversarial Review. The documents it changes are its deliverable: they are pushed and merged like code, the close checks that they

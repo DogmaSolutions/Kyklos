@@ -2,6 +2,17 @@
 
 [← Back to the WORKFLOW](WORKFLOW.md)
 
+> Before we explore the workflow and rules of this specific scenario, this is a memento of [the cardinal rules of the Kyklos SSDLC workflow](WORKFLOW.md):
+> - Rule 1: The deliverable is on the remote, and merged
+> - Rule 2: No commit of the story is left behind
+> - Rule 3: The evidence describes the merged result
+> - Rule 4: The review saw the finished code
+> - Rule 5: A merge request merges itself, and only on the merged result
+
+
+
+## Scenario 4 - High-level workflow
+
 In the [*Private Companion + Public Sources* and *Private Companion + Private Sources* topologies](TOPOLOGIES.md), the backlog and the agent tooling live in the companion, while the code lives in the nested source
 repository. Where the project lets it push, the agent may push the companion's own trunk (the companion is trunk-based), but often **not the nested source**: either the project declares the source
 read-only for the agent (a person commits and pushes
