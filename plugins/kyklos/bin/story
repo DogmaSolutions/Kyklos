@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# story / agent-msg / advreview / bridge - the PATH entry points for the Kyklos CLIs.
+#
+# Claude Code puts this plugin's bin/ directory on PATH, so an agent can type `story ...`, `agent-msg ...`,
+# `advreview ...` or `bridge ...` instead of spelling the versioned plugin cache path. `agent-msg`, `advreview` and
+# `bridge` are symlinks to this one file; the name it was called by selects the CLI. The real CLI lives with its skill;
+# this shim resolves it RELATIVE to itself (never an absolute or version-pinned path, so it keeps working in every
+# installed version and after any cache relocation) and hands over completely: same arguments, same exit status, no
+# logic of its own. A missing CLI is a broken install, so it fails LOUD naming the path it tried.
+set +e -uo pipefail
+_name="$(basename "$0")"
+case "$_name" in
+    story)     _rel="skills/ssdlc-story/story" ;;
+    agent-msg) _rel="skills/ssdlc-agent-msg/agent-msg" ;;
+    advreview) _rel="skills/ssdlc-adversarial-review/advreview" ;;
+    bridge)    _rel="skills/using-the-bridge/bridge" ;;
+    *) printf '%s: not a kyklos command (this shim serves story, agent-msg, advreview, bridge).\n' "$_name" >&2; exit 127 ;;
+esac
+_here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_cli="$_here/../$_rel"
+if [ ! -x "$_cli" ]; then
+    printf '%s: the CLI is missing or not executable at %s - broken kyklos install; reinstall/repin the plugin.\n' "$_name" "$_cli" >&2
+    exit 127
+fi
+exec "$_cli" "$@"

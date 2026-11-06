@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+# agent-msg — mechanized cross-agent COORDINATION issues (non-story). The sanctioned way for a Kyklos
+# container to talk to another agent via GitLab issues: create / inbox / reply / close / show. Wraps
+# hooks/lib/agent-msg-lib.sh, which forwards every operation to the KyklosBridge coordination verbs (the bridge holds
+# the GitLab token and the identity). When the bridge cannot answer, the command fails (exit 3) and says so. See SKILL.md.
+set +e -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=/dev/null
+. "$HERE/../../hooks/lib/agent-msg-lib.sh"
+PROG="agent-msg"
+die(){ printf '%s: %s\n' "$PROG" "$1" >&2; exit "${2:-2}"; }
+
+# Poka-yoke: a free-text argument (a reply BODY, a --comment, a --body) that is actually a LONE
+# option token -- e.g. `reply 138 --project 4242` makes body="--project" -- is almost always a FORGOTTEN body. Left
+# unchecked the tool posts the flag as a garbage note (which also clears the inbox gate) and the real flag value is
+# swallowed, stranding the issue. Reject a value that is a single "--word" token; a real message that merely starts
+# with "--" has more words and passes. Args: <value> <verb> [field-name].
+_reject_lone_flag(){
+    case "$1" in
+        --[A-Za-z]*) [ "$(printf '%s' "$1" | wc -w)" -eq 1 ] && die "$2: '$1' looks like an option, not the ${3:-body} -- did you forget the text? Quote the ${3:-body} BEFORE the flags: $PROG $2 ...";;
+    esac
+    return 0
+}
+
+usage() {
+    cat <<EOF
+$PROG — cross-agent coordination issues (non-story), answered by the KyklosBridge. Exit 0 done, 1 refused,
+2 usage or not configured, 3 cannot reach (the bridge or GitLab did not answer).
+
+  $PROG new --to <agent> --title "<t>" [--body "<b>" | --body-file <f>] [--project <id>]
+        open a coordination issue in the recipient's inbox project (kind::communication,agent-comms; ASSIGNED to <agent>).
+  $PROG inbox                       list OPEN issues addressed to us whose ball is in our court (== the gate's view)
+  $PROG mine [--project <id>]       list ALL open issues addressed to us, INCLUDING ones we replied last on (the
+                                     blind spot inbox hides); each marked [awaiting-YOU] or [replied-last]
+  $PROG reconcile [--project <id>]  list OUT-OF-BAND coordination issues (kind::communication without agent-comms == created outside the tool,
+                                     or a retired for: routing label == invisible to its recipient)
+  $PROG reply <iid> "<body>" [--to <agent>] [--story <ref>] [--project <id>]   post a note; --to also RE-ROUTES
+                                                  (reassigns to <agent>); --story names the story carrying the work.
+                                                  Without --to, WARNS if the reply leaves the issue in YOUR own court (strands).
+  $PROG route <iid> --to <agent> [--project <id>]  re-route (change ball-in-court: reassign to <agent>) without a note
+  $PROG close <iid> [--comment "<why>"] [--project <id>]   optionally note, then close
+  $PROG reopen <iid> [--comment "<why>"] [--project <id>]  optionally note, then reopen
+  $PROG show  <iid> [--project <id>]              print the issue + its notes
+EOF
+}
+
+cmd="${1:-help}"; [ $# -gt 0 ] && shift || true
+case "$cmd" in
+  new)
+    to="" title="" body="" bodyfile="" project=""
+    while [ $# -gt 0 ]; do case "$1" in
+        --to) to="$2"; shift 2;; --title) title="$2"; shift 2;;
+        --body) body="$2"; shift 2;; --body-file) bodyfile="$2"; shift 2;;
+        --project) project="$2"; shift 2;; *) die "new: unknown arg '$1'";; esac; done
+    [ -n "$to" ] || die "new: --to <agent> required"
+    [ -n "$title" ] || die "new: --title required"
+    [ -n "$body" ] && _reject_lone_flag "$body" "new" "--body text"   # 
+    [ -n "$bodyfile" ] && { [ -f "$bodyfile" ] || die "new: --body-file not found: $bodyfile"; body="$(cat "$bodyfile")"; }
+    [ -n "$body" ] || body="(opened by $PROG; see title)"
+    iid="$(am_new "$to" "$title" "$body" "${project:-$_AM_PID}")"; rc=$?
+    [ "$rc" -eq 0 ] || die "new: create failed (reason above)" "$rc"
+    printf '%s: opened #%s to %s (project %s)\n' "$PROG" "$iid" "$to" "${project:-$_AM_PID}"
+    ;;
+  inbox)
+    out="$(am_inbox)"; rc=$?
+    case "$rc" in
+      0) printf '%s: %s inbound issue(s) awaiting OUR reply (handle with reply/close):\n%s\n' "$PROG" "$(printf '%s' "$out" | grep -c . )" "$out"; exit 0;;
+      1) printf '%s: inbox clean — nothing awaiting our reply.\n' "$PROG"; exit 0;;
+      2) die "inbox: coordination is not configured (no KYKLOS_ISSUES_API or no project/group/scopes)" 2;;
+      *) die "inbox: CANNOT CHECK — the KyklosBridge did not answer, has no coordination stack, or could not reach GitLab. This is NOT a clean inbox." 3;;
+    esac
+    ;;
+  mine)
+    # The BLIND-SPOT-proof view: every open issue addressed to us, incl. ones where WE replied last (which
+    # am_inbox / the gate hide because the ball is no longer in our court, yet they are still open + un-actioned).
+    project=""
+    while [ $# -gt 0 ]; do case "$1" in --project) project="$2"; shift 2;; *) shift;; esac; done
+    out="$(am_open_mine "${project:-$_AM_PID}")"; rc=$?
+    case "$rc" in
+      0) printf '%s: %s open issue(s) addressed to us (ALL — [replied-last] ones are the blind spot inbox hides):\n%s\n' "$PROG" "$(printf '%s' "$out" | grep -c .)" "$out"; exit 0;;
+      1) printf '%s: no open issues addressed to us.\n' "$PROG"; exit 0;;
+      2) die "mine: no project (set KYKLOS_ISSUES_PROJECT or pass --project)" 2;;
+      *) die "mine: CANNOT CHECK (reason above) — this is NOT an empty list." 3;;
+    esac
+    ;;
+  reconcile)
+    project=""
+    while [ $# -gt 0 ]; do case "$1" in --project) project="$2"; shift 2;; *) shift;; esac; done
+    out="$(am_reconcile "${project:-$_AM_PID}")"; rc=$?
+    case "$rc" in
+      0) printf '%s: %s OUT-OF-BAND coordination issue(s) — kind::communication without agent-comms (created outside the tool), or a retired for: routing label (invisible to its recipient; re-route it). Adopt/re-route or investigate:\n%s\n' "$PROG" "$(printf '%s' "$out" | grep -c .)" "$out"; exit 0;;
+      1) printf '%s: reconcile clean — every open kind::communication issue carries agent-comms (no out-of-band coordination issues).\n' "$PROG"; exit 0;;
+      2) die "reconcile: no project (set KYKLOS_ISSUES_PROJECT or pass --project)" 2;;
+      *) die "reconcile: CANNOT CHECK (reason above) — this is NOT a clean result." 3;;
+    esac
+    ;;
+  reply)
+    iid="${1:-}"; body="${2:-}"; project=""; to=""; story=""
+    [ -n "$iid" ] && [ -n "$body" ] || die "reply: <iid> \"<body>\" required"
+    _reject_lone_flag "$body" "reply" "message body"   # : a flag where the body should be
+    shift 2 || true
+    # An unknown or misspelt option is refused, never skipped: a dropped --story or --to would post a different reply.
+    while [ $# -gt 0 ]; do case "$1" in
+      --project) project="${2:-}"; shift 2 || die "reply: --project needs a value";;
+      --to) to="${2:-}"; shift 2 || die "reply: --to needs a value";;
+      --story) story="${2:-}"; shift 2 || die "reply: --story needs a value";;
+      *) die "reply: unknown arg '$1'";; esac; done
+    if [ -n "$story" ]; then
+      # The story that carries the work the conversation leads to: [group/]project#iid, or #iid in this project.
+      _story_ref='^([A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*)?#[0-9]+$'
+      [[ "$story" =~ $_story_ref ]] || die "reply: --story must be [group/project]#<iid>, got '$story'"
+      body="$(printf '%s\n\nThe work is tracked in %s.' "$body" "$story")"
+    fi
+    project="${project:-$_AM_PID}"
+    am_reply "$iid" "$body" "$project"; rc=$?
+    [ "$rc" -eq 0 ] || die "reply: post failed (reason above)" "$rc"
+    printf '%s: replied on #%s\n' "$PROG" "$iid"
+    if [ -n "$to" ]; then
+      # reply + re-route: post AND change ball-in-court in one step.
+      am_route "$iid" "$to" "$project"; rc=$?
+      [ "$rc" -eq 0 ] || die "reply: --to re-route failed (reason above)" "$rc"
+      printf '%s: routed #%s -> %s\n' "$PROG" "$iid" "${to#for:}"
+    elif [ -n "$AM_REPLY_STRANDED" ]; then
+      # WARN LOUD if the reply leaves the issue in the REPLIER'S OWN court (silent-stranding class): the court is the
+      # assignee, and the bridge answers whether its own identity is still assigned.
+      printf '%s: WARNING - #%s is still assigned to you (YOUR court); this reply did NOT change ball-in-court and will STRAND in your own inbox. Re-route: %s route %s --to <agent>  (or reply ... --to <agent>).\n' "$PROG" "$iid" "$PROG" "$iid" >&2
+    fi
+    ;;
+  route)
+    iid="${1:-}"; [ -n "$iid" ] || die "route: <iid> required"; shift || true
+    to=""; project=""
+    while [ $# -gt 0 ]; do case "$1" in --to) to="$2"; shift 2;; --project) project="$2"; shift 2;; *) shift;; esac; done
+    [ -n "$to" ] || die "route: --to <agent> required"
+    am_route "$iid" "$to" "${project:-$_AM_PID}"; rc=$?
+    [ "$rc" -eq 0 ] || die "route: failed (reason above)" "$rc"
+    printf '%s: routed #%s -> %s\n' "$PROG" "$iid" "${to#for:}"
+    ;;
+  close)
+    iid="${1:-}"; [ -n "$iid" ] || die "close: <iid> required"; shift || true
+    comment="" project=""
+    while [ $# -gt 0 ]; do case "$1" in --comment) comment="$2"; shift 2;; --project) project="$2"; shift 2;; *) shift;; esac; done
+    [ -n "$comment" ] && _reject_lone_flag "$comment" "close" "--comment text"   # 
+    am_close "$iid" "$comment" "${project:-$_AM_PID}"; rc=$?
+    [ "$rc" -eq 0 ] || die "close: failed (reason above)" "$rc"
+    printf '%s: closed #%s\n' "$PROG" "$iid"
+    ;;
+  reopen)
+    iid="${1:-}"; [ -n "$iid" ] || die "reopen: <iid> required"; shift || true
+    comment="" project=""
+    while [ $# -gt 0 ]; do case "$1" in --comment) comment="$2"; shift 2;; --project) project="$2"; shift 2;; *) shift;; esac; done
+    [ -n "$comment" ] && _reject_lone_flag "$comment" "reopen" "--comment text"   # 
+    am_reopen "$iid" "$comment" "${project:-$_AM_PID}"; rc=$?
+    [ "$rc" -eq 0 ] || die "reopen: failed (reason above)" "$rc"
+    printf '%s: reopened #%s\n' "$PROG" "$iid"
+    ;;
+  show)
+    iid="${1:-}"; [ -n "$iid" ] || die "show: <iid> required"; shift || true
+    project=""
+    while [ $# -gt 0 ]; do case "$1" in --project) project="$2"; shift 2;; *) shift;; esac; done
+    out="$(am_show "$iid" "${project:-$_AM_PID}")"; rc=$?
+    [ "$rc" -eq 0 ] || die "show: failed (reason above)" "$rc"
+    printf '%s' "$out" | jq -r '"#\(.iid) [\(.state)] \(.title)\nlabels: \(.labels|join(", "))\n\n\(.description)"' 2>/dev/null || die "show: the bridge answered something that is not an issue" 1
+    ;;
+  help|-h|--help) usage;;
+  *) usage; exit 2;;
+esac

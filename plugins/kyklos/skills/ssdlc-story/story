@@ -1,0 +1,2646 @@
+#!/usr/bin/env bash
+# story — the ONLY sanctioned way to mutate story state + regenerate the Stories/BACKLOG.md index.
+# Language: bash — it runs inline in the container's Stop-hook flow beside the other bash guards, ships as
+# plugin files with zero build/dist step, and matches the existing kyklos-*-guard.sh hooks (coreutils only).
+#
+# BACKLOG.md is a GENERATED artifact. The source of truth is each story's requirements.md under the local backend,
+# and the GitLab issue under the gitlab backend (Stories/ is then a derived mirror). Never hand-edit BACKLOG.md —
+# mutate a story with this tool and let `sync` regenerate the index deterministically.
+#
+# Exit codes: the usage() text below lists them (EXIT_* constants).
+set +e -uo pipefail
+
+# Parse the --canary global flag HERE — before the config seam resolves the GitLab target — so
+# the canary redirect can land on STORY_GITLAB_PROJECT before ANY backend function reads it (one seam, no side
+# door). Strip it from the positional args so the per-subcommand parsers never see it. `STORY_CANARY=1` in the env
+# is the equivalent non-flag trigger (both are honoured by the redirect block below).
+_story_args=()
+for _a in "$@"; do
+  case "$_a" in --canary) export STORY_CANARY=1 ;; *) _story_args+=("$_a") ;; esac
+done
+if [ "${#_story_args[@]}" -gt 0 ]; then set -- "${_story_args[@]}"; else set --; fi
+unset _a _story_args
+
+# Force a UTF-8 locale (when available) so multi-byte glyphs — e.g. the em-dash in an epic-header title — are
+# handled as CHARACTERS, not bytes. A C-locale run otherwise mangles them during the sed/awk title extraction
+# (the 3-byte em-dash gets split), garbling the generated header. Guarded on availability so a minimal
+# environment without C.UTF-8 is no worse off than before.
+_u="$(locale -a 2>/dev/null | grep -iE '^C\.utf-?8$' | head -1)"; [ -n "${_u:-}" ] && export LC_ALL="$_u" LC_CTYPE="$_u"
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"   # BASH_SOURCE: also right when the file is sourced
+# shellcheck source=../../hooks/lib/control-switch.sh
+. "$HERE/../../hooks/lib/control-switch.sh" 2>/dev/null || true   # kyklos_control_off: the one control-switch reader
+# [no-fail-open / no-silent-default] Resolve the story backend + GitLab knobs AND the workspace root from the
+# repo's OWN declared model, so a subshell that did NOT inherit the container env still targets the true source of
+# truth — never a silent `local` write to a mirror the fleet does not read (the exact incident this replaces was a
+# manual `story` call with CLAUDE_PROJECT_DIR unset writing to the FS mirror while the repo declared gitlab). Reuse
+# the guards' ONE resolver (repo-role.sh: _rr_getkey PARSE-never-source + the git-toplevel walk + companion
+# inner-source detection) rather than a parallel config parser. Precedence: an already-EXPORTED value (or an
+# explicit --dir) WINS (a deliberate operator choice); else the resolved repo's .claude/standards.env is
+# authoritative; else the backend cannot be determined and the tool FAILS HARD (story-backend.sh), never local.
+_REPO_ROLE_LIB="$HERE/../../hooks/lib/repo-role.sh"
+# Every library the gates depend on must load completely, or the tool refuses to run: a library that failed part-way
+# would leave its functions undefined, and each `command -v fn && check` below would silently skip its check.
+# shellcheck source=../../hooks/lib/require-lib.sh
+. "$HERE/../../hooks/lib/require-lib.sh" 2>/dev/null && declare -F require_lib require_story_seam >/dev/null \
+  || { printf 'story: refusing to run: cannot load %s\n' "$HERE/../../hooks/lib/require-lib.sh" >&2; exit 1; }
+# shellcheck source=../../hooks/lib/repo-role.sh
+require_lib "$_REPO_ROLE_LIB" _rr_getkey repo_workspace_root repo_inner_source_of \
+  || { printf 'story: refusing to run: cannot load %s completely (see above)\n' "$_REPO_ROLE_LIB" >&2; exit 1; }
+# shellcheck source=lib/story-trunk-reach.sh
+require_lib "$HERE/lib/story-trunk-reach.sh" story_trunk_reach_problem trunk_reach_trunks \
+  || { printf 'story: refusing to run: cannot load %s completely (see above)\n' "$HERE/lib/story-trunk-reach.sh" >&2; exit 1; }
+
+# _story_workspace_root -> the directory that holds Stories/ for the repo the caller stands in (empty if none): the
+# shared resolver (repo-role.sh repo_workspace_root), so the story tool and the other Kyklos CLIs agree on it.
+_story_workspace_root() {
+  command -v repo_workspace_root >/dev/null 2>&1 \
+    || { printf '%s' "${CLAUDE_PROJECT_DIR:-$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || echo "")}"; return 0; }
+  repo_workspace_root
+}
+
+# _story_refuse_mirror_in_source <args...> -> die when the Stories directory this invocation would use (an explicit
+# --dir, else the default) lies inside a companion's nested source repository. [CySec] Hardens against CWE-538: the
+# story mirror is internal process data and the nested source is the public, AI-artifact-free tree, so a write there is
+# refused loudly at the one entry every subcommand passes, whatever the working directory or caller.
+_story_refuse_mirror_in_source() {
+  local dir="" inner
+  while [ "$#" -gt 0 ]; do
+    case "$1" in --dir) dir="${2:-}"; shift 2 || return 0 ;; *) shift ;; esac
+  done
+  [ -n "$dir" ] || dir="$( (default_stories_dir) 2>/dev/null || true)"
+  [ -n "$dir" ] || return 0
+  command -v repo_inner_source_of >/dev/null 2>&1 || return 0
+  if inner="$(repo_inner_source_of "$dir")"; then
+    die "refusing to use the Stories directory $dir: it lies inside the nested source repository $inner, which must stay free of story files. Run from the companion root, or pass --dir <companion>/Stories." 1
+  fi
+  return 0
+}
+
+# Populate STORY_BACKEND + the GitLab knobs from the resolved repo's standards.env when NOT already exported (an
+# exported value is a deliberate override and wins). PARSE via _rr_getkey — never source an untrusted file (CWE-829).
+# The repo's declared MEASUREMENT thresholds come along too, so `story proof --set` judges a Test Discipline row
+# against the same floor the repo's CI and the close gate use, not the built-in default. Only thresholds: the gate
+# switches (PROOF_*_GATE, PROOF_PROFILE_SCRIPT, ...) are deliberately NOT imported, so a target repo's config can
+# never switch a gate off or point it at its own script when the story tool runs against that repo.
+# The thresholds belong to the STORY's repository: when the caller exported a GitLab project other than the one this
+# workspace declares, the workspace's thresholds are another repository's bar (stricter or looser) and are NOT
+# imported; the story repository's own file is read from GitLab once the backend is loaded (below).
+STORY_THRESHOLDS_FOREIGN=0
+STORY_THRESHOLD_SOURCE=""
+_STORY_THRESHOLD_KEYS="COVERAGE_THRESHOLD CRAP_THRESHOLD PROOF_TD_MAX_CRAP PROOF_TD_CRAP_APPLICABLE"
+if command -v _rr_getkey >/dev/null 2>&1; then
+  _STORY_ROOT="$(_story_workspace_root)"
+  if [ -n "$_STORY_ROOT" ] && [ -f "$_STORY_ROOT/.claude/standards.env" ]; then
+    _declared="$(_rr_getkey "$_STORY_ROOT/.claude/standards.env" STORY_GITLAB_PROJECT 2>/dev/null || true)"
+    [ -n "$_declared" ] && [ -n "${STORY_GITLAB_PROJECT:-}" ] && [ "$_declared" != "$STORY_GITLAB_PROJECT" ] \
+      && STORY_THRESHOLDS_FOREIGN=1
+    for _k in STORY_BACKEND STORY_GITLAB_PROJECT STORY_GITLAB_TOKEN_ENV STORY_GITLAB_API STORY_GITLAB_LABEL STORY_OWN_LANE \
+              $_STORY_THRESHOLD_KEYS; do
+      case " $_STORY_THRESHOLD_KEYS " in *" $_k "*) [ "$STORY_THRESHOLDS_FOREIGN" = 1 ] && continue ;; esac
+      eval "[ -n \"\${$_k:-}\" ]" || { _v="$(_rr_getkey "$_STORY_ROOT/.claude/standards.env" "$_k")" && export "$_k=$_v"; }
+    done
+    [ "$STORY_THRESHOLDS_FOREIGN" = 1 ] || STORY_THRESHOLD_SOURCE="this workspace's .claude/standards.env"
+    unset _k _v _STORY_ROOT _declared
+  fi
+fi
+
+# Canary redirect — an OPT-IN safe playground so a hand/demo run can NEVER mint junk issues in
+# the REAL production tracker (whose iid counter then drifts permanently — a past incident that seeded
+# 4-digit story numbers). When STORY_CANARY=1 (from --canary above or the env), OVERRIDE the resolved
+# STORY_GITLAB_PROJECT with the canary project id BEFORE the backend is sourced, so _GL_PID picks it up unchanged
+# (DRY: reuse the existing resolution, no parallel target path). The id is CONFIG (STORY_CANARY_PROJECT), never a
+# literal in a write path, and it has NO default (there is no built-in project to fall back to).
+# FAIL HARD if the canary is requested but its target is unset or blank: a canary run must NEVER fall through to
+# production (no-fail-open).
+if [ "${STORY_CANARY:-}" = 1 ]; then
+  _canary_pid="${STORY_CANARY_PROJECT:-}"
+  [ -n "$_canary_pid" ] || { echo "story: [CANARY] refused — STORY_CANARY=1 but STORY_CANARY_PROJECT is not set; a canary run must NEVER fall through to the real tracker. Set STORY_CANARY_PROJECT to the id of a throwaway GitLab project." >&2; exit 2; }
+  export STORY_GITLAB_PROJECT="$_canary_pid"
+  echo "story: [CANARY] targeting the canary GitLab project id=$_canary_pid (NOT production) — this run cannot touch the real tracker." >&2
+  unset _canary_pid
+fi
+
+# STORY_TEST=1 marks a HAND/DEMO run ("I am exercising the story tool"). In that mode a run MUST be
+# isolated to a throwaway target — the canary (resolved above) OR a stub (STORY_GL_STUB_DIR) — NEVER a real project.
+# The --canary flag alone was fail-open-IF-FORGOTTEN: forget it and a demo silently mints junk in the production
+# tracker. STORY_TEST makes that impossible by
+# construction: with it set, an un-isolated run is REFUSED up-front, before any backend write, rather than degrading
+# to production. (Only the gitlab backend shares a tracker; the FS backend writes to its own --dir, so this gates on gitlab.)
+if [ "${STORY_TEST:-}" = 1 ] && [ "${STORY_BACKEND:-}" = gitlab ] && [ -z "${STORY_GL_STUB_DIR:-}" ] && [ "${STORY_CANARY:-}" != 1 ]; then
+  echo "story: [STORY_TEST] refused — STORY_TEST=1 (hand/demo mode) but this run is NOT isolated: no --canary/STORY_CANARY and no STORY_GL_STUB_DIR, so it would target the REAL project ${STORY_GITLAB_PROJECT:-?}. Re-run with --canary (it lands in the throwaway canary), or unset STORY_TEST for a genuine production run. A test run must NEVER create in a production tracker." >&2
+  exit 2
+fi
+
+# The story-backend dispatcher: selects the backend impl from STORY_BACKEND (lib/story-backend.sh owns the values and
+# the no-default rule) and loads its contract functions. It transitively sources story-lib.sh (the
+# backend-agnostic pure/format + parse helpers). All persistence goes through the `backend_*` contract.
+# The gates below call these story-lib.sh helpers; a load that fails anywhere in the chain refuses the tool.
+# shellcheck source=lib/story-backend.sh
+require_story_seam "$HERE/lib/story-backend.sh" backend_proof_read backend_get_kind story_active_ref_from story_body_has_spec \
+    story_fix_class_problem story_has_unfilled_placeholder story_min_structure_problem story_phase_is_awaiting_ci \
+    story_phase_is_preimpl story_proof_has_proven story_remote_truth_problem story_spec_unfilled \
+    _story_extract_original_request _story_strip_original_request \
+  || { printf 'story: refusing to run: %s (see above)\n' "$STORY_SEAM_PROBLEM" >&2; exit 1; }
+# The Own Lane ownership rule, shared with the continue-guard (see story_own_lane_gate).
+# shellcheck source=../../hooks/lib/own-lane.sh
+require_lib "$HERE/../../hooks/lib/own-lane.sh" own_lane_enabled own_lane_verdict own_lane_owner \
+  || { printf 'story: refusing to run: cannot load %s completely (see above)\n' "$HERE/../../hooks/lib/own-lane.sh" >&2; exit 1; }
+# shellcheck source=../../hooks/lib/json-answer.sh
+require_lib "$HERE/../../hooks/lib/json-answer.sh" json_test json_read \
+  || { printf 'story: refusing to run: cannot load %s completely (see above)\n' "$HERE/../../hooks/lib/json-answer.sh" >&2; exit 1; }
+# shellcheck source=lib/ssdlc-engine.sh
+require_lib "$HERE/lib/ssdlc-engine.sh" ssdlc_project \
+  || { printf 'story: refusing to run: cannot load %s completely (see above)\n' "$HERE/lib/ssdlc-engine.sh" >&2; exit 1; }
+# Keeps the generated story copies out of git after every mirror write (see the library header).
+# shellcheck source=lib/story-mirror-git.sh
+require_lib "$HERE/lib/story-mirror-git.sh" story_path_is_generated_copy \
+  || { printf 'story: refusing to run: cannot load %s completely (see above)\n' "$HERE/lib/story-mirror-git.sh" >&2; exit 1; }
+
+# _story_import_repo_thresholds -> for a story of another project than this workspace's, import the thresholds the
+# story's OWN repository declares in its .claude/standards.env on GitLab (an exported value still wins). Unreadable
+# (no token, no file, a network error): nothing is imported and the gate's default applies, named as such.
+_story_import_repo_thresholds() {
+  [ "$STORY_THRESHOLDS_FOREIGN" = 1 ] && [ "${STORY_BACKEND:-}" = gitlab ] || return 0
+  local tmp _k _v
+  tmp="$(mktemp)" || return 0
+  if gl_api GET "repository/files/.claude%2Fstandards.env/raw?ref=HEAD" > "$tmp" 2>/dev/null && grep -qE '^[A-Z_]+=' "$tmp"; then
+    for _k in $_STORY_THRESHOLD_KEYS; do
+      eval "[ -n \"\${$_k:-}\" ]" || { _v="$(_rr_getkey "$tmp" "$_k")" && export "$_k=$_v"; }
+    done
+    STORY_THRESHOLD_SOURCE="project ${STORY_GITLAB_PROJECT}'s .claude/standards.env"
+  else
+    STORY_THRESHOLD_SOURCE="the default (project ${STORY_GITLAB_PROJECT}'s .claude/standards.env could not be read)"
+  fi
+  rm -f "$tmp"
+  return 0
+}
+# only the subcommands that judge a Test Discipline row need the bar: no extra GitLab read for the others
+case "${1:-}" in proof|close) _story_import_repo_thresholds ;; esac
+export STORY_THRESHOLD_SOURCE
+# The mechanical `## Proof` table generator + canonical-dimension source of truth (shared with the
+# story-proof guard). Sibling skill dir: ../ssdlc-story-proof/proof-dimensions.sh.
+PROOF_DIMENSIONS_LIB="$HERE/../ssdlc-story-proof/proof-dimensions.sh"
+# The close, proof and phase gates call these functions; a partial load must refuse, never skip the checks.
+# shellcheck source=../ssdlc-story-proof/proof-dimensions.sh
+require_lib "$PROOF_DIMENSIONS_LIB" proof_count_unproven proof_metrics_gate_problems proof_correlation_problems \
+    proof_operative_finding proof_kind_is_valid proof_kind_normalize proof_emit_table proof_scan_table \
+    proof_recompute_tally proof_add_missing_rows proof_metrics_set_problem proof_verdict_is_proven proof_verdict_class \
+  || { printf 'story: refusing to run: cannot load %s completely (see above)\n' "$PROOF_DIMENSIONS_LIB" >&2; exit 1; }
+
+# The fail-open FYI notifier: a successful phase/proof/close tells the bridge GUI so this straight-to-tracker work is
+# visible even though it never passed through a bridge verb. Sourcing + every call are best-effort and NEVER block.
+FYI_LIB="$HERE/../../hooks/lib/fyi.sh"
+# shellcheck source=../../hooks/lib/fyi.sh
+[ -f "$FYI_LIB" ] && . "$FYI_LIB" 2>/dev/null || true
+
+PROG="story"
+EXIT_USAGE=2
+EXIT_DRIFT=3
+EXIT_NETWORK=4   # GitLab could not be reached: nothing was looked up or changed, retry later
+
+die()  { printf '%s: %s\n' "$PROG" "$1" >&2; exit "${2:-$EXIT_USAGE}"; }
+warn() { printf '%s: %s\n' "$PROG" "$1" >&2; }
+
+# resolve_story <command> <dir> <ref> [not-found-message] -> the backend handle on stdout, or dies with the RIGHT
+# reason: a network failure (the backend's code 3) is reported as such, with the curl exit code, and only a genuine
+# absence becomes "not found". Every command looks stories up through here, so none can mislabel an outage.
+# Use as:  handle="$(resolve_story set "$dir" "$ref")" || exit $?
+resolve_story() {
+  local cmd="$1" dir="$2" ref="$3" missing="${4:-}" handle rc=0 curl_exit=""
+  handle="$(backend_resolve "$dir" "$ref")" || rc=$?
+  case "$rc" in
+    0) printf '%s' "$handle" ;;
+    3) command -v backend_last_network_error >/dev/null 2>&1 && curl_exit="$(backend_last_network_error)"
+       die "$cmd: cannot reach GitLab (network error${curl_exit:+, curl exit $curl_exit}) — story '$ref' was not looked up and nothing was changed; retry when the network is back." "$EXIT_NETWORK" ;;
+    *) die "${missing:-$cmd: story not found: $ref}" ;;
+  esac
+}
+
+# _story_target_ref <args...> -> the story a write subcommand acts on: its first positional argument (the flags that
+# take a value are skipped with their value). Empty when there is none (the subcommand reports its own usage error).
+_story_target_ref() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --dir|--reason|--branch|--summary|--type|--epic|--kind|--file|--format|--set|--apply|--title|--parent) shift 2 || return 0 ;;
+      -*) shift ;;
+      *) printf '%s' "$1"; return 0 ;;
+    esac
+  done
+}
+
+# _story_is_write <subcommand> <args...> -> rc 0 when the subcommand changes the story it names. proof and ra only
+# read unless they are given --set, --apply or --write.
+_story_is_write() {
+  local sub="$1"; shift
+  case "$sub" in
+    adopt|set|resume|reopen-root-cause|close|phase|parent|requirements) return 0 ;;
+    proof|ra) case " $* " in *" --set "*|*" --apply "*|*" --write "*) return 0 ;; esac; return 1 ;;
+    *) return 1 ;;
+  esac
+}
+
+# story_own_lane_gate <subcommand> <args...> -- Own Lane: an agent writes only to a story assigned to its own GitLab
+# user or to nobody (the shared rule, hooks/lib/own-lane.sh). A story assigned to another user is refused, naming the
+# owner; an issue or an identity that cannot be read while the story has an assignee is refused too (fail-hard), so
+# ownership is never assumed. An unassigned story passes and is claimed as before. Tracker stories only; the opt-out
+# is STORY_OWN_LANE=off in the project's .claude/standards.env.
+story_own_lane_gate() {
+  local sub="$1"; shift
+  [ "${STORY_BACKEND:-local}" = gitlab ] || return 0
+  _story_is_write "$sub" "$@" || return 0
+  own_lane_enabled || return 0
+  local ref num body rc=0 self verdict
+  ref="$(_story_target_ref "$@")"
+  num="$(printf '%s' "$ref" | grep -oE '[0-9]+' | head -1)"
+  [ -n "$num" ] || return 0
+  num=$((10#$num))
+  body="$(_gl_issue "$num" 2>/dev/null)" || rc=$?
+  # [RiskMitigation RA-03] Any failure to read the story (network, an HTTP error such as 403/404/500, an answer that is
+  # not an issue) refuses the write here: a later re-read by the subcommand may succeed after a transient error, so
+  # letting it through would write without an ownership check.
+  [ "$rc" -eq 3 ] && die "$sub refused: GitLab could not be reached to read who owns story #$num, so nothing was changed (ownership is never assumed); retry when the network is back." "$EXIT_NETWORK"
+  if [ "$rc" -ne 0 ] || ! printf '%s' "$body" | json_test '(.iid // empty) | numbers'; then
+    die "$sub refused: story #$num could not be read from GitLab (an error answer, or no such issue), so who owns it is unknown and nothing was changed; ownership is never assumed. Check the number, and retry when GitLab answers." 1
+  fi
+  self="$(_gl_self_user_id 2>/dev/null || true)"
+  case "$self" in ''|*[!0-9]*) self='null' ;; *) self="{\"id\":$self}" ;; esac
+  verdict="$(own_lane_verdict "$(printf '%s' "$body" | jq -c '.assignees // []' 2>/dev/null)" "$self")"
+  # [RiskMitigation RA-03] One rule decides who may write a story; a write to another user's story never happens.
+  case "$verdict" in
+    own|free) return 0 ;;
+    other:*) die "$sub refused: story #$num is assigned to $(own_lane_owner "$verdict"), not to this agent's GitLab user. An agent works only on stories assigned to it or to nobody. Ask $(own_lane_owner "$verdict") to hand it over, or have the project owner reassign it in GitLab; nothing was changed." 1 ;;
+    *) die "$sub refused: could not tell who owns story #$num (its assignees or this agent's own GitLab user could not be read), so nothing was changed; ownership is never assumed. Retry when GitLab and the bridge answer." 1 ;;
+  esac
+}
+
+# Default Stories dir: <workspace-root>/Stories, where the workspace root is resolved from the declared repo
+# model (CLAUDE_PROJECT_DIR, else the git toplevel, companion-aware) — NOT a bare $PWD (which picks the wrong root in a nested-source layout).
+# FAIL HARD when it cannot be determined and no --dir was given, rather than silently writing under an arbitrary cwd.
+default_stories_dir() {
+  local root; root="$(_story_workspace_root)"
+  [ -n "$root" ] || die "cannot determine the Stories directory: not inside a git repo, CLAUDE_PROJECT_DIR is unset, and no --dir was given. Pass --dir <path>, run from within the project, or set CLAUDE_PROJECT_DIR."
+  # A mirror holds the stories of ONE project. A caller that exported another GitLab project than the one this
+  # workspace declares gets a per-project mirror outside the workspace: written into the workspace's own Stories/,
+  # that project's stories would collide by number with the workspace's stories.
+  local declared=""
+  if command -v _rr_getkey >/dev/null 2>&1 && [ -f "$root/.claude/standards.env" ]; then
+    declared="$(_rr_getkey "$root/.claude/standards.env" STORY_GITLAB_PROJECT 2>/dev/null || true)"
+  fi
+  if [ "${STORY_BACKEND:-}" = gitlab ] && [ -n "$declared" ] && [ -n "${STORY_GITLAB_PROJECT:-}" ] \
+     && [ "$declared" != "$STORY_GITLAB_PROJECT" ]; then
+    printf '%s/kyklos-story-mirror/%s/Stories' "${XDG_CACHE_HOME:-$HOME/.cache}" \
+      "$(printf '%s' "$STORY_GITLAB_PROJECT" | tr -c 'A-Za-z0-9._-' '_')"
+    return 0
+  fi
+  printf '%s/Stories' "$root"
+}
+
+# _ensure_stories_dir <dir> — the dir subcommands (sync/refresh/check/archive) need a Stories dir. On the LOCAL
+# backend the files ARE the durable record, so a missing dir is fatal (die). On the GITLAB backend the SoT is the
+# issues API and Stories/ is a DERIVED, portable mirror the tool (re)creates from the backend — so a merely absent
+# dir must NOT be fatal (a fresh checkout has no materialized mirror yet); create it and let the backend populate
+# it, so sync/refresh/check/archive never `die "Stories dir not found"` under gitlab.
+_ensure_stories_dir() {
+  local dir="$1"
+  [ -d "$dir" ] && return 0
+  if [ "${STORY_BACKEND:-local}" = gitlab ]; then
+    mkdir -p "$dir" 2>/dev/null || die "cannot create the derived Stories mirror dir: $dir"
+    return 0
+  fi
+  die "Stories dir not found: $dir"
+}
+
+# --- field-alias resolution ---------------------------------------------------------------------
+
+# Map an alias to its canonical field label. Unknown → empty + return 1.
+canonical_field() {
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+    status)       printf 'Status' ;;
+    type|story-type) printf 'Story-Type' ;;
+    epic)         printf 'Epic' ;;
+    kind)         printf 'Kind' ;;   # the story kind (development|analysis|documentation|ops)
+    target|target-repo|"target repo") printf 'Target repo' ;;
+    branch)       printf 'Branch' ;;
+    summary)      printf 'Summary' ;;
+    title)        printf 'title' ;;   # special-cased (H1), not a bullet
+    archived)     printf 'Archived' ;;
+    assignee)     printf 'Assignee' ;;   # tracker only; the one value is `self` (claim an unassigned story)
+    *) return 1 ;;
+  esac
+}
+
+# --- BACKLOG generation / drift check -----------------------------------------------------------
+
+# Write BACKLOG.md deterministically (single trailing newline). $1 = Stories dir.
+cmd_sync() {
+  local dir="$1"
+  _ensure_stories_dir "$dir"
+  # Self-heal on-disk story folders that don't exist yet, so the BACKLOG links we're about to write all resolve
+  # (no-op on the FS backend; on gitlab, `missing` mode only fetches stories lacking a requirements.md — a routine
+  # sync doesn't re-hit the API for already-materialized ones).
+  backend_materialize_all "$dir" missing 2>/dev/null || true
+  local tmp; tmp="$(mktemp "$dir/.backlog.XXXXXX")" || die "cannot create temp file in $dir"
+  story_tmp_register "$tmp"
+  # Normalize to exactly one trailing newline (strip trailing blank lines, then add one).
+  backend_generate_index "$dir" | awk 'BEGIN{blanks=0} { for(i=0;i<blanks;i++) print ""; blanks=0; if($0=="") {blanks++} else print }' > "$tmp"
+  # Row-count sanity floor (gitlab backend only — the FS backend reads local files and cannot
+  # partial-fail): NEVER let an empty / header-only regeneration atomically overwrite a backlog that
+  # currently HAS story rows. Under gitlab that pattern means the issues API returned nothing (an outage /
+  # token failure), NOT that every story was deleted — so keep the good file and surface the anomaly rather
+  # than destroying the durable index. (A generation-exit gate is unreliable here: neither backend's
+  # generate_index rc faithfully reflects an outage, but a 0-rows-where-there-were-rows result always does.)
+  if [ "${STORY_BACKEND:-local}" = gitlab ] && [ -f "$dir/BACKLOG.md" ]; then
+    local new_rows old_rows
+    # NB: `grep -c` prints its count AND exits 1 on zero matches — a `|| echo 0` would DOUBLE the output to
+    # "0\n0" and break the numeric test. Swallow the exit with `|| true` and default the (single) value.
+    new_rows="$(grep -cE '^\| \[STORY-' "$tmp" 2>/dev/null || true)"; new_rows="${new_rows:-0}"
+    old_rows="$(grep -cE '^\| \[STORY-' "$dir/BACKLOG.md" 2>/dev/null || true)"; old_rows="${old_rows:-0}"
+    if [ "$new_rows" -eq 0 ] && [ "$old_rows" -ge 1 ]; then
+      rm -f "$tmp"
+      die "sync: regenerated index has 0 story rows but the current BACKLOG.md has $old_rows — suspected gitlab API outage; BACKLOG.md left unchanged"
+    fi
+  fi
+  mv -f "$tmp" "$dir/BACKLOG.md"
+  # Every mirror write ends here, so this is the one place that keeps the generated copies out of git.
+  story_mirror_git_hygiene "$dir"
+}
+
+# cmd_refresh <dir> — keep the DERIVED local mirror honest under the gitlab backend.
+# GitLab is the source of truth; Stories/ is a portable OFFLINE mirror that must never silently drift. So, in gitlab
+# mode: if the API is REACHABLE, regenerate the mirror from the SoT (re-render every requirements.md so a Status flip
+# like closed-after-last-sync propagates, then rebuild BACKLOG.md) and clear the stale marker; if UNREACHABLE, keep
+# the last-good mirror but SAY SO on stderr (never a silent stale pass) and drop a `.mirror-stale` marker. Local mode
+# is a no-op — there the files ARE the record. FAIL-OPEN: a refresh error never aborts the caller. [RiskMitigation]
+cmd_refresh() {
+  local dir="$1"
+  _ensure_stories_dir "$dir"
+  [ "${STORY_BACKEND:-local}" = gitlab ] || return 0
+  if command -v backend_reachable >/dev/null 2>&1 && backend_reachable "$dir"; then
+    backend_materialize_all "$dir" full 2>/dev/null || true   # re-render EVERY story (refresh stale Status)
+    cmd_sync "$dir"                                            # rebuild BACKLOG.md from the fresh mirror
+    rm -f "$dir/.mirror-stale" 2>/dev/null || true
+  else
+    printf '[story] WARNING: served from cache, may be STALE — GitLab (the source of truth) is UNREACHABLE, so the local Stories/ mirror was NOT refreshed. Re-run `story refresh` when back online.\n' >&2
+    printf 'GitLab unreachable at refresh; the Stories/ mirror below may lag the source of truth.\n' > "$dir/.mirror-stale" 2>/dev/null || true
+    story_mirror_git_hygiene "$dir"   # the marker is a generated file too
+  fi
+}
+
+cmd_check() {
+  local dir="$1"
+  _ensure_stories_dir "$dir"
+  # Awaiting-CI slot report: a story whose phase is Testing/Deployment is only waiting on its pipeline, so the
+  # actively-worked slot is FREE — surface it loudly so the agent starts the NEXT story rather than idle-waiting on CI
+  # (the reported one-story-slot gap). Reported FIRST (independent of the mirror-sync reachability gate below, so it
+  # shows even when the sync status cannot be judged). REPORT-only: it never changes check's exit status (a hard block
+  # would be a new fleet-wide gate = always-stop) — it prints the standing permission on stderr. Default-on; silenced
+  # with KYKLOS_AWAITING_CI_SLOT_FREE=off (the same one control as the resolver). Fail-soft: an unreadable phase just
+  # yields no report.
+  if [ "${STORY_BACKEND:-local}" = gitlab ]; then
+    local _aci; _aci="$(_story_awaiting_ci_ids "$dir" 2>/dev/null || true)"
+    if [ -n "$_aci" ]; then
+      printf '[story check] %s story(ies) are AWAITING CI (phase Testing/Deployment, branch pushed) — the active-work slot is FREE. Do NOT idle-wait on the pipeline; start the next story and come back to close this one when it lands:\n' "$(printf '%s\n' "$_aci" | grep -c .)" >&2
+      printf '%s\n' "$_aci" | while IFS= read -r _a; do [ -n "$_a" ] && printf '  - %s (awaiting CI)\n' "$_a" >&2; done
+    fi
+  fi
+  # NON-MUTATING drift check. Running `cmd_refresh` FIRST (materialize + regenerate the mirror from the SoT) and
+  # THEN comparing would HEAL any drift before it could be measured, so `check` could never REPORT drift. Instead we
+  # compare the CURRENT on-disk mirror against a FRESH index generated from the SoT WITHOUT writing
+  # the real mirror (backend_generate_index materializes only into the temp cache, never $dir). `check` must never
+  # mutate what it inspects. Use `story refresh`/`sync` to HEAL drift; `check` only DETECTS it.
+  # [no-fail-open] The SoT must be reachable to judge sync — backend_generate_index silently emits an EMPTY index on
+  # an API error (which would misread as drift, or as in-sync against an empty mirror). So gate on reachability FIRST
+  # and FAIL HARD (loud, non-zero) when it is UNKNOWN, rather than green-wash it. FS backend has no remote SoT, so the
+  # guard is skipped there (its local folders ARE the record; the comparison below is the legitimate FS drift check).
+  if [ "${STORY_BACKEND:-local}" = gitlab ] && command -v backend_reachable >/dev/null 2>&1 && ! backend_reachable "$dir"; then
+    printf 'story check: GitLab is UNREACHABLE, so the Stories/ mirror sync status is UNKNOWN, not "in sync" — refusing to green-wash it. Re-run when GitLab is reachable.\n' >&2
+    exit "$EXIT_DRIFT"
+  fi
+  # Positive single-status invariant (CE has no native scope mutex): REPORT — never block — any
+  # open story carrying >=2 status labels so it can be healed via the tool. Report-only: it NEVER changes check's exit
+  # status (a hard block would be a new fleet-wide gate = always-stop); it only surfaces the drift loudly on stderr.
+  if [ "${STORY_BACKEND:-local}" = gitlab ] && command -v backend_status_conflicts >/dev/null 2>&1; then
+    local _conf; _conf="$(backend_status_conflicts "$dir" 2>/dev/null || true)"
+    if [ -n "$_conf" ]; then
+      printf '[story check] WARNING: %s open story(ies) carry MORE THAN ONE status label (status is a mutex — exactly one expected). Heal each via `%s set <id> status=<Todo|In-progress|Blocked>`:\n' "$(printf '%s\n' "$_conf" | grep -c .)" "$PROG" >&2
+      printf '%s\n' "$_conf" | while IFS="$(printf '\t')" read -r _ci_iid _ci_n _ci_lbls; do
+        [ -n "$_ci_iid" ] && printf '  - #%s (%s states): %s\n' "$_ci_iid" "$_ci_n" "$_ci_lbls" >&2
+      done
+    fi
+  fi
+  # Read the CURRENT on-disk mirror BEFORE generating the fresh index, so a real divergence is visible (not healed).
+  local on_disk=""
+  [ -f "$dir/BACKLOG.md" ] && on_disk="$(cat "$dir/BACKLOG.md")"
+  local buf; buf="$(backend_generate_index "$dir" | awk 'BEGIN{blanks=0} { for(i=0;i<blanks;i++) print ""; blanks=0; if($0=="") {blanks++} else print }')"
+  if [ "$buf" = "$on_disk" ]; then
+    rm -f "$dir/.mirror-stale" 2>/dev/null || true   # in sync with the SoT -> clear any stale marker
+    return 0
+  fi
+  # Drift: the mirror differs from the SoT and was not refreshed since the last change, so a read of a mirror file may
+  # be STALE. Drop a marker a mirror read can surface, so a stale read is never silent (not only on an unreachable SoT).
+  printf 'the Stories/ mirror differs from GitLab (the source of truth) and was not refreshed since the last change; a read of a mirror file may be STALE. Re-run `%s refresh`.\n' "$PROG" > "$dir/.mirror-stale" 2>/dev/null || true
+  printf 'BACKLOG.md is out of date. Regenerate with: %s sync\n\n' "$PROG" >&2
+  diff -u <(printf '%s\n' "$on_disk") <(printf '%s\n' "$buf") >&2 || true
+  exit "$EXIT_DRIFT"
+}
+
+# --- subcommands --------------------------------------------------------------------------------
+
+cmd_new() {
+  local slug="" type="" epic="" title="" dir="" parent="" kind="" severity=""
+  [ "$#" -ge 1 ] || die "new: missing <slug>"
+  slug="$1"; shift
+  case "$slug" in --*) die "new: missing <slug>";; esac
+  # Sanitize the slug/title intake: an embedded newline+pipe can FORGE extra BACKLOG rows (including fake Done rows
+  # the guards count), and an empty title would mint a malformed 'STORY-<n>-' folder.
+  # Newlines collapse (story_sanitize_inline), pipes are stripped from the SLUG specifically (it becomes the folder
+  # name + row label, which the cell-escape seam does not cover), and an empty result is refused.
+  slug="$(story_sanitize_inline "$slug" | tr -d '|')"
+  [ -n "$slug" ] || die "new: empty title/slug after sanitization — a story needs a real name"
+  # [Poka-Yoke] The slug becomes the story's folder name, so it must be kebab-case and no longer than the mirror's
+  # slug length. A human title passed here (spaces, colons, capitals) minted title-named folders that the mirror
+  # could not reproduce; refuse it on EVERY backend, before any write, and hand back the corrected command.
+  # [CySec] Allow-list the folder-name component before any path is built from it (CWE-22 path traversal, CWE-20).
+  # [RiskMitigation RA-01] only [a-z0-9-] can reach the story folder path.
+  if ! story_slug_is_kebab "$slug"; then
+    local _suggest; _suggest="$(story_slugify "$slug")"; [ -n "$_suggest" ] || _suggest="short-kebab-name"
+    die "new: the slug '$slug' is not a kebab-case slug (lowercase letters/digits joined by single dashes, at most $STORY_SLUG_MAX_LENGTH characters). The slug names the story folder; a human title goes in --title. Use: $PROG new $_suggest --title \"$slug\" --type <t> --epic <E0N>"
+  fi
+  # On a REAL gitlab tracker (not the canary/stub, no explicit override) refuse an obviously-throwaway
+  # slug, so a hand/demo fixture cannot be minted in production even without STORY_TEST/--canary (the class that
+  # polluted the production tracker in a past incident: `x`/`alpha`/`grouped`/…). A single character has ZERO legit story use; the
+  # named demo fixtures are the exact junk observed. EXEMPT: the FS backend (--dir; harmless local backlog) and the
+  # canary/stub (that is where you deliberately TEST the tool). Override on production with STORY_ALLOW_JUNK_SLUG=1.
+  if [ "${STORY_BACKEND:-local}" = gitlab ] && [ -z "${STORY_GL_STUB_DIR:-}" ] && [ "${STORY_CANARY:-}" != 1 ] && [ "${STORY_ALLOW_JUNK_SLUG:-}" != 1 ]; then
+    case "$slug" in
+      ?) die "new: refusing a single-character slug '$slug' on a REAL project — a throwaway/demo fixture, not a real story name. Use a descriptive slug, or test on the canary (story --canary new …). [poka-yoke]" ;;
+      alpha|beta|gamma|delta|foo|bar|baz|qux|quux|grouped|orphan|e1done|wip|tmp|temp|scratch|test|demo)
+        die "new: refusing the demo-fixture slug '$slug' on a REAL project — this is exactly the throwaway class that polluted the production tracker in a past incident. Test on the canary (story --canary new $slug …) or a stub; to create it on production anyway, set STORY_ALLOW_JUNK_SLUG=1. [poka-yoke]" ;;
+    esac
+  fi
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --type)  type="${2:-}"; shift 2 || die "missing value after $1" ;;
+      --epic)  epic="${2:-}"; shift 2 || die "missing value after $1" ;;
+      --no-epic) epic="-"; shift ;;   # deliberately ungrouped (the '-' sentinel the backend reads as no-milestone)
+      --title) title="${2:-}"; shift 2 || die "missing value after $1" ;;
+      --parent) parent="${2:-}"; shift 2 || die "missing value after $1" ;;   # make this a CHILD of story #N (auto-closes N when all its children close)
+      # Placing a story by its existing work is the bridge's rule alone; here it is refused, never imitated.
+      --work) die "$1: --work needs the bridge to serve this project's stories (story-stack mode 'on'); the bash mechanics do not place a story by its work. Create it without --work: the next commit, push or story-bound test run on its branch starts it and moves it to Implementation, and a close repairs a jumped phase history from the evidence of the work" ;;
+      --kind)  kind="${2:-}"; shift 2 || die "missing value after $1" ;;      # development | analysis | documentation | ops (required)
+      --severity) severity="${2:-}"; shift 2 || die "missing value after $1" ;;   # critical | high | medium | low (required on a tracker)
+      --dir)   dir="${2:-}"; shift 2 || die "missing value after $1" ;;
+      *) die "new: unknown argument: $1" ;;
+    esac
+  done
+  [ -n "$type" ] || die "new: --type is required"
+  # [Poka-Yoke] The kind decides which proof a story owes, so it is chosen, never defaulted: a silent 'development'
+  # put operational and documentation work under the full code proof.
+  [ -n "$kind" ] || die "new: --kind is required - say what the story delivers: development (code changes: the full proof, tests and coverage), analysis (an investigation or decision, no code), documentation (docs only) or ops (operational work on hosts, services or data, no code). E.g. $PROG new $slug --type $type --kind ops --epic <E0N>" 2
+  # Validate the kind at the WRITE side: an unknown kind is refused loudly, never coerced.
+  # Normalize case+surrounding whitespace (the documented read contract) so every write path agrees; anything
+  # beyond that (typos, homoglyphs, composites) refuses.
+  if [ -n "$kind" ]; then
+    kind="$(printf '%s' "$kind" | tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+    case "$kind" in development|analysis|documentation|ops) : ;; *) die "new: --kind must be development | analysis | documentation | ops; got: $kind" ;; esac
+  fi
+  # [Poka-Yoke] Every new tracker story carries a severity from birth, so the next-work order never has to guess where
+  # an unrated issue belongs. Refused before anything is written; the local backlog has no labels to hold one.
+  severity="$(printf '%s' "$severity" | tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+  case "$severity" in
+    critical|high|medium|low) : ;;
+    "") [ "${STORY_BACKEND:-local}" = gitlab ] && die "new: --severity is required - critical | high | medium | low (critical: a live outage or exposure; high: a security gap, a check that fails open, or a fault that stops work or loses data; medium: a defect with a workaround, or a requested feature; low: polish or parked work). E.g. $PROG new $slug --type $type --kind ${kind:-development} --severity medium --epic <E0N>" 2 ;;
+    *) die "new: --severity must be critical | high | medium | low; got: $severity" 2 ;;
+  esac
+  [ -n "$severity" ] && [ "${STORY_BACKEND:-local}" != gitlab ] && printf 'story: new: the local backlog has no labels; the severity %s is not recorded.\n' "$severity" >&2
+  # [Poka-Yoke] The epic MUST be a conscious choice, never a silent omission: a story created without deciding its
+  # epic gets orphaned (no milestone), which is exactly the un-enforced drift the fleet accumulated. Require an
+  # explicit --epic <E0N> or --no-epic. An epic id is E<digits>; '-' means deliberately ungrouped.
+  [ -n "$epic" ] || die "new: choose an epic with --epic <E0N> (e.g. --epic E<nn>), or --no-epic to DELIBERATELY leave it ungrouped. A story must never be silently orphaned from an epic."
+  case "$epic" in E[0-9]*|-) : ;; *) die "new: --epic must be an epic id like E<nn> (or --no-epic); got: $epic" ;; esac
+  [ -n "$dir" ] || dir="$(default_stories_dir)"
+  mkdir -p "$dir"
+
+  # Validate --parent BEFORE creating anything: it must be a well-formed issue number that resolves to an
+  # existing story. A leaf being born cannot self-parent or form a cycle, so existence is the only check here.
+  local parent_num=""
+  if [ -n "$parent" ]; then
+    parent_num="$(story_parent_ref_normalize "$parent")"
+    [ -n "$parent_num" ] || die "new: --parent must be an issue number like 151 or #151; got: $parent"
+    resolve_story new "$dir" "$parent_num" "new: --parent #$parent_num does not resolve to an existing story — create the parent first." >/dev/null || exit $?
+  fi
+
+  # Mechanical label hygiene: make sure every KNOWN story label exists at project level BEFORE we create (so
+  # the issue's story/status::/type::/kind:: labels resolve, and a user creating a story by hand in the GUI can pick them).
+  # No-op on the FS backend; fail-open on the gitlab backend (never blocks the create).
+  backend_ensure_labels "$dir"
+
+  # [Require-milestone, gitlab] A gitlab story must be milestone-backed (a deliberate policy choice): --no-epic is
+  # not allowed, and the chosen epic must already resolve to a milestone. No-op under the FS backend (no milestones).
+  if [ "${STORY_BACKEND:-local}" = gitlab ]; then
+    [ "$epic" = "-" ] && die "new: gitlab stories must belong to an epic with a milestone — --no-epic is not allowed here. Create/choose one first: story epic set E0N --title \"...\"."
+    backend_epic_has_milestone "$dir" "$epic" || die "new: epic $epic has no milestone in this project — create it first (story epic set $epic --title \"...\"), then retry. A gitlab story must be milestone-backed."
+  fi
+
+  local max next id handle
+  max="$(backend_max_num "$dir")" || die "new: could not determine the next story number (backend/API error) — aborting rather than risk a colliding number"
+  next="$(printf '%03d' "$((max + 1))")"
+  id="STORY-$next-$slug"
+  [ -n "$title" ] || title="$slug"
+
+  # Use the handle backend_new RETURNS (gitlab may assign a higher iid than max+1), then derive the real
+  # id from it — never assume the created number equals the pre-computed one.
+  handle="$(backend_new "$dir" "$id" "$title" "$type" "$epic" "$kind" "$severity")" || die "new: create failed ($id may already exist / backend error)"
+  # A fresh INTERACTIVE story auto-enters the FIRST SSDLC phase — Requirements (the
+  # pre-Design structuring/authoring stage; Prerequisites is its legacy alias) — you start by structuring + writing
+  # its spec. Only cmd_new does this; migration/track-finding (which also call backend_new) must NOT be forced into
+  # a phase. Fail-open: a phase-label hiccup never breaks the create.
+  backend_set_phase "$dir" "$handle" "Requirements" 2>/dev/null || true
+  # The creator owns the story it starts: claim the new issue for this tool's own user (fail-open, never overwrites).
+  backend_self_assign "$dir" "$handle" || true
+  # For a FRESH gitlab story the real id = STORY-<real-iid>-<OUR slug>. Do NOT route through
+  # backend_id_from_handle here: it REUSES any existing STORY-<iid>-* folder, so a stale/legacy same-iid folder
+  # (e.g. a cross-project slug committed in a prior session) would be inherited for this new story. Reconstruct from
+  # the returned iid + the caller's slug, and clear any stale same-iid folder (the iid is being minted now, so an
+  # existing folder for it is stale) so `cmd_sync` can't find two folders for one story. FS handles are non-numeric
+  # (the id already carries OUR slug) -> keep the prior behavior.
+  case "$handle" in
+    ''|*[!0-9]*) id="$(backend_id_from_handle "$dir" "$handle")" ;;
+    *)
+      _num_h="STORY-$(printf '%03d' "$handle")"; id="$_num_h-$slug"
+      if [ -n "$dir" ] && [ -d "$dir" ]; then
+        for _stale_h in "$dir/$_num_h-"*/; do
+          [ -d "$_stale_h" ] || continue
+          _stale_h="${_stale_h%/}"
+          [ "${_stale_h##*/}" = "$id" ] && continue                      # already the correct folder
+          # A stale same-iid folder that is a regenerable GENERATED MIRROR moves to the archive (never deleted: it may
+          # hold notes); hand-crafted work is left in place and reported.
+          if [ -f "$_stale_h/requirements.md" ] && grep -cF 'GENERATED MIRROR' "$_stale_h/requirements.md" >/dev/null 2>&1 \
+             && command -v _gl_archive_folder >/dev/null 2>&1; then
+            _gl_archive_folder "$dir" "$_stale_h" >&2 || true
+          else
+            printf 'story: new: leaving a non-mirror same-iid folder in place (%s); rename it manually if it is stale.\n' "${_stale_h##*/}" >&2
+          fi
+        done
+      fi
+      ;;
+  esac
+  # Record the parent as the canonical `- **Parent:** #<N>` bullet (the SOLE source of truth for the
+  # relationship) THROUGH the backend, then re-materialize so the on-disk mirror carries it. Written after the
+  # create so the child exists; validated above.
+  if [ -n "$parent_num" ]; then
+    backend_set_field "$dir" "$handle" "Parent" "#$parent_num" || die "new: created $id but FAILED to record its parent #$parent_num — set it with: story parent $id $parent_num"
+  fi
+  # Materialize the on-disk story folder (no-op for the FS backend, which already wrote it; for the gitlab backend
+  # this writes requirements.md from the new issue + a tasks.md scaffold) so BACKLOG links resolve + hand-off works.
+  backend_materialize "$dir" "$handle" "$id"
+  cmd_sync "$dir"
+  printf '%s\n' "$id"
+}
+
+# next -- print what to work on next in this project. The order is the bridge's alone (its next_work verb): this only
+# forwards the project and prints the answer, so no second ordering exists here to drift. Without a bridge it fails
+# loud; there is no fallback order.
+cmd_next() {
+  [ "$#" -eq 0 ] || die "next: takes no arguments (the project is the story tool's own: STORY_GITLAB_PROJECT)" 2
+  [ "${STORY_BACKEND:-local}" = gitlab ] || die "next: the next-work order reads the tracker (STORY_BACKEND=gitlab); the local backlog has none" 2
+  local project resp rc text
+  project="$(ssdlc_project)"
+  [ -n "$project" ] || die "next: STORY_GITLAB_PROJECT is unset - no project to order" 2
+  resp="$(bridge_mcp_call next_work "$(jq -cn --arg p "$project" '{project:$p}')" 300)"; rc=$?
+  case "$rc" in
+    0) : ;;
+    2) die "next: no KyklosBridge is configured for this workspace; the next-work order lives only in the bridge (start the session through its launcher)" 3 ;;
+    *) die "next: the KyklosBridge did not answer (transport rc $rc); there is no other next-work order - retry once it answers" 3 ;;
+  esac
+  text="$(bridge_mcp_text "$resp")"
+  case "$text" in "unknown tool: next_work"*) die "next: this KyklosBridge predates the next_work verb; relaunch the session to update it" 3 ;; esac
+  if bridge_mcp_is_error "$resp"; then printf '%s\n' "$text" >&2; return 1; fi
+  # The verb always opens with its NEXT line; anything else (empty, blank, another text) is not an answer, and printing
+  # it as one would read as "nothing to do". [CySec] Prevents CWE-754 "Improper Check for Unusual Conditions".
+  case "$(printf '%s' "$text" | head -n 1)" in
+    "NEXT:"*) printf '%s\n' "$text" ;;
+    *) die "next: the bridge's next_work answer does not start with a NEXT: line, so it is not an order: [$(printf '%s' "$text" | head -c 200 | tr '\n' ' ')]" 3 ;;
+  esac
+}
+
+# adopt <N> --type <t> --epic <E0N> [--kind <k>] [--dir <StoriesDir>]
+# Bring an EXISTING (typically USER-created) gitlab issue #N into the SSDLC story lifecycle: stamp the story labels
+# (backend_adopt lists them), attach the epic's milestone (REQUIRED), inject the canonical metadata block preserving
+# the user's title + body, and materialize the on-disk mirror. Without it a user-created issue stays invisible to the
+# proof gate + milestone logic (it never carries the story label). Idempotent; gitlab backend only.
+cmd_adopt() {
+  local ref="" type="" epic="" dir="" kind="" severity=""
+  [ "$#" -ge 1 ] || die "adopt: missing <issue-number> (e.g. story adopt 5 --type ci --epic E<nn>)"
+  ref="$1"; shift
+  case "$ref" in --*) die "adopt: missing <issue-number> (e.g. story adopt 5 --type ci --epic E<nn>)";; esac
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --type) type="${2:-}"; shift 2 || die "missing value after $1" ;;
+      --epic) epic="${2:-}"; shift 2 || die "missing value after $1" ;;
+      --kind) kind="${2:-}"; shift 2 || die "missing value after $1" ;;   # development | analysis | documentation | ops (absent -> preserve the issue's label, else development)
+      --severity) severity="${2:-}"; shift 2 || die "missing value after $1" ;;   # critical | high | medium | low (required unless the issue has one)
+      --dir)  dir="${2:-}"; shift 2 || die "missing value after $1" ;;
+      # Placing a story by its existing work is the bridge's rule alone; here it is refused, never imitated.
+      --work) die "$1: --work needs the bridge to serve this project's stories (story-stack mode 'on'); the bash mechanics do not place a story by its work. Create it without --work: the next commit, push or story-bound test run on its branch starts it and moves it to Implementation, and a close repairs a jumped phase history from the evidence of the work" ;;
+      *) die "adopt: unknown argument: $1" ;;
+    esac
+  done
+  # Validate at the write side; an explicit --kind conflicting with an existing different kind:: label
+  # is refused inside backend_adopt (no silent re-kind). Case+whitespace normalize per the read contract.
+  if [ -n "$kind" ]; then
+    kind="$(printf '%s' "$kind" | tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+    case "$kind" in development|analysis|documentation|ops) : ;; *) die "adopt: --kind must be development | analysis | documentation | ops; got: $kind" ;; esac
+  fi
+  # A severity given here is validated now; whether one is needed at all (the issue may already carry one) is decided by
+  # backend_adopt, which reads the issue's labels.
+  severity="$(printf '%s' "$severity" | tr '[:upper:]' '[:lower:]' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+  case "$severity" in ""|critical|high|medium|low) : ;; *) die "adopt: --severity must be critical | high | medium | low; got: $severity" 2 ;; esac
+  [ "${STORY_BACKEND:-local}" = gitlab ] || die "adopt: only the gitlab backend adopts existing issues; in FS mode create a story with 'story new'."
+  [ -n "$type" ] || die "adopt: --type is required (e.g. library|service|ci|infra|plugin|docs|test, or a conventional-commit type such as feat|fix)"
+  [ -n "$epic" ] || die "adopt: --epic <E0N> is required — a gitlab story must be milestone-backed."
+  case "$epic" in E[0-9]*) : ;; *) die "adopt: --epic must be an epic id like E<nn>; got: $epic" ;; esac
+  [ -n "$dir" ] || dir="$(default_stories_dir)"; mkdir -p "$dir"
+  local iid handle id
+  iid="$(resolve_story adopt "$dir" "$ref" "adopt: no issue resolves from '$ref' in this project (check the number).")" || exit $?
+  backend_epic_has_milestone "$dir" "$epic" || die "adopt: epic $epic has no milestone — create it first: story epic set $epic --title \"...\", then retry."
+  handle="$(backend_adopt "$dir" "$iid" "$type" "$epic" "$kind" "$severity")" || die "adopt: could not adopt issue #$iid (see the error above)."
+  # backend_adopt now sets status::doing AND the SSDLC phase ATOMICALLY (a fresh adopt -> Requirements,
+  # a re-adopt keeps its phase), so an adopted story is never left in the phase-less 'worked with no phase' state
+  # — no post-hoc phase-set needed here (that would fail-open + reset a re-adopt's phase).
+  _story_record_branch "$dir" "$handle"
+  id="$(backend_id_from_handle "$dir" "$handle")"
+  backend_materialize "$dir" "$handle" "$id"
+  cmd_sync "$dir"
+  # MECHANICAL structure check AT PICKUP (no AI): a just-adopted story must carry the 7 required SSDLC-story
+  # items. WARN loudly on stderr (not fatal — the agent adopts THEN restructures) so a non-conforming issue
+  # is surfaced the moment it enters the lifecycle, never silently worked. `story structure` re-checks after the fix.
+  if command -v story_min_structure_problem >/dev/null 2>&1; then
+    local _amiss; _amiss="$(_story_missing_items "$dir" "$handle")"
+    if [ -n "$_amiss" ]; then
+      printf '⚠ STRUCTURE: adopted #%s is MISSING required item(s): %s. RESTRUCTURE it (add the section(s), see the story _TEMPLATE) BEFORE working — re-check with `story structure %s`.\n' \
+        "$handle" "$(printf '%s' "$_amiss" | tr '\n' ',' | sed 's/,$//')" "$handle" >&2
+    fi
+  fi
+  printf 'adopted #%s as %s (Story-Type=%s, Epic=%s, milestone attached). Work it on feature/story-%s-<slug>, then `story proof %s` + `story close %s`.\n' \
+      "$handle" "$id" "$type" "$epic" "$handle" "$handle" "$handle"
+}
+
+# materialize [<id>|--all] [--dir <stories-dir>]
+# (Re)write the on-disk story folder(s) FROM the backend of record. For the gitlab backend this backfills
+# requirements.md (from the issue description, with a synced Status line) + a tasks.md scaffold for stories that
+# only exist as issues — so BACKLOG links resolve + a hand-off agent finds the files. No-op for the FS backend
+# (its files ARE the record). This is the mechanized alternative to hand-writing a story folder.
+cmd_materialize() {
+  local target="" dir=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --all)  target="--all"; shift ;;
+      --dir)  dir="${2:-}"; shift 2 || die "missing value after $1" ;;
+      -*)     die "materialize: unknown argument: $1" ;;
+      *)      [ -z "$target" ] || die "materialize: unexpected extra argument: $1"; target="$1"; shift ;;
+    esac
+  done
+  [ -n "$dir" ] || dir="$(default_stories_dir)"
+  mkdir -p "$dir" 2>/dev/null || true
+  if [ -z "$target" ] || [ "$target" = "--all" ]; then
+    backend_materialize_all "$dir"
+    printf 'materialized all story folders under %s\n' "$dir"
+  else
+    local handle id
+    handle="$(resolve_story materialize "$dir" "$target" "materialize: story '$target' not found")" || exit $?
+    id="$(backend_id_from_handle "$dir" "$handle")"
+    backend_materialize "$dir" "$handle" "$id"
+    printf 'materialized %s\n' "$id"
+  fi
+  cmd_sync "$dir"
+}
+
+# _kind_close_advisory <dir> <handle> — MODE-HONEST close advisory (NEVER blocks; the kind spec is a
+# soft dissuasion): closing an analysis/documentation story whose declared story branch carries SOURCE-file commits
+# is a kind/diff mismatch — either the kind was wrong or the work drifted into code. Print it LOUDLY on stderr so
+# the close output (and the adversarial review reading it) names the mismatch; every uncertainty path is silent
+# (an advisory must never wedge a close). [RiskMitigation RA-03]
+_kind_close_advisory() {
+  local dir="$1" handle="$2" kind branch repo trunk base files
+  kind="$(_story_kind_of "$dir" "$handle")"
+  [ "$kind" = "development" ] && return 0
+  branch="$(backend_get_field "$dir" "$handle" Branch 2>/dev/null || true)"
+  case "$(story_trim "${branch:-}")" in ""|"-") return 0 ;; esac
+  repo="$(dirname "$dir")"
+  git -C "$repo" rev-parse --verify --quiet "$branch" >/dev/null 2>&1 || return 0
+  for trunk in main master develop; do
+    git -C "$repo" rev-parse --verify --quiet "$trunk" >/dev/null 2>&1 && break || trunk=""
+  done
+  [ -n "$trunk" ] || return 0
+  base="$(git -C "$repo" merge-base "$trunk" "$branch" 2>/dev/null || true)"
+  [ -n "$base" ] || return 0
+  files="$(git -C "$repo" diff --name-only "$base" "$branch" 2>/dev/null \
+           | grep -E '\.(sh|ps1|psm1|bat|cs|py|ts|tsx|js|jsx|go|java|rb)$' | head -5 || true)"
+  [ -n "$files" ] || return 0
+  printf 'story: ADVISORY (mode-honest close) — story %s is kind::%s (a no-code kind) but its branch %s carries SOURCE-file changes (%s). Either the kind was wrong (set it: story set %s kind=development) or the code belongs in a separate development story. This is an advisory, not a block.\n' \
+    "$handle" "$kind" "$branch" "$(printf '%s' "$files" | tr '\n' ' ')" "$handle" >&2
+  return 0
+}
+
+# shellcheck source=../../hooks/lib/owner-labels.sh
+require_lib "$HERE/../../hooks/lib/owner-labels.sh" \
+  || { printf 'story: refusing to run: cannot load %s completely (see above)\n' "$HERE/../../hooks/lib/owner-labels.sh" >&2; exit 1; }
+# _done_gate_exception -> the one sentence naming the exception a refused Done transition may use: the owner's label
+# for a tracker story, the migration flags for a local story (which has no tracker and no owner).
+_done_gate_exception() {
+  if [ "${STORY_BACKEND:-local}" = gitlab ]; then
+    printf "The only exception is the owner applying the '%s' label to the issue." "$OWNER_OVERRIDE_LABEL"
+  else
+    printf 'For a local story migrated from elsewhere: --no-proof-gate / --no-quality-gate.'
+  fi
+}
+
+# story_trunk_reach_route_gate <close or set arguments> -- Trunk Reach for a close the bridge performs (story-stack
+# mode 'on'): the bridge cannot see this container's branches, so the check runs here before the close is sent. The
+# owner's label waives it, as it waives the bash gates.
+story_trunk_reach_route_gate() {
+  local ref="$1" dir handle p
+  dir="$(dir_from_args "$@")"; [ -n "$dir" ] || dir="$(default_stories_dir)"
+  handle="$(backend_resolve "$dir" "$ref" 2>/dev/null)" || handle="$ref"
+  if [ "${STORY_BACKEND:-local}" = gitlab ] && backend_owner_override "$dir" "$handle" 2>/dev/null; then return 0; fi
+  p="$(story_trunk_reach_problem "$(dirname "$dir")" "$handle")"
+  [ -z "$p" ] && return 0
+  die "close: refusing — $p. $(_done_gate_exception)"
+}
+
+# _enforce_done_gates <dir> <handle> <no_proof> <no_quality> [<cited-branch>] — the fail-closed gates that MUST pass before a story
+# reaches Done (== closed). Called from cmd_set for ANY status=Done assignment, so neither `story close` NOR a bare
+# `story set <id> status=Done` can bypass them. One escape each, fail-loud.
+_enforce_done_gates() {
+  local dir="$1" handle="$2" no_proof="$3" no_quality="$4"
+  # the mode-honest kind advisory fires on EVERY Done transition (advisory only — never blocks).
+  _kind_close_advisory "$dir" "$handle" || true
+  if [ "$no_proof" -eq 0 ] && command -v proof_count_unproven >/dev/null 2>&1; then
+    local _proof _un
+    _proof="$(backend_proof_read "$dir" "$handle" 2>/dev/null)"
+    if ! printf '%s' "$_proof" | grep -c '| Quality Dimension |' >/dev/null; then
+      die "close: refusing — story has NO proof table. Fill it: story proof <id> --set \"<Dimension>=PROVEN|evidence\" … (or --apply <file>). $(_done_gate_exception)"
+    fi
+    # rc-aware: proof_count_unproven returns non-zero (and prints no number) when the table has a
+    # malformed / unknown-verdict row — treat that as a hard refusal, never as "0 unproven".
+    if _un="$(proof_count_unproven "$_proof")"; then :; else
+      die "close: refusing — the Proof table has malformed or unknown-verdict row(s), or a PROVEN / NOT_PERTINENT row with no evidence text (see the messages above, which name the row). Each row must have the table's columns ('| Quality Dimension | Verdict | Evidence | Metrics |') with Verdict one of PROVEN / NOT_PERTINENT / UNPROVEN."
+    fi
+    [ "${_un:-0}" -gt 0 ] && die "close: refusing — proof still has $_un UNPROVEN dimension(s). Prove each (story proof <id> --set …) or mark NOT_PERTINENT."
+  fi
+  # [phase-walk gate] A development story must have ENTERED Implementation DURING the work: closing over a
+  # Requirements/Design-only history stamps Review across phases that never happened — the recorded process
+  # violation this refuses. Kind-aware (analysis/documentation legitimately never enter Implementation; development
+  # and ops are gated); the
+  # owner's exception (tracker stories) or --no-proof-gate (local stories) is the only bypass.
+  # WHY this bash check still exists: in story-stack mode 'on' the close goes to the bridge, which judges the phase
+  # walk and repairs a jumped history from the evidence of the work; this function is never reached there. It runs
+  # only where no bridge serves the project's stories (another project's stories, the filesystem backend, shadow
+  # mode). Deleting it would leave that path with no phase-walk gate at all, so it stays, deliberately strict, until
+  # a bridge can serve those stories; the evidence repair is NOT copied here (one rule, in the bridge).
+  if [ "$no_proof" -eq 0 ] && command -v backend_phase_walked >/dev/null 2>&1; then
+    local _pw_kind; _pw_kind="$(backend_get_kind "$dir" "$handle" 2>/dev/null || true)"
+    case "$(printf '%s' "$_pw_kind" | tr '[:upper:]' '[:lower:]')" in
+      analysis|documentation) : ;;
+      *) backend_phase_walked "$dir" "$handle" ||            die "close: refusing — phase-walk gate: this ${_pw_kind:-development} story never ENTERED ssdlc:phase::Implementation during the work (the label-event history shows a phase jump). Walk the phases as the work happens ('story phase <id> Implementation --reason \"...\"') — a close may not stamp over an unwalked history. $(_done_gate_exception)" ;;
+    esac
+  fi
+  if [ "$no_quality" -eq 0 ] && command -v story_spec_unfilled >/dev/null 2>&1; then
+    local _body _unf
+    _body="$(backend_body_read "$dir" "$handle" 2>/dev/null || true)"
+    _unf="$(story_spec_unfilled "$_body")"
+    if [ -n "$_unf" ]; then
+      die "close: refusing — story-quality gate: the 2a-2f spec is not fully authored:
+$_unf
+Author each dimension in the story body. $(_done_gate_exception)"
+    fi
+  fi
+  # Specless-but-PROVEN gate — the 2a-2f gate above GRANDFATHERS a body with no spec at all (returns
+  # OK), which let a substantial story (mis-typed chore / never properly adopted) close with an all-PROVEN Proof
+  # table correlating to NO acceptance criteria — a proof with "no value". A story that PROVES
+  # anything MUST carry a real spec. DEFAULT-ON; shares the --no-quality-gate migrate escape.
+  if [ "$no_quality" -eq 0 ] && command -v story_proof_has_proven >/dev/null 2>&1 && command -v story_body_has_spec >/dev/null 2>&1; then
+    local _spp _spb
+    _spp="$(backend_proof_read "$dir" "$handle" 2>/dev/null || true)"
+    _spb="$(backend_body_read "$dir" "$handle" 2>/dev/null || true)"
+    if story_proof_has_proven "$_spp" && ! story_body_has_spec "$_spb"; then
+      die "close: refusing — this story's Proof marks dimension(s) PROVEN but its body carries NO 2a-2f spec (no Requirements / Use cases / Acceptance criteria / …). A Proof table that correlates to no acceptance criteria has no value. Properly ADOPT + structure the story first (story adopt <id> --type <t>, then author the spec). $(_done_gate_exception)"
+    fi
+  fi
+  # Correlation + Metrics gate AT CLOSE — proof_correlation_problems / proof_metrics_gate_problems ran
+  # only in the Stop-hook proof-guard (session-windowed + skippable), so `story close` let a story close with
+  # declared spec items (AC#/FM#/UC#) NOT cross-referenced in the Metrics, and a mandatory-dimension PROVEN whose
+  # Metrics cell is empty/link-less — a Proof with no value. Enforce BOTH at the close chokepoint, fail-closed. Behind --no-proof-gate (a proof-content check).
+  if [ "$no_proof" -eq 0 ]; then
+    local _clb _clp
+    _clb="$(backend_body_read "$dir" "$handle" 2>/dev/null || true)"
+    _clp="$(backend_proof_read "$dir" "$handle" 2>/dev/null || true)"
+    if command -v proof_metrics_gate_problems >/dev/null 2>&1; then
+      local _clmg; _clmg="$(PROOF_TD_STORY="$(basename "$handle")" proof_metrics_gate_problems "$_clp" "$(proof_source_root "$(dirname "$dir")" 2>/dev/null)" "$(backend_get_kind "$dir" "$handle" 2>/dev/null || true)" 2>/dev/null | head -1 || true)"
+      [ -n "$_clmg" ] && die "close: refusing — Metrics gate: $_clmg"
+    fi
+    if command -v proof_correlation_problems >/dev/null 2>&1; then
+      local _clcp; _clcp="$(proof_correlation_problems "$_clb" "$_clp" 2>/dev/null | head -1 || true)"
+      [ -n "$_clcp" ] && die "close: refusing — correlation gate: $_clcp"
+    fi
+  fi
+  # Test Discipline token AT CLOSE, judged at the story's OWN result (its branch head, or its merge into the trunk),
+  # never at whatever commit the shared checkout sits on: from the trunk the old Stop-time check compared the token
+  # with another story's state or skipped it, so a story closed on a stale token. A proof-content check, so it sits
+  # behind the same --no-proof-gate migrate escape; the owner's override label is the tracker exception.
+  if [ "$no_proof" -eq 0 ]; then
+    require_lib "$HERE/../../hooks/lib/proof-tool-gate.sh" proof_tool_close_finding proof_receipt_close_finding proof_tool_limit_accepted \
+      || die "close: refusing — cannot load $HERE/../../hooks/lib/proof-tool-gate.sh completely (see above), so the Test Discipline token cannot be judged" 1
+    if command -v proof_tool_close_finding >/dev/null 2>&1; then
+      local _tdp _tdv _tdf
+      _tdp="$(backend_proof_read "$dir" "$handle" 2>/dev/null || true)"
+      _tdv="$(proof_verdict_class "$(printf '%s' "$_tdp" | awk -F'|' 'NF>=3 && $2 ~ /Test Discipline/ {print $3; exit}')" 2>/dev/null || true)"
+      # A row citing a tool-limit note the owner accepted (judged by the bridge) needs no coverage token: the note is the
+      # evidence, and the receipt check below still judges it.
+      local _tdrow; _tdrow="$(printf '%s' "$_tdp" | awk -F'|' 'NF>=3 && $2 ~ /Test Discipline/ {print; exit}')"
+      if [ "${STORY_BACKEND:-local}" = gitlab ] && proof_tool_limit_accepted "$_tdv" "$(basename "$handle")" "$(backend_get_kind "$dir" "$handle" 2>/dev/null || true)" "${STORY_GITLAB_PROJECT:-}" "$_tdrow" "${5:-}" 2>/dev/null; then
+        _tdf=""
+      else
+      _tdf="$(proof_tool_close_finding "Test Discipline" "$_tdv" "$(proof_source_root "$(dirname "$dir")" 2>/dev/null)" "$(basename "$handle")" "$(backend_get_kind "$dir" "$handle" 2>/dev/null || true)" "${5:-$(backend_get_field "$dir" "$handle" Branch 2>/dev/null || true)}" 2>/dev/null | head -1 || true)"
+      fi
+      [ -n "$_tdf" ] && die "close: refusing — $_tdf $(_done_gate_exception)"
+    fi
+  fi
+  # Coverage FLOOR AT CLOSE, on every backend and for every kind of change: the bridge reads the coverage figure the row
+  # declares and judges it against the story's own floor or the project floor (hooks/lib/coverage-floor-call.sh). The plugin
+  # compares nothing itself, so a story that needs no receipt (a script coverage cannot measure, a local story) is judged
+  # all the same, and a close the bridge cannot answer is refused. Behind the same --no-proof-gate migrate escape.
+  if [ "$no_proof" -eq 0 ]; then
+    require_lib "$HERE/../../hooks/lib/coverage-floor-call.sh" proof_floor_close_finding \
+      || die "close: refusing - cannot load $HERE/../../hooks/lib/coverage-floor-call.sh completely, so the coverage floor cannot be judged" 1
+    require_lib "$HERE/../../hooks/lib/proof-tool-gate.sh" proof_receipt_call \
+      || die "close: refusing - cannot load $HERE/../../hooks/lib/proof-tool-gate.sh completely, so the coverage floor cannot be judged" 1
+    local _flp _flrow _flv _flm _flf
+    _flp="$(backend_proof_read "$dir" "$handle" 2>/dev/null || true)"
+    _flrow="$(printf '%s' "$_flp" | awk -F'|' 'NF>=3 && $2 ~ /Test Discipline/ {print; exit}')"
+    _flv="$(proof_verdict_class "$(printf '%s' "$_flrow" | awk -F'|' '{print $3}')" 2>/dev/null || true)"
+    _flm="$(printf '%s' "$_flrow" | awk -F'|' '{print $5}')"
+    _flf="$(proof_floor_close_finding "$_flv" "$(basename "$handle")" "$(backend_get_kind "$dir" "$handle" 2>/dev/null || true)" "$([ "${STORY_BACKEND:-local}" = gitlab ] && printf '%s' "${STORY_GITLAB_PROJECT:-}")" "$_flm" 2>/dev/null | head -1 || true)"
+    [ -n "$_flf" ] && die "close: refusing - $_flf $(_done_gate_exception)"
+  fi
+  # Coverage receipt AT CLOSE: a PROVEN Test Discipline row must link the receipt (the comment each coverage run posts on
+  # the story, with its compressed report set) that the story's signed token records, for each kind of code the cited
+  # change touches (C#: the bridge's run; shell: story attach-coverage). The bridge judges it (coverage_receipt_check),
+  # with the same rule as its own story_close. Receipts live on the tracker issue, so only the gitlab backend has them;
+  # a documentation, analysis or ops story is exempt by its kind. Behind the same --no-proof-gate migrate escape.
+  # [CySec] Prevents CWE-636 "Not Failing Securely": require_lib above names the receipt check, so a library that lost
+  # it refuses the close instead of skipping the check without a word.
+  if [ "$no_proof" -eq 0 ] && [ "${STORY_BACKEND:-local}" = gitlab ]; then
+    command -v proof_receipt_close_finding >/dev/null 2>&1 \
+      || die "close: refusing — the coverage receipt check (proof_receipt_close_finding) is not loaded, so the Test Discipline receipt cannot be judged" 1
+    local _rcp _rcv _rcrow _rccited _rcf
+    _rcp="$(backend_proof_read "$dir" "$handle" 2>/dev/null || true)"
+    _rcrow="$(printf '%s' "$_rcp" | awk -F'|' 'NF>=3 && $2 ~ /Test Discipline/ {print; exit}')"
+    _rcv="$(proof_verdict_class "$(printf '%s' "$_rcrow" | awk -F'|' '{print $3}')" 2>/dev/null || true)"
+    _rccited="${5:-}"
+    [ -n "$_rccited" ] || _rccited="$(backend_get_field "$dir" "$handle" Branch 2>/dev/null || true)"
+    _rcf="$(proof_receipt_close_finding "$_rcv" "$(basename "$handle")" "$(backend_get_kind "$dir" "$handle" 2>/dev/null || true)" "${STORY_GITLAB_PROJECT:-}" "$_rcrow" "$_rccited" 2>/dev/null | head -1 || true)"
+    [ -n "$_rcf" ] && die "close: refusing — $_rcf $(_done_gate_exception)"
+  fi
+  # Pre-implementation-phase gate — a story still in ssdlc:phase::Requirements|Design at close never
+  # advanced to Implementation/Testing (the automatic advances are owned by hooks/kyklos-phase-advance.sh), so no
+  # work was committed under it and closing it is incoherent with the SSDLC lifecycle (the on-close auto-advance to
+  # Review would only MASK it). Fail-open on an empty phase (FS backend / no label). No
+  # --no-quality escape: advance the phase, do not paper over it.
+  if command -v backend_get_phase >/dev/null 2>&1 && command -v story_phase_is_preimpl >/dev/null 2>&1; then
+    local _clph
+    _clph="$(backend_get_phase "$dir" "$handle" 2>/dev/null || true)"
+    if story_phase_is_preimpl "$_clph"; then
+      die "close: refusing — the story is in SSDLC phase '$_clph', a PRE-implementation phase; a completed story must have advanced through Implementation/Testing. Advance it (commit/push under its feature branch, or 'story phase $handle <Phase>') before closing — closing from Design is incoherent."
+    fi
+  fi
+  # Reopen root-cause gate — a REOPENED story may not re-close until a "Reopen-Root-Cause:"
+  # note (posted after the last reopen) records why the prior proof passed while the work was wrong. Backend-provided
+  # (gitlab only — the FS backend has no reopen events); DEFAULT-ON with its own explicit opt-out inside the backend
+  # helper. Deliberately NOT behind --no-proof-gate: the migrate escape must not silence an unexplained reopen.
+  if command -v backend_reopen_rootcause_problem >/dev/null 2>&1; then
+    local _rrc
+    _rrc="$(backend_reopen_rootcause_problem "$dir" "$handle" 2>/dev/null || true)"
+    [ -n "$_rrc" ] && die "close: refusing — $_rrc"
+  fi
+  # Fix-the-Class gate — a fix-type story may not close without recording the INVARIANT
+  # violated + the call-site SWEEP/chokepoint (fix the class, not the instance). Pure-text over the body, so it
+  # gates BOTH backends; DEFAULT-ON with its own explicit opt-out inside the helper. Deliberately not behind
+  # --no-quality-gate: the migrate escape must not silence a class-unswept fix.
+  if command -v story_fix_class_problem >/dev/null 2>&1; then
+    local _fcp _fct _fcb
+    _fct="$(backend_get_type "$dir" "$handle" 2>/dev/null || true)"
+    _fcb="$(backend_body_read "$dir" "$handle" 2>/dev/null || true)"
+    _fcp="$(story_fix_class_problem "$_fcb" "$_fct")"
+    [ -n "$_fcp" ] && die "close: refusing — $_fcp"
+  fi
+  # [Remote Truth] The deliverable a close cites (the Branch field: commits, branches, merge requests) must be on the
+  # REMOTE, not only in a local checkout - a story once closed PROVEN on commits that were never pushed. The cited
+  # value is the one this Done transition sets (branch=...) or else the stored field. DEFAULT-ON, fail-closed; its
+  # only exception is the shared one (the owner's label for a tracker story, --no-proof-gate for a local story).
+  if [ "$no_proof" -eq 0 ] && command -v story_remote_truth_problem >/dev/null 2>&1; then
+    local _rtc _rtp
+    _rtc="${5:-}"
+    [ -n "$_rtc" ] || _rtc="$(backend_get_field "$dir" "$handle" Branch 2>/dev/null || true)"
+    _rtp="$(story_remote_truth_problem "$(dirname "$dir")" "$_rtc")"
+    [ -n "$_rtp" ] && die "close: refusing — Remote Truth: $_rtp. $(_done_gate_exception)"
+  fi
+  # [Trunk Reach] Every commit whose message names this story in a `Refs:` trailer must be on the trunk: a fix once sat
+  # on an unmerged branch after its story closed and the bug came back. DEFAULT-ON, fail-closed (lib/story-trunk-reach.sh);
+  # opt-out KYKLOS_TRUNK_REACH=off; the owner's label waives it like every other close gate.
+  if [ "$no_proof" -eq 0 ]; then
+    local _trp
+    _trp="$(story_trunk_reach_problem "$(dirname "$dir")" "$handle")"
+    [ -n "$_trp" ] && die "close: refusing — $_trp. $(_done_gate_exception)"
+  fi
+  # Operative-proof gate — a story whose change touches a fleet CONTROL surface must cite an
+  # end-to-end run (suite tally / pipeline id) in its Proof. DEFAULT-ON via the shared parser; fail-open when no
+  # control surface changed or the diff is unreadable. This is a PROOF-CONTENT check, so it sits behind the same
+  # --no-proof-gate migrate/grandfather escape as the proof gate itself (that escape already permits closing with
+  # NO proof at all — validating the content of an absent proof would be meaningless).
+  if [ "$no_proof" -eq 0 ] && command -v proof_operative_finding >/dev/null 2>&1; then
+    local _opf _opp
+    _opp="$(backend_proof_read "$dir" "$handle" 2>/dev/null || true)"
+    # Diff root = the STORY'S repo (the parent of its Stories dir), never the ambient PWD — an unrelated repo's
+    # working-tree state must not gate this story's close (ambient control edits in the CALLING repo would gate
+    # every unrelated close).
+    _opf="$(proof_operative_finding "$_opp" "$(dirname "$dir")" "$handle" 2>/dev/null | head -1 || true)"
+    [ -n "$_opf" ] && die "close: refusing — $_opf"
+  fi
+}
+
+# _autoclose_parents <dir> <closed-child-handle> — after a child reaches Done, walk UP: if the child has a
+# `- **Parent:** #N` and EVERY one of #N's children is now closed, close #N too (recursively up the chain). This is
+# the "close the parent when all children are closed" rule. The parent close bypasses the
+# per-story proof gate via backend_close_umbrella — NOT green-washing: each child passed its own gates, and an audit
+# note naming the children is posted as the parent's evidence. FAIL-OPEN toward NOT closing (a parent whose child
+# state can't be read stays OPEN and is reported) — a visible to-do beats a silently-lost one.
+_autoclose_parents() {
+  local dir="$1" handle="$2" body parent_num phandle open_children all_done c cs_id kids
+  local -i depth=0
+  while :; do
+    depth=$((depth + 1)); [ "$depth" -gt 64 ] && { printf 'story: auto-close: chain too deep (>64) — stopping (data may have a cycle).\n' >&2; return 0; }
+    body="$(backend_body_read "$dir" "$handle" 2>/dev/null)"
+    parent_num="$(story_parent_iid_from_body "$body")"
+    [ -n "$parent_num" ] || return 0                              # no parent => nothing to cascade
+    phandle="$(backend_resolve "$dir" "$parent_num" 2>/dev/null)" || { printf 'story: auto-close: parent #%s not resolvable — leaving it open.\n' "$parent_num" >&2; return 0; }
+    backend_is_done "$dir" "$phandle" && return 0                 # parent already closed => done
+    kids="$(backend_children_of "$dir" "$parent_num")"
+    all_done=1; open_children=""
+    for c in $kids; do
+      # The child we JUST closed at this level ($handle) is KNOWN done — trust that over a possibly-STALE
+      # backend_is_done read: the gitlab backend caches an issue's JSON per-process, so a child read (as opened)
+      # earlier in the same command still reads opened after we closed it, which wrongly kept the parent OPEN (the
+      # whole cascade stalled on the just-closed child). Trust an in-process close.
+      if [ "$c" = "$handle" ] || backend_is_done "$dir" "$c" 2>/dev/null; then :; else
+        all_done=0; cs_id="$(backend_id_from_handle "$dir" "$c" 2>/dev/null || printf '%s' "$c")"
+        open_children="${open_children:+$open_children }$cs_id"
+      fi
+    done
+    if [ "$all_done" -ne 1 ]; then
+      printf 'story: auto-close: parent #%s stays OPEN — still-open child(ren): %s\n' "$parent_num" "$open_children" >&2
+      return 0
+    fi
+    # All children closed -> close the parent, with an audit note naming them as the evidence.
+    local kid_ids="" k
+    for k in $kids; do kid_ids="${kid_ids:+$kid_ids }#$(story_num_from_id "$(backend_id_from_handle "$dir" "$k" 2>/dev/null)")"; done
+    backend_note "$dir" "$phandle" "Auto-closed by the story tool: all children ($kid_ids) are closed, so this umbrella parent is complete." 2>/dev/null || true
+    backend_close_umbrella "$dir" "$phandle" || { printf 'story: auto-close: FAILED to close parent #%s.\n' "$parent_num" >&2; return 1; }
+    printf 'story: auto-closed parent #%s (all children closed: %s)\n' "$parent_num" "$kid_ids" >&2
+    handle="$phandle"                                             # recurse: the parent may itself have a parent
+  done
+}
+
+# _story_record_branch <dir> <handle> — when the current checkout is the story's own branch
+# (feature/story-<handle>-*, hotfix/story-<handle>-*, or the same without a slug: feature/story-<handle>), write it
+# into the Branch field, so a story being worked
+# never reads "Branch: -". Silent no-op when not in a git checkout or on another branch.
+_story_record_branch() {
+  local dir="$1" handle="$2" br cur
+  br="$(git -C "${CLAUDE_PROJECT_DIR:-.}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  case "$br" in
+    feature/story-"$handle"|hotfix/story-"$handle"|feature/story-"$handle"-*|hotfix/story-"$handle"-*) : ;;
+    *) return 0 ;;
+  esac
+  cur="$(backend_get_field "$dir" "$handle" Branch 2>/dev/null || true)"
+  [ "$(story_trim "$cur")" = "$br" ] && return 0
+  backend_set_field "$dir" "$handle" Branch "$br" >/dev/null 2>&1 || true
+}
+
+# _require_adopted_story <handle> [verb] — refuse a LIFECYCLE mutation (set / proof / close / phase) on a RAW,
+# un-adopted issue: without it a raw user-filed issue could be driven through the WHOLE SSDLC (proofed, phased,
+# closed) without ever being adopted — no milestone, no spec scaffold, no lifecycle.
+# Mirrors backend_is_adopted_story's classifier: rc 1 (raw issue) and rc 2 (determinate 401/403/404 auth/config
+# error) FAIL HARD; rc 0 (adopted) and rc 3 (transient / the FS backend has no raw issues) proceed. Fail-closed.
+_require_adopted_story() {
+  local handle="$1" verb="${2:-operation}"
+  command -v backend_is_adopted_story >/dev/null 2>&1 || return 0
+  local rc; backend_is_adopted_story "." "$handle" 2>/dev/null; rc=$?
+  case "$rc" in
+    0|3) return 0 ;;
+    1)   die "$verb: issue #$handle is NOT an adopted story (no 'story' label, or a story label but never adopted - no tool-written metadata). A raw/user-created issue must enter the SSDLC lifecycle FIRST — otherwise its proof/phase/close run with no milestone, no spec scaffold, no adoption. Adopt it:  story adopt $handle --type <t> --epic <E0N>  then retry." ;;
+    2)   die "$verb: could NOT verify issue #$handle is an adopted story — a determinate auth/config error (401/403/404: the token cannot read the project, or #$handle is absent). Refusing to operate unverified (fail-closed). Fix the token/project scope, or adopt the story." ;;
+    *)   return 0 ;;
+  esac
+}
+
+cmd_set() {
+  local ref="" no_sync=0 dir="" no_proof_gate=0 no_quality_gate=0 reason="" have_reason=0 reopen=0 ; local -a assigns=()
+  [ "$#" -ge 1 ] || die "set: missing <id|NNN>"
+  ref="$1"; shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --no-sync) no_sync=1; shift ;;
+      --no-proof-gate)   no_proof_gate=1; shift ;;     # escape the Done-transition proof gate (migrate/grandfather)
+      --no-quality-gate) no_quality_gate=1; shift ;;   # escape the Done-transition 2a-2f gate (migrate/legacy)
+      --reason)  reason="${2:-}"; have_reason=1; shift 2 || die "missing value after $1" ;;   # mandatory motivation for a --reopen
+      --reopen)  reopen=1; shift ;;                     # explicit reopen of a CLOSED story (needs --reason; records the root cause)
+      --dir) dir="${2:-}"; shift 2 || die "missing value after $1" ;;
+      *=*)  assigns+=("$1"); shift ;;
+      *) die "set: expected field=value (or --no-sync/--dir/--no-*-gate/--reason/--reopen), got: $1" ;;
+    esac
+  done
+  [ "${#assigns[@]}" -ge 1 ] || die "set: no field=value pairs given"
+  [ -n "$dir" ] || dir="$(default_stories_dir)"
+
+  local handle; handle="$(resolve_story set "$dir" "$ref")" || exit $?
+  _require_adopted_story "$handle" "set"
+  _story_check_reopen "$dir" "$handle" "$ref" "$reopen" "$reason" "${assigns[@]}"
+
+  # Run the fail-closed gates at the Done TRANSITION (here), so no path to Done bypasses them.
+  local kv0 k0 v0
+  for kv0 in "${assigns[@]}"; do
+    k0="${kv0%%=*}"; v0="${kv0#*=}"
+    if [ "$(canonical_field "$k0" 2>/dev/null)" = "Status" ] && [ "$(story_normalize_status "$v0")" = "Done" ]; then
+      # A tracker story is judged without an agent-typed way around the gates: the two flags exist only for local
+      # stories (no tracker, no owner). The one exception for a tracker story is the owner's label, applied by a
+      # GitLab user other than this agent and verified from the server-side label events.
+      if [ "${STORY_BACKEND:-local}" = gitlab ]; then
+        { [ "$no_proof_gate" = 1 ] || [ "$no_quality_gate" = 1 ]; } \
+          && die "close: --no-proof-gate / --no-quality-gate are not accepted for a tracker story. The only exception is the owner applying the '$OWNER_OVERRIDE_LABEL' label to the issue."
+        if backend_owner_override "$dir" "$handle"; then
+          no_proof_gate=1; no_quality_gate=1
+          printf "story: NOTE — Done gates waived on %s by the owner's '%s' label (applied by another GitLab user).\n" "$ref" "$OWNER_OVERRIDE_LABEL" >&2
+        fi
+      fi
+      # audit trail: a gate-bypass is not silent — record it to stderr.
+      { [ "$no_proof_gate" = 1 ] || [ "$no_quality_gate" = 1 ]; } && printf 'story: NOTE — Done-gate bypass on %s (--no-proof-gate=%s --no-quality-gate=%s)\n' "$ref" "$no_proof_gate" "$no_quality_gate" >&2
+      local _cited_branch="" kvb
+      for kvb in "${assigns[@]}"; do [ "$(canonical_field "${kvb%%=*}" 2>/dev/null)" = "Branch" ] && _cited_branch="${kvb#*=}"; done
+      _enforce_done_gates "$dir" "$handle" "$no_proof_gate" "$no_quality_gate" "$_cited_branch"; break
+    fi
+  done
+
+  # status=Dropped is AMBIGUOUS under the unified status:: scope - a drop must name its reason so the
+  # observer reads one meaningful label. Reject with the concrete alternatives (fail-closed, actionable message).
+  local _kvd
+  for _kvd in "${assigns[@]}"; do
+    if [ "$(canonical_field "${_kvd%%=*}" 2>/dev/null)" = "Status" ] && [ "$(story_normalize_status "${_kvd#*=}")" = "Dropped" ]; then
+      die "set: status=Dropped is ambiguous - use status=wontfix|duplicate|invalid (closes with that reason), status=parked (open, deferred) or status=archived (closed history retained)"
+    fi
+  done
+
+  # A story becomes Blocked only through `story block`, which hands the blocker (the issue, story or merge request it
+  # waits on) and the reason to the bridge's story_block verb: the bridge records it once, marks the open tasks and
+  # posts the audit note. A status write cannot express what the story waits on, so it is refused here.
+  local _kvb
+  for _kvb in "${assigns[@]}"; do
+    if [ "$(canonical_field "${_kvb%%=*}" 2>/dev/null)" = "Status" ] && [ "$(story_normalize_status "${_kvb#*=}")" = "Blocked" ]; then
+      die "set: a story becomes Blocked only with what it waits on: $PROG block $ref --kind <issue|user|external> --on <the issue, story or merge request | the link to the note that asks the user | who or what is awaited> --reason \"<what blocks it + what would unblock it>\" (the bridge records the blocker, names its kind in the status label, marks the open tasks and lifts an issue block when that reference closes or merges)."
+    fi
+  done
+
+  # POKA-YOKE: moving a story to In-progress (status::doing) requires COMPLETE adoption — adopted
+  # (already enforced by _require_adopted_story above) AND carrying an ssdlc:phase:: label. A story::doing with no
+  # SSDLC phase is the incoherent state of a story worked with no phase. Fail-CLOSED on the gitlab backend
+  # (block, don't warn); no-op on the FS backend (no phase labels). Paired with the cmd_adopt root fix that now sets
+  # the initial Requirements phase, so a properly-adopted story is never wrongly blocked here.
+  local _kvi _to_doing=0
+  for _kvi in "${assigns[@]}"; do
+    if [ "$(canonical_field "${_kvi%%=*}" 2>/dev/null)" = "Status" ] && [ "$(story_normalize_status "${_kvi#*=}")" = "In-progress" ]; then _to_doing=1; fi
+  done
+  if [ "$_to_doing" = 1 ] && [ "${STORY_BACKEND:-local}" = gitlab ]; then
+    # Do NOT fail-OPEN on a missing phase reader: with the gitlab backend active its phase reader MUST
+    # be loaded, and a silently-skipped guard is itself the class. Fail-hard on a broken install instead of
+    # skipping. (The backend_set_field chokepoint also seeds a phase, so phaseless-doing is impossible even if
+    # this command-level check were bypassed — this one just gives the agent an earlier, teaching error.)
+    command -v backend_get_phase >/dev/null 2>&1 || die "set: gitlab backend is active but backend_get_phase is not loaded — broken kyklos install; reinstall/repin the plugin." 1
+    local _cur_phase; _cur_phase="$(backend_get_phase "$dir" "$handle" 2>/dev/null || true)"
+    # An empty read means EITHER no phase label OR a transient read failure; either way we fail-CLOSED
+    # (never work a story we cannot confirm is phased), and the message names both possibilities rather than asserting
+    # a permanent adoption defect.
+    [ -n "$(story_trim "${_cur_phase:-}")" ] || die "set: refusing to move $ref to In-progress (status::doing) — no ssdlc:phase:: label was read for it. Either it was never COMPLETELY adopted (a story cannot be WORKED with no phase) or the phase read failed transiently. Adopt it properly ('$PROG adopt $ref --type <t> --epic <E0N>' sets the initial Requirements phase) or set one ('$PROG phase $ref Requirements'), then retry."
+    # [phase-walk gate, entry side] Working a story that still sits at Requirements is the START of the phase-jump
+    # class the close gate refuses at the exit — teach it here, loudly, while it is one command to fix.
+    case "$(story_trim "${_cur_phase:-}")" in
+      Requirements) printf 'story: NOTE — %s is entering status::doing while still at ssdlc:phase::Requirements. Enter the phase you are actually in as the work moves ('"'"'%s phase %s Design|Implementation --reason "..."'"'"') — the close gate REFUSES a development story whose history never entered Implementation.\n' "$ref" "$PROG" "$ref" >&2 ;;
+    esac
+  fi
+
+  local kv key val cfield
+  for kv in "${assigns[@]}"; do
+    key="${kv%%=*}"; val="${kv#*=}"
+    cfield="$(canonical_field "$key")" || die "set: unknown field: $key"
+    # A set VALUE with an embedded newline can inject forged `- **Key:**` metadata lines into requirements.md
+    # (e.g. a fake 'Status: Done'). Values are single-line by definition — normalize.
+    val="$(story_sanitize_inline "$val")"
+    if [ "$cfield" = "Status" ]; then
+      val="$(story_normalize_status "$val")"
+      # A status stored verbatim (e.g. 'Bananas') silently breaks status-counting invariants. Only the values
+      # story_status_valid accepts (after normalize resolves the aliases) are storable.
+      story_status_valid "$val" || die "set: invalid status '$val' — use Todo | In-progress | Blocked | Done | Parked | wontfix | duplicate | invalid | archived (aliases: doing, wont-fix)"
+    fi
+    if [ "$cfield" = "Assignee" ]; then
+      # Only the tool's own user may be assigned (a backfill of unassigned stories), never another account. [RiskMitigation RA-02] [CySec] CWE-285.
+      [ "${STORY_BACKEND:-local}" = gitlab ] || die "set: assignee needs the tracker (gitlab) backend; a local story has no assignee."
+      [ "$(printf '%s' "$val" | tr '[:upper:]' '[:lower:]')" = self ] || die "set: assignee accepts only the value self (the story is assigned to this tool's own user), got '$val'."
+      val=self
+    fi
+    if [ "$cfield" = "Kind" ]; then
+      # Only the canonical kinds (proof_kind_is_valid) are storable — a WRITE of an unknown kind is refused loudly,
+      # never silently coerced (reads coerce to development, the strictest; writes must be exact).
+      if command -v proof_kind_is_valid >/dev/null 2>&1; then
+        proof_kind_is_valid "$val" || die "set: invalid kind '$val' — use development | analysis | documentation | ops"
+      else
+        case "$(printf '%s' "$val" | tr '[:upper:]' '[:lower:]')" in development|analysis|documentation|ops) : ;; *) die "set: invalid kind '$val' — use development | analysis | documentation | ops" ;; esac
+      fi
+      val="$(printf '%s' "$val" | tr '[:upper:]' '[:lower:]')"
+    fi
+    if [ "$cfield" = "title" ]; then
+      backend_set_title "$dir" "$handle" "$val"
+    elif [ "$cfield" = "Status" ]; then
+      # The write function refuses to reopen a closed story unless it is handed the explicit token, so no path to a
+      # reopen bypasses the check above. A refused or failed status write stops here, loudly.
+      local _reopen_token=""; [ "$reopen" = 1 ] && _reopen_token="reopen"
+      backend_set_field "$dir" "$handle" "$cfield" "$val" "$_reopen_token" || die "set: the status of $ref was NOT changed (see the reason above)." 1
+    elif [ "$cfield" = "Assignee" ]; then
+      backend_set_field "$dir" "$handle" "$cfield" "$val" || die "set: the assignee of $ref was NOT changed (see the reason above)." 1
+    else
+      backend_set_field "$dir" "$handle" "$cfield" "$val"
+    fi
+  done
+
+  # An explicit reopen records its reason as the root-cause note at once, so the re-close gate is satisfied by
+  # construction and the reopen is never unexplained.
+  [ "$reopen" = 1 ] && _story_record_reopen_root_cause "$dir" "$handle" "$ref" "$reason"
+
+  [ "$_to_doing" = 1 ] && _story_record_branch "$dir" "$handle"
+  # Tell the bridge GUI a story was started (display only, fail-open), so an agent's card shows it at once.
+  if [ "$_to_doing" = 1 ]; then command -v fyi_emit >/dev/null 2>&1 && fyi_emit story-start "$ref" "started" "In-progress" || true; fi
+
+  [ "$no_sync" -eq 1 ] || cmd_sync "$dir"
+
+  # Auto-emit the ground-truth flow-strip at a STATUS TRANSITION. flow-strip.sh existed + was documented
+  # in the skill, but nothing invoked it (no hook, no tool call) -> it "never appeared". A status change (via `set`
+  # OR `close`, which forwards here) IS the transition the strip is meant to mark, so emit it here: every close /
+  # set-status now auto-surfaces "you are here in the flow" from truth, impossible to forget. Fail-soft — a strip
+  # error never breaks the transition. Only on a Status change (not other field edits), matching "at TRANSITIONS only".
+  local _kv3 _status_changed=0 _went_done=0
+  for _kv3 in "${assigns[@]}"; do
+    if [ "$(canonical_field "${_kv3%%=*}" 2>/dev/null)" = "Status" ]; then
+      _status_changed=1
+      [ "$(story_normalize_status "${_kv3#*=}")" = "Done" ] && _went_done=1
+    fi
+  done
+  if [ "$_status_changed" = 1 ] && [ -f "$HERE/flow-strip.sh" ]; then
+    CLAUDE_PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(dirname "$dir")}" bash "$HERE/flow-strip.sh" "$ref" 2>/dev/null || true
+  fi
+
+  # Tool-owned phase choreography — the CLOSE transition: when a story reaches Done, advance its ssdlc:phase
+  # to the terminal Review (the lifecycle's last phase). Uses the MONOTONIC advance so it never regresses a story
+  # already past Review and is a no-op on the FS backend (no labels). Fail-soft — a phase hiccup never breaks close.
+  if [ "$_went_done" = 1 ] && command -v backend_get_phase >/dev/null 2>&1; then
+    local _cur_ph _res_ph
+    _cur_ph="$(backend_get_phase "$dir" "$handle" 2>/dev/null || true)"
+    _res_ph="$(story_phase_advance "$_cur_ph" "Review" 2>/dev/null || true)"
+    [ -n "$_res_ph" ] && backend_set_phase "$dir" "$handle" "$_res_ph" 2>/dev/null || true
+  fi
+
+  # After a story reaches Done, cascade the parent auto-close: if this child's parent now has ALL its
+  # children closed, close the parent too (recursively). Runs on ANY path to Done (close OR a bare set status=Done).
+  if [ "$_went_done" = 1 ] && command -v _autoclose_parents >/dev/null 2>&1; then
+    _autoclose_parents "$dir" "$handle" || true
+  fi
+}
+
+cmd_close() {
+  local ref="" branch="" summary="" no_sync=0 dir="" have_branch=0 have_summary=0 no_proof_gate=0 no_quality_gate=0
+  [ "$#" -ge 1 ] || die "close: missing <id|NNN>"
+  ref="$1"; shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --branch)  branch="${2:-}"; have_branch=1; shift 2 || die "missing value after $1" ;;
+      --summary) summary="${2:-}"; have_summary=1; shift 2 || die "missing value after $1" ;;
+      --no-sync) no_sync=1; shift ;;
+      --no-proof-gate) no_proof_gate=1; shift ;;   # escape for migrate/grandfather flows
+      --no-quality-gate) no_quality_gate=1; shift ;;   # escape for the 2a-2f story-quality gate
+      --dir) dir="${2:-}"; shift 2 || die "missing value after $1" ;;
+      *) die "close: unknown argument: $1" ;;
+    esac
+  done
+  [ -n "$dir" ] || dir="$(default_stories_dir)"
+
+  # Label hygiene on close too (so a project that only ever closes stories still materializes the known
+  # labels in the GUI). No-op on FS; fail-open on gitlab.
+  backend_ensure_labels "$dir"
+
+  # review — critical The fail-closed proof + story-quality gates now live at the Done-TRANSITION chokepoint
+  # inside cmd_set, so a direct `story set <id> status=Done` cannot bypass them (it did before — the gates sat only
+  # in this convenience wrapper). cmd_close just forwards status=Done (+ branch/summary) and the gate-escape flags.
+  local -a args=("$ref" "status=Done")
+  [ "$have_branch" -eq 1 ]  && args+=("branch=$branch")
+  [ "$have_summary" -eq 1 ] && args+=("summary=$summary")
+  [ "$no_sync" -eq 1 ] && args+=("--no-sync")
+  [ "$no_proof_gate" -eq 1 ] && args+=("--no-proof-gate")
+  [ "$no_quality_gate" -eq 1 ] && args+=("--no-quality-gate")
+  args+=("--dir" "$dir")
+  cmd_set "${args[@]}"
+
+  # A successful close (cmd_set dies on refusal, so reaching here means Done) tells the bridge GUI. Fail-open.
+  command -v fyi_emit >/dev/null 2>&1 && fyi_emit story-close "$ref" "closed (Done)" "Done" || true
+
+  # [SHOWN-by-construction] EMIT the stored Proof on a successful close, so it always lands in the transcript/output
+  # (a gitlab proof lives as an issue NOTE the user cannot see in the TUI otherwise). This makes "render the Proof
+  # when you close" automatic rather than a rule the agent must remember. The output is a terminal, so it is the
+  # TERMINAL form derived from the stored table (proof_render_terminal), framed by start/end markers the proof-shown
+  # hook reads; the markdown table is printed only if that render fails. Best-effort: never fail the close.
+  local _h _proof _text
+  if _h="$(backend_resolve "$dir" "$ref" 2>/dev/null)"; then
+    _proof="$(backend_proof_read "$dir" "$_h" 2>/dev/null)"
+    if printf '%s' "$_proof" | grep -c '| Quality Dimension |' >/dev/null; then
+      if _text="$(proof_render_terminal "$_proof" 2>/dev/null)" && [ -n "$_text" ]; then
+        printf '\n=== Proof (%s) — terminal form, show it in your reply exactly as printed ===\n%s\n=== end of Proof (%s) ===\n' "$ref" "$_text" "$ref"
+      else
+        printf '\n=== Proof (%s) — rendered on close so it is visible in the transcript ===\n%s\n' "$ref" "$_proof"
+      fi
+    fi
+  fi
+  # CLOSE RECEIPT: the one positive, machine-readable proof that this close SUCCEEDED (every refusal exits inside
+  # cmd_set before reaching here). The proof-shown hook announces a close ONLY on this line, so a refused close is
+  # never reported as done. Printed LAST so a tail of the output keeps it.
+  printf 'story: close receipt: %s is Done\n' "$ref"
+}
+
+# When the Proof table is COMPLETE (every Quality Dimension resolved — 0 UNPROVEN), the story has reached the
+# Review milestone BY CONSTRUCTION (the proof IS the Review activity). Advance its ssdlc:phase to Review so a completed
+# proof can NEVER sit at a non-terminal phase (a complete Proof + adversarial review posted while the issue stays
+# at ssdlc:phase::Testing and is never finalized). Monotonic (never regresses a
+# story already at/after Review); an incomplete/partial proof does NOT advance; a phase-write failure is surfaced
+# LOUDLY (not silently swallowed), so the state can never diverge unnoticed.
+_proof_advance_phase_on_complete() {
+  local dir="$1" handle="$2" tbl="$3"
+  command -v backend_get_phase >/dev/null 2>&1 || return 0
+  command -v proof_count_unproven >/dev/null 2>&1 || return 0
+  printf '%s' "$tbl" | grep -c '| Quality Dimension |' >/dev/null || return 0
+  local _u; _u="$(proof_count_unproven "$tbl" 2>/dev/null)" || return 0   # malformed table -> leave phase untouched
+  [ "${_u:-1}" -eq 0 ] || return 0                                        # still has UNPROVEN rows -> not complete
+  local _cur _res; _cur="$(backend_get_phase "$dir" "$handle" 2>/dev/null || true)"
+  _res="$(story_phase_advance "$_cur" "Review" 2>/dev/null || true)"
+  [ -n "$_res" ] && [ "$_res" != "$_cur" ] || return 0
+  # A story nobody started keeps its phase: the proof table is complete, but a phase past Design is for worked stories.
+  if command -v backend_get_status >/dev/null 2>&1 && story_phase_needs_start "$(backend_get_status "$dir" "$handle" 2>/dev/null || true)" "$_res"; then
+    printf 'proof: table complete, but the story is not started so ssdlc:phase stays %s; start it first: story set %s status=In-progress\n' "${_cur:-?}" "$handle" >&2
+    return 0
+  fi
+  if backend_set_phase "$dir" "$handle" "$_res" 2>/dev/null; then
+    printf 'proof: table complete (0 UNPROVEN) -> advanced ssdlc:phase to %s\n' "$_res" >&2
+  else
+    printf 'proof: WARNING — table is complete but could not advance ssdlc:phase to Review; set it explicitly: story phase %s Review\n' "$handle" >&2
+  fi
+}
+
+# _proof_print <table> <format> -> the proof as asked: 'markdown' prints the stored table unchanged (the form
+# GitLab renders), 'text' prints the terminal form derived from it by the one bash renderer (proof_render_terminal),
+# which is what an agent shows in its reply. Never a hand-made restructuring of the table.
+_proof_print() {
+  local table="$1" format="$2"
+  if [ "$format" = text ]; then
+    proof_render_terminal "$table" || die "proof: the stored proof holds no dimension row to render" 1
+  else
+    printf '%s\n' "$table"
+  fi
+}
+
+# The placeholder an escaped \\| in a 'proof --set' value is parked on while the fields are split (ASCII unit separator).
+_PROOF_PIPE_MARK=$'\x1f'
+cmd_proof() {
+  local ref="" dir="" write=0 apply="" template=0 format="markdown"; local -a sets=()
+  [ "$#" -ge 1 ] || die "proof: missing <id|NNN>"
+  ref="$1"; shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --write) write=1; shift ;;
+      --format) format="${2:-}"; shift 2 || die "missing value after $1" ;;   # markdown (the stored table) | text (the terminal form)
+      --set)   sets+=("${2:-}"); shift 2 || die "missing value after $1" ;;    # 'Dimension=VERDICT[|evidence]' — repeatable
+      --apply) apply="${2:-}"; shift 2 || die "missing value after $1" ;;      # a complete filled table from a file (or '-' for stdin)
+      --template) template=1; shift ;;         # force the BLANK canonical scaffold (ignore the stored note)
+      --dir)   dir="${2:-}"; shift 2 || die "missing value after $1" ;;
+      *) die "proof: unknown argument: $1" ;;
+    esac
+  done
+  [ -n "$dir" ] || dir="$(default_stories_dir)"
+  case "$format" in
+    markdown|text) : ;;
+    *) die "proof: --format must be 'markdown' (the stored table, as GitLab shows it) or 'text' (the terminal form to show in a reply), got: $format" 2 ;;
+  esac
+  [ "$format" = markdown ] || { [ "$write" -eq 0 ] && [ -z "$apply" ] && [ "${#sets[@]}" -eq 0 ]; } \
+    || die "proof: --format applies to viewing a proof only; --set, --apply and --write print the stored table" 2
+
+  command -v proof_emit_table >/dev/null 2>&1 || die "proof: proof-dimensions.sh not found ($PROOF_DIMENSIONS_LIB)" 1
+
+  local handle; handle="$(resolve_story proof "$dir" "$ref")" || exit $?
+  _require_adopted_story "$handle" "proof"
+  # Story-Type drives the profile's N/A pre-fills; unknown/empty -> the full canonical set.
+  local type; type="$(backend_get_type "$dir" "$handle")"
+  # Story-KIND drives the ROW SET itself (analysis/documentation/ops carry a reduced canonical set).
+  # Read from the story of record; empty/unreadable resolves to development (the FULL set — strictest on error).
+  local kind; kind="$(_story_kind_of "$dir" "$handle")"
+
+  # --apply: write a COMPLETE, agent-filled table (from a file or stdin) as the canonical proof note, verbatim
+  # (after a shape sanity-check). Mechanizes "generate the whole table, then record it" without hand-editing the note.
+  if [ -n "$apply" ]; then
+    local tbl; if [ "$apply" = "-" ]; then tbl="$(cat)"; else [ -f "$apply" ] || die "proof --apply: file not found: $apply"; tbl="$(cat "$apply")"; fi
+    printf '%s' "$tbl" | grep -c '| Quality Dimension |' >/dev/null || die "proof --apply: input is not a proof table (no '| Quality Dimension |' header)"
+    # Validate EVERY data row (shape + verdict) BEFORE writing, via the SAME shared validator the
+    # counter and guard use — so --apply can never plant a malformed/unknown-verdict row that the gate misreads.
+    if command -v proof_scan_table >/dev/null 2>&1; then
+      proof_scan_table "$tbl" >/dev/null || die "proof --apply: refusing — the table has malformed or unknown-verdict row(s) (see the messages above). Each row must have the table's columns ('| Quality Dimension | Verdict | Evidence | Metrics |') with Verdict one of PROVEN / NOT_PERTINENT / UNPROVEN, and every PROVEN / NOT_PERTINENT row needs evidence text."
+    fi
+    # A hand-written Tally is never trusted: recompute it from the rows (the same rule as --set), so a table with an
+    # UNPROVEN row can never be stored under a tally that reads as complete.
+    command -v proof_recompute_tally >/dev/null 2>&1 && tbl="$(proof_recompute_tally "$tbl")"
+    backend_proof_write "$dir" "$handle" "$tbl" || die "proof: could not write the Proof section"
+    _proof_advance_phase_on_complete "$dir" "$handle" "$tbl"
+    command -v fyi_emit >/dev/null 2>&1 && fyi_emit proof-set "$ref" "proof table updated" || true
+    printf '%s\n' "$tbl"; return 0
+  fi
+
+  # --set: fill named dimension verdicts on the CURRENT proof note (or a fresh template if none), then write back.
+  # This is the mechanical fill for the gitlab backend, where there is no tasks.md to hand-edit.
+  if [ "${#sets[@]}" -ge 1 ]; then
+    local tbl; tbl="$(backend_proof_read "$dir" "$handle" 2>/dev/null)"
+    printf '%s' "$tbl" | grep -c '| Quality Dimension |' >/dev/null || tbl="$(proof_emit_table "$type" "$kind")" || die "proof: canonical dimension list unresolved" 1
+    # A table written before the canonical set grew lacks the new dimension(s): add them in place so they can be filled.
+    command -v proof_add_missing_rows >/dev/null 2>&1 && tbl="$(proof_add_missing_rows "$tbl" "$type" "$kind")"
+    local kv d rest v e m r2 have_e have_m _mp
+    for kv in "${sets[@]}"; do
+      case "$kv" in *=*) : ;; *) die "proof --set: expected 'Dimension=VERDICT[|evidence[|metrics]]', got: $kv" ;; esac
+      d="${kv%%=*}"; rest="${kv#*=}"; e=""; m=""; have_e=0; have_m=0
+      # A literal pipe inside the evidence or metrics is written as \| : it is parked on a placeholder (the ASCII
+      # unit separator, which never occurs in proof text) so only the unescaped pipes split the fields, then put back
+      # as a plain pipe that the cell writer escapes for the table.
+      rest="${rest//\\|/$_PROOF_PIPE_MARK}"; v="$rest"
+      # VERDICT | evidence | metrics — the 3rd field (the Metrics cell) is optional.
+      case "$rest" in *"|"*)
+        v="${rest%%|*}"; r2="${rest#*|}"
+        case "$r2" in *"|"*) e="${r2%%|*}"; m="${r2#*|}"; have_e=1; have_m=1 ;; *) e="$r2"; have_e=1 ;; esac
+        ;; esac
+      v="${v//$_PROOF_PIPE_MARK/|}"; e="${e//$_PROOF_PIPE_MARK/|}"; m="${m//$_PROOF_PIPE_MARK/|}"
+      # Default-on metrics gate (opt out: PROOF_METRICS_GATE=off): refuse a mandatory-dimension PROVEN that cites no
+      # metric, and a Test Discipline PROVEN whose coverage/CRAP miss the configured thresholds. The SHARED helper is
+      # the SAME rule the close guard applies, so the CLI and the gate can never diverge.
+      if command -v proof_metrics_set_problem >/dev/null 2>&1; then
+        _mp="$(PROOF_TD_STORY="$(basename "$handle")" proof_metrics_set_problem "$d" "$v" "$m" "$(proof_source_root "$(dirname "$dir")" 2>/dev/null)" "$(backend_get_kind "$dir" "$handle" 2>/dev/null || true)")"
+        [ -n "$_mp" ] && die "proof --set: refusing — $_mp"
+      fi
+      if [ "$have_m" = 1 ]; then
+        tbl="$(proof_apply_verdict "$tbl" "$d" "$v" "$e" "$m")" || die "proof --set: unknown dimension '$d' or verdict '$v'"
+      elif [ "$have_e" = 1 ]; then
+        tbl="$(proof_apply_verdict "$tbl" "$d" "$v" "$e")" || die "proof --set: unknown dimension '$d' or verdict '$v'"
+      else
+        tbl="$(proof_apply_verdict "$tbl" "$d" "$v")" || die "proof --set: unknown dimension '$d' or verdict '$v'"
+      fi
+    done
+    # The shared scan also enforces the evidence rule (a PROVEN / NOT_PERTINENT row needs evidence text), naming the row.
+    if command -v proof_scan_table >/dev/null 2>&1; then
+      proof_scan_table "$tbl" >/dev/null || die "proof --set: refusing - a row is malformed or a PROVEN / NOT_PERTINENT row has no evidence text (see the messages above); give every such row evidence: 'Dimension=PROVEN|evidence|metrics'."
+    fi
+    tbl="$(proof_recompute_tally "$tbl")"
+    backend_proof_write "$dir" "$handle" "$tbl" || die "proof: could not write the Proof section"
+    _proof_advance_phase_on_complete "$dir" "$handle" "$tbl"
+    command -v fyi_emit >/dev/null 2>&1 && fyi_emit proof-set "$ref" "proof table updated" || true
+    printf '%s\n' "$tbl"; return 0
+  fi
+
+  # No --set/--apply/--write: RENDER the story's proof. Default = the STORED verdicts read from the backend (so
+  # viewing/auditing a filled or closed story shows its real table, not a blank scaffold — the SSoT is the source).
+  # Only --template forces the blank canonical scaffold (always re-emitting the template would make a proven story
+  # look UNPROVEN).
+  if [ "$write" -eq 0 ]; then
+    if [ "$template" -eq 0 ]; then
+      local stored; stored="$(backend_proof_read "$dir" "$handle" 2>/dev/null)"
+      if printf '%s' "$stored" | grep -c '| Quality Dimension |' >/dev/null; then
+        _proof_print "$stored" "$format"
+        return 0
+      fi
+      # The terminal form shows a STORED proof; with none there is nothing to show (the bridge answers the same).
+      if [ "$format" = text ]; then
+        printf '(no stored Proof yet for %s — nothing to show; fill it with `story proof %s --set ...`)\n' "$ref" "$ref"
+        return 0
+      fi
+      # No stored proof yet -> show the blank scaffold, and say so (do not pretend a stored table exists).
+      printf '(no stored Proof yet — showing the blank canonical scaffold; fill it with `story proof %s --set ...`)\n' "$ref" >&2
+    fi
+    local scaffold; scaffold="$(proof_emit_table "$type" "$kind")" || die "proof: canonical dimension list unresolved" 1
+    _proof_print "$scaffold" "$format"
+    return 0
+  fi
+  # --write: (re)write the story's `## Proof` section idempotently from the STORED verdicts — it must NEVER
+  # blank an existing proof. The old code emitted the empty canonical scaffold and wrote THAT, so a `--write` that
+  # ran in a later invocation than the `--set`s silently overwrote the filled table with an all-UNPROVEN one (a
+  # green-washing hole: the blanked note still carried the proof marker). Read the stored table and re-post it;
+  # fall back to the blank scaffold ONLY when no proof note exists yet.
+  local table; table="$(backend_proof_read "$dir" "$handle" 2>/dev/null)"
+  printf '%s' "$table" | grep -c '| Quality Dimension |' >/dev/null || table="$(proof_emit_table "$type" "$kind")" || die "proof: canonical dimension list unresolved" 1
+  command -v proof_add_missing_rows >/dev/null 2>&1 && table="$(proof_add_missing_rows "$table" "$type" "$kind")"
+  backend_proof_write "$dir" "$handle" "$table" || die "proof: could not write the Proof section"
+  printf '%s\n' "$table"
+}
+
+# --- the epic desk (bash path) ---------------------------------------------------------------------------------------
+# The rules of the epic commands, for the bash path (a project whose bridge story stack is not 'on'): the same rules as
+# the bridge's epic verbs. The backend only reads and writes (backend_epic_records/issues/create/update/delete).
+EPIC_DATE_CLEAR=none        # the date value that clears a date
+EPIC_MAX_NAMED=20           # how many issues a refusal names before it only counts the rest
+EPIC_MOVE_HINT="a story with '$PROG set <id> epic=<E0N>', an issue that is not a story with '$PROG adopt <N> --type <t> --epic <E0N>' into the other epic"
+
+# epic_is_id <text> -> rc 0 for a well-formed epic id (E and digits, nothing else).
+epic_is_id() { [[ "$1" =~ ^E[0-9]+$ ]]; }
+
+# epic_require_id <command> <text> -> dies (usage) unless <text> is an epic id.
+epic_require_id() { epic_is_id "$2" || die "$1: an epic is an id like E<nn>; got: ${2:-<none>}"; }
+
+# epic_date <option> <value> -> prints the day (yyyy-MM-dd, a real calendar day) or nothing for 'none'; dies otherwise.
+epic_date() {
+  local v; v="$(story_trim "$2")"
+  if [ "$(printf '%s' "$v" | tr '[:upper:]' '[:lower:]')" = "$EPIC_DATE_CLEAR" ]; then return 0; fi
+  [[ "$v" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] && [ "$(date -u -d "$v" +%F 2>/dev/null)" = "$v" ] \
+    || die "epic set: $1 must be a day as yyyy-MM-dd (or '$EPIC_DATE_CLEAR' to clear it); got: $2"
+  printf '%s' "$v"
+}
+
+# epic_records <dir> -> the backend's epics (JSON array); dies when they cannot be read.
+epic_records() { backend_epic_records "$1" || die "epic: the epics could not be read; nothing was changed." "$EXIT_NETWORK"; }
+
+# epic_find <dir> <epic> -> the epic's record (JSON), or nothing when it has none. With two records for one id the
+# open one wins, so a closed duplicate never hides the live epic.
+epic_find() {
+  local recs; recs="$(epic_records "$1")" || exit $?
+  printf '%s' "$recs" | jq -c --arg e "$2" '[.[] | select(.epic == $e)] | sort_by(.active | not) | .[0] // empty'
+}
+
+# epic_require <command> <dir> <epic> -> the epic's record; dies when the project has none.
+epic_require() {
+  local rec; rec="$(epic_find "$2" "$3")" || exit $?
+  [ -n "$rec" ] || die "$1: epic $3 has no milestone in this project; create it first ($PROG epic set $3 --title \"...\"). A story must be milestone-backed." 1
+  printf '%s' "$rec"
+}
+
+# epic_issues <dir> <record> -> the epic's attached issues (JSON array); dies when they cannot be read.
+epic_issues() {
+  backend_epic_issues "$1" "$(jq -r .epic <<<"$2")" "$(jq -r .id <<<"$2")" || die "epic: the issues of $(jq -r .epic <<<"$2") could not be read; nothing was changed." "$EXIT_NETWORK"
+}
+
+# The jq definitions every epic printout shares: one epic's line, and the issues a refusal names.
+EPIC_JQ_DEFS='def epic_line: "\(.epic) [\(if .active then "active" else "closed" end)] \(.title)" + (if .start == null and .due == null then "" else " (start \(.start // "-"), due \(.due // "-"))" end);
+def member_list($max): (.[:$max] | map("#\(.iid)" + (if .open then "" else " (closed)" end) + (if .story then "" else " (not a story)" end)) | join(", ")) + (if length > $max then " and \(length - $max) more" else "" end);'
+
+# cmd_epic_list <dir> <state> <search> -- the epics in a state (active by default, closed, all) whose id, title or goal
+# contains the search text (any case), one line each.
+cmd_epic_list() {
+  local dir="$1" state search recs
+  state="$(story_trim "${2:-active}" | tr '[:upper:]' '[:lower:]')"; search="$(story_trim "${3:-}")"
+  case "$state" in active|closed|all) : ;; *) die "epic list: unknown epic state '$state'. Use active, closed or all." ;; esac
+  recs="$(epic_records "$dir")" || exit $?
+  printf '%s' "$recs" | jq -r --arg s "$state" --arg q "$search" "$EPIC_JQ_DEFS"'
+    [.[] | select($s == "all" or (.active == ($s == "active")))
+         | select($q == "" or ([.epic, .title, .goal] | any(ascii_downcase | contains($q | ascii_downcase))))]
+    | if length == 0 then "No \($s) epic" + (if $q == "" then "." else " matches '"'"'\($q)'"'"'." end) else .[] | epic_line end'
+}
+
+# cmd_epic_show <dir> <epic> <state> <search> -- one epic: its line, goal and progress, then its issues (open, closed or
+# all, optionally only those whose title contains the search text); an issue that is not a story is marked.
+cmd_epic_show() {
+  local dir="$1" epic="$2" state search rec issues
+  state="$(story_trim "${3:-all}" | tr '[:upper:]' '[:lower:]')"; search="$(story_trim "${4:-}")"
+  case "$state" in open|closed|all) : ;; *) die "epic show: unknown story state '$state'. Use open, closed or all." ;; esac
+  rec="$(epic_require "epic show" "$dir" "$epic")" || exit $?
+  issues="$(epic_issues "$dir" "$rec")" || exit $?
+  jq -rn --argjson r "$rec" --argjson m "$issues" --arg s "$state" --arg q "$search" "$EPIC_JQ_DEFS"'
+    ($m | map(select(.story))) as $st | ($st | map(select(.open | not)) | length) as $done
+    | ($r | epic_line),
+      "Goal: \(if $r.goal == "" then "-" else $r.goal end)",
+      "Stories: \($st | length) (\(($st | length) - $done) open, \($done) closed), \(if ($st | length) == 0 then 0 else ($done * 100 / ($st | length) | floor) end)% done",
+      ($m[] | select($s == "all" or (.open == ($s == "open"))) | select($q == "" or (.title | ascii_downcase | contains($q | ascii_downcase)))
+            | "#\(.iid) [\(if .open then "open" else "closed" end)] \(.title)" + (if .story then "" else " (not a story)" end))'
+}
+
+# cmd_epic_set <E0N> --title <t> [--goal <g>] [--start <day|none>] [--due <day|none>] -- create the epic, or update it.
+# An update writes only what it is given (the goal and each date are kept otherwise); a due date before the start date
+# is refused.
+# [RiskMitigation RA-02] An update writes only what it is given, so a title change never wipes the goal or dates.
+cmd_epic_set() {
+  local epic="" title="" goal="" dir="" start="" due="" has_goal=0 has_start=0 has_due=0
+  [ "$#" -ge 1 ] || die "epic-set: missing <E0N>"
+  epic="$1"; shift
+  epic_is_id "$epic" || die "epic-set: expected an epic id like E<nn>, got: $epic"
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --title) title="${2:-}"; shift 2 || die "missing value after $1" ;;
+      --goal)  goal="${2:-}"; has_goal=1; shift 2 || die "missing value after $1" ;;
+      --start) [ "$#" -ge 2 ] || die "missing value after $1"; start="$(epic_date --start "$2")" || exit $?; has_start=1; shift 2 || die "missing value after --start" ;;
+      --due)   [ "$#" -ge 2 ] || die "missing value after $1"; due="$(epic_date --due "$2")" || exit $?; has_due=1; shift 2 || die "missing value after --due" ;;
+      --dir)   dir="${2:-}"; shift 2 || die "missing value after $1" ;;
+      *) die "epic-set: unknown argument: $1" ;;
+    esac
+  done
+  [ -n "$dir" ] || dir="$(default_stories_dir)"
+  title="$(printf '%s' "$title" | tr -s '[:space:]' ' ')"; title="$(story_trim "$title")"   # one line, as a milestone title
+  [ -n "$title" ] || die "epic-set: --title is required (repeat the current title to change only the goal or dates)"
+  local rec eff_start eff_due id changes
+  rec="$(epic_find "$dir" "$epic")" || exit $?
+  eff_start="$start"; [ "$has_start" = 1 ] || eff_start="$( [ -n "$rec" ] && jq -r '.start // ""' <<<"$rec")"
+  eff_due="$due";     [ "$has_due" = 1 ]   || eff_due="$( [ -n "$rec" ] && jq -r '.due // ""' <<<"$rec")"
+  if [ -n "$eff_start" ] && [ -n "$eff_due" ] && [[ "$eff_due" < "$eff_start" ]]; then
+    die "epic set: epic $epic's due date $eff_due is before its start date $eff_start; nothing was changed." 1
+  fi
+  if [ -z "$rec" ]; then
+    id="$(backend_epic_create "$dir" "$epic" "$title" "$goal" "$start" "$due")" || exit 1
+  else
+    id="$(jq -r .id <<<"$rec")"
+    changes="$(jq -cn --arg t "$title" --arg g "$goal" --arg s "$start" --arg d "$due" \
+      --argjson hg "$has_goal" --argjson hs "$has_start" --argjson hd "$has_due" \
+      '{title:$t} + (if $hg == 1 then {goal:$g} else {} end) + (if $hs == 1 then {start_date:$s} else {} end) + (if $hd == 1 then {due_date:$d} else {} end)')"
+    local renamed; renamed="$(backend_epic_update "$dir" "$epic" "$id" "$changes")" || exit 1
+    [ -z "$renamed" ] || id="$renamed"
+  fi
+  printf 'milestone:%s%s\n' "$epic" "${id:+ ($id)}"
+}
+
+# cmd_epic_close <dir> <epic> -- close an epic whose attached issues are all closed; refused naming the open ones.
+# [RiskMitigation RA-01] A close with open issues is refused, so no open story ends up under a closed epic.
+cmd_epic_close() {
+  local dir="$1" epic="$2" rec issues open
+  rec="$(epic_require "epic close" "$dir" "$epic")" || exit $?
+  [ "$(jq -r .active <<<"$rec")" = true ] || { printf '%s is already closed.\n' "$epic"; return 0; }
+  issues="$(epic_issues "$dir" "$rec")" || exit $?
+  open="$(jq -r "$EPIC_JQ_DEFS"' map(select(.open)) | if length == 0 then "" else member_list('"$EPIC_MAX_NAMED"') end' <<<"$issues")"
+  [ -z "$open" ] || die "epic close: $epic has open issues: $open. Close them or move them first: $EPIC_MOVE_HINT." 1
+  backend_epic_update "$dir" "$epic" "$(jq -r .id <<<"$rec")" '{"active":false}' || exit 1
+  printf 'closed %s (%s stories)\n' "$epic" "$(jq '[.[] | select(.story)] | length' <<<"$issues")"
+}
+
+# cmd_epic_reopen <dir> <epic> -- reopen a closed epic, so stories can join it again.
+cmd_epic_reopen() {
+  local dir="$1" epic="$2" rec
+  rec="$(epic_require "epic reopen" "$dir" "$epic")" || exit $?
+  [ "$(jq -r .active <<<"$rec")" != true ] || { printf '%s is already open.\n' "$epic"; return 0; }
+  backend_epic_update "$dir" "$epic" "$(jq -r .id <<<"$rec")" '{"active":true}' || exit 1
+  printf 'reopened %s\n' "$epic"
+}
+
+# cmd_epic_delete <dir> <epic> -- delete an epic only when no issue is attached to it, open or closed: deleting it would
+# silently strip the epic from every attached issue, and a finished epic is closed instead, keeping its history.
+# [RiskMitigation RA-01] An epic delete can never orphan a story: any attached issue refuses it.
+cmd_epic_delete() {
+  local dir="$1" epic="$2" rec issues n
+  rec="$(epic_require "epic delete" "$dir" "$epic")" || exit $?
+  issues="$(epic_issues "$dir" "$rec")" || exit $?
+  n="$(jq length <<<"$issues")"
+  [ "$n" -eq 0 ] || die "epic delete: $epic still has $n attached issue(s): $(jq -r "$EPIC_JQ_DEFS"' member_list('"$EPIC_MAX_NAMED"')' <<<"$issues"). Only an empty epic is deleted; move them first ($EPIC_MOVE_HINT) or close a finished epic ($PROG epic close $epic)." 1
+  backend_epic_delete "$dir" "$epic" "$(jq -r .id <<<"$rec")" || exit 1
+  printf 'deleted %s (%s)\n' "$epic" "$(jq -r .id <<<"$rec")"
+}
+
+# cmd_epic_desk <sub> <options-json> <dir> -- run an epic desk subcommand on the bash path; the options were parsed and
+# checked by ssdlc_epic_verb_for, the one parser both paths share.
+cmd_epic_desk() {
+  local sub="$1" opts="$2" dir="$3" epic
+  [ -n "$dir" ] || dir="$(default_stories_dir)"
+  _ensure_stories_dir "$dir"
+  epic="$(jq -r '.epic // ""' <<<"$opts")"
+  [ "$sub" = list ] || epic_require_id "epic $sub" "$epic"
+  case "$sub" in
+    list) cmd_epic_list "$dir" "$(jq -r '.state // "active"' <<<"$opts")" "$(jq -r '.search // ""' <<<"$opts")" ;;
+    show) cmd_epic_show "$dir" "$epic" "$(jq -r '.state // "all"' <<<"$opts")" "$(jq -r '.search // ""' <<<"$opts")" ;;
+    close) cmd_epic_close "$dir" "$epic" ;;
+    reopen) cmd_epic_reopen "$dir" "$epic" ;;
+    delete) cmd_epic_delete "$dir" "$epic" ;;
+  esac
+}
+
+cmd_archive() {
+  local epic="" dir=""
+  [ "$#" -ge 1 ] || die "archive: missing <E0N>"
+  epic="$1"; shift
+  case "$epic" in E[0-9]*) : ;; *) die "archive: expected an epic id like E<nn>, got: $epic" ;; esac
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 || die "missing value after $1" ;;
+      *) die "archive: unknown argument: $1" ;;
+    esac
+  done
+  [ -n "$dir" ] || dir="$(default_stories_dir)"
+  _ensure_stories_dir "$dir"
+
+  # Collect this epic's stories; refuse if any is not Done.
+  local -a members=() ; local d st
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    members+=("$d")
+    if ! backend_is_done "$dir" "$d"; then
+      st="$(story_normalize_status "$(backend_get_field "$dir" "$d" Status)")"
+      die "archive: $epic has a non-Done story ($(basename "$d") is $st); refusing"
+    fi
+  done < <(backend_epic_members "$dir" "$epic")
+
+  [ "${#members[@]}" -ge 1 ] || die "archive: no stories found for $epic"
+
+  # Record each story into the epic's archive files + mark it Archived.
+  for d in "${members[@]}"; do
+    backend_archive_story "$dir" "$epic" "$d"
+  done
+
+  cmd_sync "$dir"
+  printf 'archived %s (%d stories)\n' "$epic" "${#members[@]}"
+}
+
+# --- track-finding (an AI-review finding -> a first-class tracked story) -------------------------
+# cmd_track_finding — read ONE AI-review finding as JSON on stdin ({severity,file,line,title,detail}) and file it
+# as a first-class tracked story in the ACTIVE backend, so review debt is SCHEDULED in the unified backlog, not
+# just fixed in-place. Idempotent by title (never files the same finding twice). This is the reconcile step of the
+# AI-review fix loop (its SKILL calls this only after the user approves TRACKING the finding). Severity aligns to a
+# `severity::<v>` label plus an `ai-review` source label (gitlab); the FS backend records severity in the body.
+cmd_track_finding() {
+  local dir="" type="fix"
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --dir)  dir="${2:-}"; shift 2 || die "missing value after $1" ;;
+      --type) type="${2:-fix}"; shift 2 || die "missing value after $1" ;;
+      *) die "track-finding: unknown argument: $1" ;;
+    esac
+  done
+  [ -n "$dir" ] || dir="$(default_stories_dir)"; mkdir -p "$dir"
+
+  local finding; finding="$(cat)"
+  command -v jq >/dev/null 2>&1 || die "track-finding: jq is required" 1
+  printf '%s' "$finding" | json_test '.' || die "track-finding: stdin is not valid JSON"
+  local title sev file line detail
+  title="$(printf '%s' "$finding"  | jq -r '.title // empty')"
+  [ -n "$title" ] || die "track-finding: the finding has no title"
+  sev="$(printf '%s' "$finding"    | jq -r '.severity // "major"')"
+  file="$(printf '%s' "$finding"   | jq -r '.file // ""')"
+  line="$(printf '%s' "$finding"   | jq -r '.line // empty')"
+  detail="$(printf '%s' "$finding" | jq -r '.detail // ""')"
+  case "$sev" in blocker|major|minor|nit) : ;; *) sev="major" ;; esac
+
+  # The dedup fingerprint is the finding's LOCATION + title (file:line), not the short title
+  # alone. The reviewer's `title` is a `<short>` descriptor: two DIFFERENT findings can share one ("missing null
+  # check") in different files, and a bare-title dedup would wrongly collapse them into a single story. Qualifying
+  # the title with file:line makes the fingerprint stable per finding (recurrence of the SAME finding dedups, while
+  # distinct findings stay distinct). Falls back to title-only when the reviewer gave no file.
+  local loc="$file"; [ -n "$line" ] && loc="$file:$line"
+  local stitle
+  if [ -n "$file" ]; then stitle="[ai-review] $title ($loc)"; else stitle="[ai-review] $title"; fi
+  # Idempotent, SSoT-authoritative: ask the BACKEND whether a story with EXACTLY this fingerprint title already
+  # exists — never scan the local folder mirror (stale/empty under the gitlab backend => a duplicate would slip in).
+  # rc 2 = the SSoT could not be enumerated (API/network error): FAIL HARD before any create rather than risk a
+  # duplicate — a dedup that cannot see the corpus must never silently proceed (no silent degrade).
+  command -v backend_find_by_title >/dev/null 2>&1 || die "track-finding: the backend provides no title-enumeration seam (reinstall kyklos)" 1
+  local _ftrc; backend_find_by_title "$dir" "$stitle"; _ftrc=$?
+  case "$_ftrc" in
+    0) printf 'already tracked: %s\n' "$stitle"; return 0 ;;
+    1) : ;;  # not found in the SSoT — safe to create
+    *) die "track-finding: could not verify the finding is not already tracked (SSoT unreachable) — refusing to create a possible duplicate" ;;
+  esac
+
+  local next slug handle mx
+  mx="$(backend_max_num "$dir")" || die "track-finding: could not determine the next story number (backend/API error)"
+  next="$(( mx + 1 ))"
+  slug="$(story_slugify "$title")"   # the one shared slug rule (kebab, bounded, no trailing dash)
+  [ -n "$slug" ] || slug="finding"
+  # Target the issue the backend ACTUALLY created (its returned handle), not a re-resolve by the computed
+  # number — GitLab may assign a larger iid, which would otherwise send these mutations to the WRONG issue.
+  handle="$(backend_new "$dir" "STORY-$(printf '%03d' "$next")-$slug" "$stitle" "$type" "")" || die "track-finding: create failed"
+  backend_set_field "$dir" "$handle" Summary "$(printf 'AI-review %s finding at %s — %s' "$sev" "${loc:-<unknown>}" "$detail")"
+  # The finding's word maps onto the story severity the next-work order ranks by, exactly as the bridge's track_finding
+  # maps it (blocker critical, major high, minor medium, nit low); the finding's own word stays in the Summary.
+  local level
+  case "$sev" in blocker) level=critical ;; minor) level=medium ;; nit) level=low ;; *) level=high ;; esac
+  backend_add_labels "$dir" "$handle" "severity::$level,ai-review"
+  cmd_sync "$dir"
+  printf 'tracked as %s (severity %s)\n' "$(backend_id_from_handle "$dir" "$handle")" "$level"
+}
+
+# --- migrate (filesystem stories -> GitLab issues) ----------------------------------------------
+# The `## Proof` section body of a tasks.md (heading + rows up to the next `## `). Empty if none.
+migrate_proof_section() {
+  local tasks="$1"
+  [ -f "$tasks" ] || { printf ''; return 0; }
+  awk '/^##[[:space:]]+Proof([[:space:]]|$)/{f=1;print;next} /^##[[:space:]]/{f=0} f{print}' "$tasks"
+}
+
+# An HONEST grandfather proof for a DONE story migrated with NO ## Proof section: it predates this backend / the
+# proof gate, so no per-dimension table exists. This is a truthful PROVENANCE note (NOT a fabricated PROVEN table)
+# that carries no UNPROVEN row, so the story-proof gate accepts the migration-created close instead of flagging it.
+migrate_grandfather_proof() {
+  printf '## Proof (grandfathered on migration)\n\nStory %s was migrated from the filesystem backlog to a GitLab issue with NO `## Proof` section in its source, and its work predates the story-proof gate. No per-dimension table was recorded; this note is honest provenance, NOT a re-attested PROVEN verdict. Carries no UNPROVEN row so the gate accepts the pre-existing close.\n' "$1"
+}
+
+# cmd_migrate — plan (default) or execute (--apply) a migration of the filesystem story corpus into the
+# GitLab-issues backend, establishing the id==iid clean checkpoint. DRY-RUN BY DEFAULT: it only reads the
+# source Stories/ (never mutates it) and prints the plan — the old-id -> new-issue# map, per-story labels/
+# epic/proof, the pruned set (whose lessons must be harvested FIRST), and every cross-reference that a
+# renumber would need to rewrite (a reference to a PRUNED story is flagged DANGLING). It writes NOTHING
+# without --apply. --apply requires the gitlab backend AND an EMPTY target project (backend_max_num==0): a
+# fresh project uploaded ascending is the ONLY way GitLab's auto-assigned iid can equal the story number, so
+# that gate is what makes id==iid true by construction (a poka-yoke, not a hope).
+cmd_migrate() {
+  local from_dir="" apply=0 renumber=1 start_at=1 faithful=0; local -a prune=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --from-dir) from_dir="${2:-}"; shift 2 || die "missing value after $1" ;;
+      # Validate numeric args BEFORE they reach `$((10#$p))`/arithmetic — a non-numeric token otherwise
+      # crashes the loop with a bash arith/`set -u` error instead of a clean, actionable message.
+      --prune)    local _p _x; IFS=',' read -r -a _p <<< "${2:-}"
+                  for _x in "${_p[@]:-}"; do [ -z "$_x" ] && continue
+                    case "$_x" in *[!0-9]*) die "migrate: --prune takes comma-separated story numbers, got '$_x'";; esac; done
+                  prune+=("${_p[@]}"); shift 2 || die "missing value after $1" ;;
+      --preserve-numbers) renumber=0; shift ;;   # keep each story's own number (no clean 1..N renumber)
+      --faithful) faithful=1; renumber=0; shift ;;  # explicit iid == story# + upload the FULL requirements.md body
+      --start-at) start_at="${2:-1}"; case "$start_at" in ''|*[!0-9]*) die "migrate: --start-at needs a non-negative integer, got '$start_at'";; esac; shift 2 || die "missing value after $1" ;;
+      --apply)    apply=1; shift ;;
+      *) die "migrate: unknown argument: $1" ;;
+    esac
+  done
+  [ -n "$from_dir" ] || from_dir="$(default_stories_dir)"
+  [ -d "$from_dir" ] || die "migrate: source Stories dir not found: $from_dir"
+  local backend="${STORY_BACKEND:-local}"
+
+  # Retained set: every STORY-*/ under the source, ascending, minus archived + pruned.
+  local -a rows=(); local d id num p skip
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    id="$(story_id_from_dir "$d")"; num="$(story_num_from_id "$id")"
+    [ -n "$num" ] || continue
+    story_is_archived "$d/requirements.md" && continue
+    skip=0
+    for p in "${prune[@]:-}"; do [ -n "$p" ] && [ "$((10#$p))" = "$((10#$num))" ] && skip=1; done
+    [ "$skip" -eq 1 ] && continue
+    rows+=("$num	$d")
+  done < <(story_list_dirs "$from_dir")
+  [ "${#rows[@]}" -ge 1 ] || die "migrate: no stories to migrate under $from_dir"
+
+  # Assign the new number for each retained story + build the old->new map.
+  local -A newnum=(); local i=0 r on
+  for r in "${rows[@]}"; do
+    on="${r%%	*}"
+    if [ "$renumber" -eq 1 ]; then newnum["$on"]=$((start_at + i)); else newnum["$on"]="$((10#$on))"; fi
+    i=$((i + 1))
+  done
+
+  local mode
+  if [ "$faithful" -eq 1 ]; then mode="faithful (explicit iid==story#, full body)"
+  elif [ "$renumber" -eq 1 ]; then mode="renumber (clean id==iid, start $start_at)"
+  else mode="preserve-numbers"; fi
+  local target="${STORY_GITLAB_PROJECT:-(unset)}"
+
+  # ---- plan header ----
+  printf '== story migrate %s ==\n' "$([ "$apply" -eq 1 ] && echo APPLY || echo 'plan (dry-run)')"
+  printf 'Source: %s\nTarget: backend=%s project=%s\nMode: %s\nRetained: %d   Pruned: %d\n\n' \
+    "$from_dir" "$backend" "$target" "$mode" "${#rows[@]}" "$(( ${#prune[@]} ))"
+
+  # ---- per-story plan + cross-reference analysis ----
+  local dir onum nnum title type epic status branch slug hasproof
+  local -a dangling=()
+  printf '  %-11s %-6s %-6s %-5s %s\n' 'old-id' 'new#' 'type' 'epic' 'title'
+  for r in "${rows[@]}"; do
+    onum="${r%%	*}"; dir="${r#*	}"; nnum="${newnum[$onum]}"
+    id="$(story_id_from_dir "$dir")"; slug="$(story_slug_from_id "$id")"
+    title="$(story_title_from_file "$dir/requirements.md")"; [ -n "$title" ] || title="$slug"
+    type="$(story_get_field "$dir/requirements.md" 'Story-Type')"
+    epic="$(story_get_field "$dir/requirements.md" 'Epic')"
+    hasproof=no; [ -n "$(migrate_proof_section "$dir/tasks.md")" ] && hasproof=yes
+    printf '  STORY-%-5s -> #%-4s %-6s %-5s %s%s\n' \
+      "$onum" "$nnum" "${type:-—}" "${epic:-—}" "$title" "$([ "$hasproof" = yes ] && echo '  [+proof]')"
+    # cross-refs: any STORY-<n> mentioned in this story's docs (except itself) that a renumber must rewrite.
+    local ref rnum
+    for ref in $(grep -ohE 'STORY-[0-9]+' "$dir/requirements.md" "$dir/tasks.md" 2>/dev/null | sort -u); do
+      rnum="$(story_num_from_id "$ref")"; [ -n "$rnum" ] || continue
+      [ "$((10#$rnum))" = "$((10#$onum))" ] && continue
+      if [ -n "${newnum[$rnum]:-}" ]; then
+        [ "$renumber" -eq 1 ] && printf '        xref: STORY-%s -> #%s (in STORY-%s)\n' "$rnum" "${newnum[$rnum]}" "$onum"
+      else
+        dangling+=("STORY-$rnum referenced by STORY-$onum")
+      fi
+    done
+  done
+
+  if [ "${#prune[@]}" -ge 1 ]; then
+    printf '\nPruned (HARVEST each lesson to memory/docs FIRST): %s\n' "$(printf 'STORY-%s ' "${prune[@]}")"
+  fi
+  if [ "${#dangling[@]}" -ge 1 ]; then
+    printf '\nDANGLING cross-references (target pruned/absent — RESOLVE before apply):\n'
+    printf '  - %s\n' "${dangling[@]}"
+  fi
+
+  if [ "$apply" -eq 0 ]; then
+    printf '\n== dry-run: nothing was written. Re-run with --apply under STORY_BACKEND=gitlab on a FRESH project. ==\n'
+    return 0
+  fi
+
+  # ---- apply (gated) ----
+  [ "$backend" = gitlab ] || die "migrate --apply: needs the gitlab backend (run: STORY_BACKEND=gitlab story migrate --apply ...)"
+  # A dangling cross-ref only breaks a RENUMBER (the ref would be rewritten to a wrong/absent number). In faithful
+  # mode the body is uploaded VERBATIM (original numbers kept), so a ref to a non-migrated story is harmless text.
+  [ "$faithful" -eq 1 ] || [ "${#dangling[@]}" -eq 0 ] || die "migrate --apply: ${#dangling[@]} dangling cross-reference(s) — resolve them first"
+  # Gate on the UNFILTERED highest iid (ANY issue), not the story-label-filtered backend_max_num: GitLab
+  # assigns iids across every issue, so a project already holding non-story issues is NOT fresh (story-max would be
+  # 0 yet the next iid is not 1) and id==iid renumbering would collide. backend_max_iid_any also fails-closed on an
+  # API error (rc!=0), so an unreadable target aborts rather than being mistaken for empty.
+  local existing; existing="$(backend_max_iid_any "$from_dir")" || die "migrate --apply: could not verify the target project is empty (API error) — aborting rather than risk a partial/colliding migration"
+  [ "${existing:-0}" = 0 ] || die "migrate --apply: target project is NOT empty (max iid=$existing across ALL issues, story or not) — id==iid needs a FRESH issues project"
+
+  # The apply loop is NOT transactional (GitLab has no multi-issue rollback). A mid-run failure leaves
+  # already-created issues behind, and the empty-target gate above then BLOCKS a clean retry. So track every
+  # created iid and, on ANY failure, emit a RESUMABLE manifest naming exactly what to delete before re-running —
+  # never leave the operator to guess which issues are orphans. Trust each create's RETURNED iid, not rc
+  # from a fail-soft seam.
+  local created=0 handle; local -a made=()
+  _migrate_abort() {   # <message> — print the partial-migration cleanup manifest, then die.
+    printf '\n== migrate ABORTED: PARTIAL migration (%d of %d created). ==\n' "${#made[@]}" "${#rows[@]}" >&2
+    if [ "${#made[@]}" -ge 1 ]; then
+      printf 'These issue iids WERE created — DELETE them before retrying (the empty-target gate blocks a re-run otherwise):\n' >&2
+      printf '  iids: %s\n' "${made[*]}" >&2
+    else
+      printf 'No issues were created; the target is still clean — fix the cause and re-run.\n' >&2
+    fi
+    die "$1"
+  }
+  for r in "${rows[@]}"; do
+    onum="${r%%	*}"; dir="${r#*	}"; nnum="${newnum[$onum]}"
+    id="$(story_id_from_dir "$dir")"; slug="$(story_slug_from_id "$id")"
+    title="$(story_title_from_file "$dir/requirements.md")"; [ -n "$title" ] || title="$slug"
+    type="$(story_get_field "$dir/requirements.md" 'Story-Type')"
+    epic="$(story_get_field "$dir/requirements.md" 'Epic')"
+    status="$(story_normalize_status "$(story_get_field "$dir/requirements.md" 'Status')")"
+    branch="$(story_get_field "$dir/requirements.md" 'Branch')"
+    if [ "$faithful" -eq 1 ]; then
+      # Explicit iid == story number, FULL requirements.md body as the description (no renumber, no xref rewrite).
+      handle="$(backend_import_issue "$from_dir" "$nnum" "$title" "$type" "$epic" "$dir/requirements.md")"
+      [ "$handle" = "$nnum" ] || _migrate_abort "migrate --apply: import of STORY-$onum returned iid='$handle' (wanted $nnum)"
+    else
+      # Renumber onto a FRESH empty project (the gate above proved max iid == 0): GitLab assigns iids
+      # sequentially from 1, so iid == nnum by construction — no gap can make them diverge (a gap needs a
+      # NON-empty project, excluded here). So resolve the freshly-created issue by
+      # nnum and assert it exists; the returned handle is authoritative for the follow-up Branch set.
+      backend_new "$from_dir" "STORY-$nnum-$slug" "$title" "$type" "$epic" >/dev/null || _migrate_abort "migrate --apply: create failed at STORY-$onum"
+      handle="$(backend_resolve "$from_dir" "$nnum")" || _migrate_abort "migrate --apply: created issue #$nnum not resolvable (target not fresh/sequential?)"
+      [ -n "$branch" ] && [ "$branch" != "—" ] && backend_set_field "$from_dir" "$handle" Branch "$branch"
+    fi
+    made+=("$handle")
+    local proof; proof="$(migrate_proof_section "$dir/tasks.md")"
+    if [ -n "$proof" ]; then
+      backend_proof_write "$from_dir" "$handle" "$proof"
+    elif [ "$status" = "Done" ]; then
+      # [Gate-gap fix] A Done story migrated WITHOUT a Proof section would be CLOSED carrying no proof note, which
+      # the story-proof Stop gate then flags on the very next Stop — the migration silently manufactures gate
+      # violations. Attach an honest grandfather provenance note so a migration-created close carries proof by
+      # construction (no UNPROVEN row => the gate accepts it), rather than a fabricated PROVEN table.
+      backend_proof_write "$from_dir" "$handle" "$(migrate_grandfather_proof "$id")"
+    fi
+    # Status LAST (Done => close): so the proof note lands before the issue is closed.
+    case "$status" in Todo|"") : ;; *) backend_set_field "$from_dir" "$handle" Status "$status" ;; esac
+    created=$((created + 1))
+  done
+  printf '\n== applied: created %d issues on project %s. VERIFY, then set STORY_BACKEND=gitlab in .claude/standards.env. ==\n' "$created" "$target"
+}
+
+# cmd_phase <id> <Phase> [--advance] [--reason "<why>"] [--dir <path>] — set the story's SSDLC phase.
+# <Phase> ∈ Requirements|Design|Implementation|Testing|Deployment|Review (Prerequisites = legacy alias). `story new`
+# auto-sets Requirements. Direction rules (the ENFORCEMENT, user-directed):
+#   - FORWARD or same phase          -> allowed freely.
+#   - BACKWARD / out-of-order         -> REFUSED unless a --reason "<justification>" is given (the escape hatch: a
+#                                        legitimate regress — reopened story, back-to-Implementation on a late bug,
+#                                        back-to-Design on updated specs — is allowed but MUST be justified; the
+#                                        reason is recorded as an issue note so the override cannot be silently abused).
+#   - --advance                       -> MONOTONIC forward-only for the guard-driven auto-advance events: a backward
+#                                        target is a NO-OP success (never errors, never regresses, needs no reason).
+# Mutually exclusive labels; no-op on FS (labels are a gitlab concept).
+cmd_phase() {
+  local ref="" phase="" dir="" canon="" advance=0 reason="" have_reason=0
+  [ "$#" -ge 1 ] || die "phase: missing <id|NNN>"
+  ref="$1"; shift
+  case "${1:-}" in ""|--*) : ;; *) phase="$1"; shift ;; esac
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --advance) advance=1; shift ;;
+      --reason)  reason="${2:-}"; have_reason=1; shift 2 || die "missing value after $1" ;;
+      --dir) dir="${2:-}"; shift 2 || die "missing value after $1" ;;
+      *) die "phase: unknown argument: $1" ;;
+    esac
+  done
+  [ -n "$phase" ] || die "phase: missing <Phase> — one of: $STORY_PHASE_ORDER"
+  canon="$(story_phase_canon "$phase")"
+  [ -n "$canon" ] || die "phase: invalid phase '$phase' — one of: $STORY_PHASE_ORDER (Prerequisites is a legacy alias of Requirements)"
+  [ "$have_reason" -eq 0 ] || [ -n "$(story_trim "$reason")" ] || die "phase: --reason must carry a non-empty justification"
+  [ -n "$dir" ] || dir="$(default_stories_dir)"
+  command -v backend_set_phase >/dev/null 2>&1 || die "phase: the backend provides no phase seam (reinstall kyklos)" 1
+  local handle; handle="$(resolve_story phase "$dir" "$ref")" || exit $?
+  _require_adopted_story "$handle" "phase"
+  local _cur=""
+  command -v backend_get_phase >/dev/null 2>&1 && _cur="$(backend_get_phase "$dir" "$handle" 2>/dev/null || true)"
+  # A BLOCKED story's phase is FROZEN. An agent must not silently resume work (advance the phase) while the
+  # story is still status=Blocked without deliberately clearing the block first (Design->blocked->Testing, never
+  # unblocked). A MANUAL move is refused (unblock, then move); the
+  # guard-driven --advance is a NO-OP success (so an auto-advance event never errors, it just doesn't move a blocked
+  # story). Poka-yoke: the mistake is made impossible at the tool, not merely discouraged.
+  if command -v backend_get_status >/dev/null 2>&1; then
+    local _st; _st="$(backend_get_status "$dir" "$handle" 2>/dev/null || true)"
+    if [ "$_st" = "Blocked" ]; then
+      if [ "$advance" -eq 1 ]; then
+        printf 'ssdlc:phase::%s (unchanged — story is BLOCKED; --advance is a no-op until you unblock it)\n' "${_cur:-?}"
+        return 0
+      fi
+      die "phase: refusing to change $ref's phase while it is BLOCKED — a blocked story's phase is frozen. Resuming work must be deliberate: clear the block first ($PROG set $ref status=In-progress), then set the phase."
+    fi
+    # A story that nobody has started (Todo / Parked) may be specified (Requirements, Design) but not worked:
+    # a phase past Design on a not-started story reads as work in progress that no one owns. Refuse it and name
+    # the start command; the guard-driven --advance is a no-op success, as for a blocked story.
+    if story_phase_needs_start "$_st" "$canon"; then
+      if [ "$advance" -eq 1 ]; then
+        printf 'ssdlc:phase::%s (unchanged — story is %s; start it before advancing past Design)\n' "${_cur:-?}" "${_st:-not started}"
+        return 0
+      fi
+      die "phase: refusing to move $ref to $canon while it is ${_st:-not started} — a phase past Design means the story is being worked, so it must be started first: $PROG set $ref status=In-progress (or $PROG adopt $ref ... for a raw issue), then set the phase."
+    fi
+  fi
+  # --advance: MONOTONIC. Apply the target only if it's a forward move; a backward target is a no-op success.
+  if [ "$advance" -eq 1 ]; then
+    local _res; _res="$(story_phase_advance "$_cur" "$canon")" || die "phase --advance: invalid target phase '$canon'"
+    if [ -n "$_cur" ] && [ "$_res" = "$_cur" ] && [ "$_cur" != "$canon" ]; then
+      printf 'ssdlc:phase::%s (unchanged — already at/after %s; --advance never regresses)\n' "$_cur" "$canon"
+      return 0
+    fi
+    canon="$_res"
+  else
+    # ENFORCEMENT: a BACKWARD / out-of-order manual move is REFUSED unless justified with --reason. The reason
+    # is recorded (issue note) so a legitimate regress is auditable and the escape hatch cannot be silently abused.
+    if [ -n "$_cur" ]; then
+      local _rc _rt; _rc="$(story_phase_rank "$_cur")"; _rt="$(story_phase_rank "$canon")"
+      if [ -n "$_rc" ] && [ -n "$_rt" ] && [ "$_rt" -lt "$_rc" ]; then
+        [ "$have_reason" -eq 1 ] || die "phase: refusing to move $ref BACKWARD ($_cur -> $canon) without a justification. A regress (reopened story, back-to-Implementation on a late bug, back-to-Design on updated specs) is allowed but MUST be justified: story phase $ref $canon --reason \"<why>\"."
+        command -v backend_note >/dev/null 2>&1 && backend_note "$dir" "$handle" "[phase-regress] $_cur -> $canon (justified): $reason" 2>/dev/null || true
+      fi
+    fi
+  fi
+  backend_set_phase "$dir" "$handle" "$canon" || die "phase: could not set ssdlc:phase::$canon"
+  cmd_sync "$dir" >/dev/null 2>&1 || true
+  command -v fyi_emit >/dev/null 2>&1 && fyi_emit story-phase "$ref" "phase -> $canon" "$canon" || true
+  if [ "$have_reason" -eq 1 ] && [ "$advance" -eq 0 ]; then printf 'ssdlc:phase::%s (regress justified + recorded)\n' "$canon"; else printf 'ssdlc:phase::%s\n' "$canon"; fi
+}
+
+# _story_ancestor_reaches <dir> <start-num> <target-num> — rc 0 iff walking <start>'s Parent chain reaches
+# <target> (or start == target). Used to reject a cycle BEFORE writing a Parent: making C a child of P is a
+# cycle iff P == C or C is already an ancestor of P. Bounded by a visited guard so a pre-existing corrupt cycle in
+# the data can never loop this forever.
+_story_ancestor_reaches() {
+  local dir="$1" cur="$2" target="$3" seen=" " h body
+  while [ -n "$cur" ]; do
+    [ "$cur" = "$target" ] && return 0
+    case "$seen" in *" $cur "*) return 1 ;; esac   # already visited => corrupt loop, stop (not the target)
+    seen="$seen$cur "
+    h="$(backend_resolve "$dir" "$cur" 2>/dev/null)" || return 1
+    body="$(backend_body_read "$dir" "$h" 2>/dev/null)"
+    cur="$(story_parent_iid_from_body "$body")"
+  done
+  return 1
+}
+
+# cmd_parent <child> <N> [--dir <path>] — set (or re-point) the child story's parent to issue #N. Writes the
+# canonical `- **Parent:** #N` bullet THROUGH the backend. Fail-hard on: a malformed N, N not an existing story,
+# self-parent, or a cycle (N is C, or C is already an ancestor of N). The relationship's SOLE source of truth.
+cmd_parent() {
+  local child="" parent="" dir=""
+  [ "$#" -ge 1 ] || die "parent: missing <child id|NNN>"
+  child="$1"; shift
+  case "${1:-}" in ""|--*) : ;; *) parent="$1"; shift ;; esac
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 || die "missing value after $1" ;;
+      *) die "parent: unknown argument: $1" ;;
+    esac
+  done
+  [ -n "$parent" ] || die "parent: missing <N> — the parent issue number (e.g. story parent 158 151)"
+  [ -n "$dir" ] || dir="$(default_stories_dir)"
+  local parent_num child_handle child_id child_num
+  parent_num="$(story_parent_ref_normalize "$parent")"
+  [ -n "$parent_num" ] || die "parent: <N> must be an issue number like 151 or #151; got: $parent"
+  child_handle="$(resolve_story parent "$dir" "$child" "parent: child story not found: $child")" || exit $?
+  _require_adopted_story "$child_handle" "parent"
+  child_id="$(backend_id_from_handle "$dir" "$child_handle")"
+  child_num="$(story_num_from_id "$child_id")"
+  [ -n "$child_num" ] || die "parent: could not determine the child's story number from '$child_id'"
+  [ "$parent_num" = "$child_num" ] && die "parent: a story cannot be its own parent (#$child_num)."
+  resolve_story parent "$dir" "$parent_num" "parent: #$parent_num does not resolve to an existing story." >/dev/null || exit $?
+  if _story_ancestor_reaches "$dir" "$parent_num" "$child_num"; then
+    die "parent: refusing — setting #$child_num's parent to #$parent_num would create a CYCLE (#$child_num is already an ancestor of #$parent_num)."
+  fi
+  backend_set_field "$dir" "$child_handle" "Parent" "#$parent_num" || die "parent: could not record the parent bullet"
+  cmd_sync "$dir" >/dev/null 2>&1 || true
+  printf 'STORY-%s parent set to #%s\n' "$(printf '%03d' "$child_num")" "$parent_num"
+}
+
+# cmd_ra <id> [--apply <file>|-] [--dir <path>] — read or write the story's Risk Assessment register through the
+# backend seam. No --apply: PRINT the current register (backend_ra_read). --apply <file|->: write the file/stdin as
+# the register (backend_ra_write). The backend-agnostic authoring path the ssdlc-risk-assessment skill uses so the
+# numbered RA-## register is satisfiable under BOTH the FS (risk-assessment.md) and gitlab (RA note) backends.
+cmd_ra() {
+  local ref="" dir="" apply=""
+  [ "$#" -ge 1 ] || die "ra: missing <id|NNN>"
+  ref="$1"; shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --apply) apply="${2:-}"; shift 2 || die "missing value after $1" ;;
+      --dir)   dir="${2:-}"; shift 2 || die "missing value after $1" ;;
+      *) die "ra: unknown argument: $1" ;;
+    esac
+  done
+  [ -n "$dir" ] || dir="$(default_stories_dir)"
+  command -v backend_ra_read >/dev/null 2>&1 || die "ra: the backend provides no Risk Assessment seam (reinstall kyklos)" 1
+  local handle; handle="$(resolve_story ra "$dir" "$ref")" || exit $?
+  if [ -n "$apply" ]; then
+    _require_adopted_story "$handle" "ra --apply"   # the register is written only into an adopted story
+    local text
+    if [ "$apply" = "-" ]; then text="$(cat)"; else [ -f "$apply" ] || die "ra --apply: file not found: $apply"; text="$(cat "$apply")"; fi
+    backend_ra_write "$dir" "$handle" "$text" || die "ra: could not write the Risk Assessment register"
+    printf '%s\n' "$text"
+  else
+    backend_ra_read "$dir" "$handle"
+  fi
+}
+
+# cmd_requirements <id> --file <f> [--dir <d>] — author a story's SPEC body THROUGH the tool (not a raw API PUT,
+# the anti-pattern). Replaces everything from the first `## ` heading onward with the file's spec, PRESERVING
+# the tool-managed metadata HEADER (the Status/Story-Type/Epic/Branch/Summary/Parent bullets) so Status/Type/Epic stay
+# tool-managed. The file may be the spec alone OR a full requirements.md — its content is taken from its OWN first
+# `## ` heading, so a header in the file is ignored (no double header).
+cmd_requirements() {
+  local ref="" file="" dir=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --file) file="${2:-}"; shift 2 || die "missing value after $1" ;;
+      --dir)  dir="${2:-}"; shift 2 || die "missing value after $1" ;;
+      -*)     die "requirements: unknown argument: $1" ;;
+      *)      [ -z "$ref" ] || die "requirements: unexpected extra argument: $1"; ref="$1"; shift ;;
+    esac
+  done
+  [ -n "$ref" ]  || die "requirements: <id> is required — story requirements <id> --file <f>"
+  [ -n "$file" ] || die "requirements: --file <f> is required"
+  [ -f "$file" ] || die "requirements: --file not found: $file"
+  [ -n "$dir" ]  || dir="$(default_stories_dir)"
+  command -v backend_set_body >/dev/null 2>&1 || die "requirements: backend_set_body unavailable (reinstall kyklos)" 1
+  # Take the spec from the file's OWN first `## ` heading onward (so a full requirements.md's header is dropped).
+  local spec; spec="$(awk 'f||/^##[[:space:]]/{f=1;print} END{}' "$file")"
+  [ -n "$(printf '%s' "$spec" | tr -d '[:space:]')" ] || die "requirements: --file has no '## ' section — refusing to overwrite the spec with a section-less body" 1
+  local handle; handle="$(resolve_story requirements "$dir" "$ref")" || exit $?
+  _require_adopted_story "$handle" "requirements"   # a spec is written only into an adopted story
+  # Preserve the tool-owned metadata HEADER only (the leading `- **Key:** value` bullet block), NOT arbitrary prose.
+  local cur header original; cur="$(backend_body_read "$dir" "$handle" 2>/dev/null || true)"
+  header="$(_story_metadata_header "$cur")"
+  # strip a leading title H1 from the REUSED header so it never rides back into the body (the strip
+  # runs only on the GitLab write, and a later mirror re-sync re-introduced it — the leak).
+  command -v _story_strip_title_h1 >/dev/null 2>&1 && header="$(_story_strip_title_h1 "$header")"
+  # PRESERVE the `## Original request (verbatim)` provenance section across the spec-replace — adopt
+  # wrote it to keep a user-created issue's original words, and this spec-replace used to WIPE it (the mangling).
+  original=""
+  command -v _story_extract_original_request >/dev/null 2>&1 && original="$(_story_extract_original_request "$cur")"
+  # IDEMPOTENCE on the provenance section: when a canonical copy exists in the CURRENT body, an
+  # incoming copy in the spec FILE is DROPPED (the adoption-written text wins — a transcribed copy is the mangling
+  # risk); a differing incoming copy is surfaced on stderr so a deliberate rewrite is never silent. When NO
+  # canonical exists, the incoming copy is kept (it becomes the canonical).
+  if command -v _story_strip_original_request >/dev/null 2>&1; then
+    local _spec_orig; _spec_orig="$(_story_extract_original_request "$spec" 2>/dev/null || true)"
+    if [ -n "$(printf '%s' "$_spec_orig" | tr -d '[:space:]')" ]; then
+      if [ -n "$(printf '%s' "$original" | tr -d '[:space:]')" ]; then
+        [ "$(printf '%s' "$_spec_orig" | tr -d '[:space:]')" != "$(printf '%s' "$original" | tr -d '[:space:]')" ] \
+          && printf 'requirements: NOTE — the file carried its own "Original request (verbatim)" section DIFFERING from the canonical; the canonical (adoption-written) text is kept.\n' >&2
+        spec="$(_story_strip_original_request "$spec")"
+      else
+        original="$_spec_orig"
+        spec="$(_story_strip_original_request "$spec")"
+      fi
+    fi
+  fi
+  local newbody
+  if [ -n "$(printf '%s' "$header" | tr -d '[:space:]')" ]; then
+    if [ -n "$(printf '%s' "$original" | tr -d '[:space:]')" ]; then
+      newbody="$(printf '%s\n\n%s\n\n%s' "$header" "$original" "$spec")"
+    else
+      newbody="$(printf '%s\n%s' "$header" "$spec")"
+    fi
+  else
+    # [Poka-yoke] A body without the metadata block is an issue that was never adopted (for example created by hand
+    # with a title only). Writing the spec into it would produce a story with no type, epic or status, and a later
+    # adopt would quote the spec as the requester's "original request". Refuse instead and name the one fix.
+    die "requirements: $ref has no story metadata (Status / Story-Type / Epic) - it was never adopted. Adopt it first: $PROG adopt $ref --type <type> --epic <E0N>, then re-run requirements." 1
+  fi
+  backend_set_body "$dir" "$handle" "$newbody" || die "requirements: the body write did not take (see the error above)" 1
+  command -v cmd_sync >/dev/null 2>&1 && cmd_sync "$dir" >/dev/null 2>&1 || true   # refresh the mirror (best-effort)
+  # Tool-owned phase choreography — the AUTHORED transition: once the spec is authored AND conforms (all 7
+  # required items present, no unfilled <FILL:> placeholders), advance Requirements -> Design (monotonic; a story
+  # already at/after Design is unchanged). This fires at the explicit "author the spec" action, NOT the read-only
+  # `story structure` CHECK — so the structure guard stays side-effect-free. Fail-soft; a phase hiccup never breaks it.
+  if command -v backend_get_phase >/dev/null 2>&1 && command -v story_min_structure_problem >/dev/null 2>&1; then
+    local _rq_miss _rq_unf="" _rq_cur _rq_res
+    # Check conformance on the body we JUST authored ($newbody) — NOT a backend_body_read re-read, which can return a
+    # STALE materialize-cached skeleton (the pre-write body) and wrongly report non-conforming (a stub that returns a
+    # fresh canned body hides this; the canary lifecycle test does not).
+    local _rq_body="$newbody"
+    _rq_miss="$(story_min_structure_problem "$_rq_body" 2>/dev/null || true)"
+    command -v story_has_unfilled_placeholder >/dev/null 2>&1 && story_has_unfilled_placeholder "$_rq_body" && _rq_unf=1
+    if [ -z "$_rq_miss" ] && [ -z "$_rq_unf" ]; then
+      _rq_cur="$(backend_get_phase "$dir" "$handle" 2>/dev/null || true)"
+      _rq_res="$(story_phase_advance "$_rq_cur" "Design" 2>/dev/null || true)"
+      [ -n "$_rq_res" ] && backend_set_phase "$dir" "$handle" "$_rq_res" 2>/dev/null || true
+    fi
+  fi
+  printf 'requirements: authored the spec of %s from %s (metadata header preserved). Re-check with `story structure %s`.\n' "$ref" "$file" "$ref"
+}
+
+# _story_missing_items <dir> <handle> -> print each MISSING required SSDLC-story item, one per line, reading
+# the story's combined text through the backend-agnostic seams (body + Risk Assessment register). The ONE place the
+# read+check happens, shared by `story structure` (reports it) and the adopt-time pickup check (warns) so the two
+# can never diverge. Empty output = the story conforms.
+_story_missing_items() {
+  local dir="$1" handle="$2" text=""
+  command -v backend_body_read >/dev/null 2>&1 && text="$(backend_body_read "$dir" "$handle" 2>/dev/null || true)"
+  command -v backend_ra_read   >/dev/null 2>&1 && text="${text}"$'\n'"$(backend_ra_read "$dir" "$handle" 2>/dev/null || true)"
+  story_min_structure_problem "$text"
+  # A `story new` SKELETON has every required SECTION but every value is a `<FILL: …>` sentinel — the story is
+  # structurally present yet NOT AUTHORED, so it is not ready to be worked. Flag it HERE (the shared work-time check
+  # `story structure` + the adopt-pickup warning both use), so the RESTRUCTURE-BEFORE-WORK gate blocks implementation
+  # while the body is still an unfilled template — not only at close. The distinctive
+  # `<FILL:` sentinel is matched (a legitimately-authored `<word>` never does), same discriminator as the close gate.
+  command -v story_has_unfilled_placeholder >/dev/null 2>&1 && story_has_unfilled_placeholder "$text" \
+    && printf '%s\n' "unfilled <FILL: ...> template placeholder(s) - author the story content before working"
+}
+
+# _story_awaiting_ci_ids <stories-dir> -> the STORY-NNN ids of In-progress stories that are only AWAITING CI
+# (phase Testing/Deployment: branch pushed, the pipeline is the sole remaining wait). Empty when the feature is off,
+# there is no phase reader (the FS backend has no phase label), or none qualify. Reuses the backend phase reader +
+# the canonical story_phase_is_awaiting_ci classifier (no parallel parse). The backend-touching half of the slot-free
+# rule; story_active_ref_from makes the pure decision.
+_story_awaiting_ci_ids() {
+  local dir="$1" backlog="$1/BACKLOG.md" id handle phase
+  kyklos_control_off "${KYKLOS_AWAITING_CI_SLOT_FREE:-}" && return 0
+  [ -f "$backlog" ] || return 0
+  command -v backend_get_phase >/dev/null 2>&1 || return 0
+  command -v story_phase_is_awaiting_ci >/dev/null 2>&1 || return 0
+  grep -E '🔵|In-progress' "$backlog" 2>/dev/null | grep -oE 'STORY-[0-9]+' | sort -u | while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    handle="$(backend_resolve "$dir" "$id" 2>/dev/null || true)"; [ -n "$handle" ] || continue
+    phase="$(backend_get_phase "$dir" "$handle" 2>/dev/null || true)"
+    story_phase_is_awaiting_ci "$phase" && printf '%s\n' "$id"
+  done
+}
+
+# _story_current_ref <stories-dir> -> print the id of the SINGLE actively-worked In-progress story from BACKLOG.md,
+# or nothing if there is none or the state is ambiguous. Backend-agnostic: BACKLOG.md is the generated index for
+# both backends. Lets `story structure` (and the structure Stop gate) default to "the story I'm working" with no id.
+# Slot-free rule: when more than one story is In-progress, a story that is only AWAITING CI (phase Testing/Deployment)
+# does NOT hold the active-work slot, so the agent can start the next story while the pipeline runs rather than idle-
+# wait. Such stories are excluded; a default is returned only when exactly one
+# actively-worked story remains. Default-on; KYKLOS_AWAITING_CI_SLOT_FREE=off restores the strict single-ref rule.
+_story_current_ref() {
+  local dir="$1" backlog="$1/BACKLOG.md" ids n
+  [ -f "$backlog" ] || return 0
+  ids="$(grep -E '🔵|In-progress' "$backlog" 2>/dev/null | grep -oE 'STORY-[0-9]+' | sort -u)"
+  n="$(printf '%s\n' "$ids" | grep -c .)"
+  [ "$n" -eq 0 ] && return 0
+  [ "$n" -eq 1 ] && { printf '%s' "$ids"; return 0; }
+  # Several In-progress stories (parallel work): the story whose branch is checked out where the command runs is the
+  # current one, so each sub-agent working in its own story worktree gets its own story.
+  local _cur _cn _m
+  _cur="$(git -C "$PWD" symbolic-ref --short -q HEAD 2>/dev/null || true)"
+  case "$_cur" in
+    feature/story-[0-9]*|hotfix/story-[0-9]*)
+      _cn="$(printf '%s' "$_cur" | sed -E 's#^[^/]+/story-0*([0-9]+).*#\1#')"
+      if [ -n "$_cn" ]; then
+        _m="$(printf '%s\n' "$ids" | awk -v n="$_cn" '{ x=$0; gsub(/[^0-9]/, "", x); if (x != "" && x+0 == n+0) { print; exit } }')"
+        [ -n "$_m" ] && { printf '%s' "$_m"; return 0; }
+      fi ;;
+  esac
+  kyklos_control_off "${KYKLOS_AWAITING_CI_SLOT_FREE:-}" && return 0
+  command -v story_active_ref_from >/dev/null 2>&1 || return 0
+  local awaiting; awaiting="$(_story_awaiting_ci_ids "$dir")"
+  [ -n "$awaiting" ] || return 0
+  story_active_ref_from "$ids" "$awaiting"
+}
+
+# _parse_ref_dir <cmd-name> "$@" — the shared arg parser for the read-only `<subcmd> [<id|NNN>] [--dir <d>]`
+# commands (structure, kind). Sets _PRD_REF (may stay empty -> the caller defaults to the active story) and
+# _PRD_DIR (defaulted here). Centralized so the two parsers cannot drift.
+_parse_ref_dir() {
+  local cmd="$1"; shift
+  _PRD_REF=""; _PRD_DIR=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --dir) _PRD_DIR="${2:-}"; shift 2 || die "missing value after $1" ;;
+      -*)    die "$cmd: unknown argument: $1" ;;
+      *)     [ -z "$_PRD_REF" ] || die "$cmd: unexpected extra argument: $1"; _PRD_REF="$1"; shift ;;
+    esac
+  done
+  [ -n "$_PRD_DIR" ] || _PRD_DIR="$(default_stories_dir)"
+}
+
+# The largest report `attach` sends. The bridge owns the real limit (MaxUploadBytes in its upload handler) and refuses
+# more; this copy only refuses an oversized file before it is sent.
+STORY_ATTACH_MAX_BYTES=$((5 * 1024 * 1024))
+
+# cmd_attach <file> - attach one proof report (a duplication scan, a test summary) to the story project and print the
+# markdown link to cite in a proof row. The name must be a plain report file name the bridge accepts.
+cmd_attach() {
+  local file="${1:-}"
+  [ -n "$file" ] || die "attach: missing <file> (a proof report: .json, .txt, .md, .xml, .csv, .html or .log)"
+  [ "$#" -eq 1 ] || die "attach: give exactly one file"
+  [ -f "$file" ] && [ -r "$file" ] || die "attach: no readable file: $file"
+  local size; size="$(wc -c < "$file" | tr -d '[:space:]')"
+  [ "${size:-0}" -gt 0 ] && [ "$size" -le "$STORY_ATTACH_MAX_BYTES" ] \
+    || die "attach: '$file' holds ${size:-0} bytes; a report must hold 1 to $STORY_ATTACH_MAX_BYTES"
+  command -v backend_attach >/dev/null 2>&1 || die "attach: the ${STORY_BACKEND:-local} backend keeps no attachments (use STORY_BACKEND=gitlab)"
+  backend_attach "$file" || exit 1
+}
+
+# cmd_attach_coverage <id> <bashcov report or folder> [--tree <host tree>] - attach a SHELL coverage receipt to story <id>:
+# only the bashcov cobertura report is sent to the bridge (coverage_receipt). The bridge reads the story's change and
+# the text of its changed shell scripts from its OWN tree (--tree, default its solution root), builds the receipt with
+# the same builder as a .NET coverage run (summary, the changed scripts' coverage lines with the lines that hold no
+# command left out and a script no report lists counted as not run, the compressed report), posts ONE comment on the
+# story and records the archive's fingerprint in the story's Test Discipline token. Prints the link the Test Discipline
+# row must carry. Each call is a new receipt; the latest is the one the close accepts.
+cmd_attach_coverage() {
+  local id="" src="" tree="" report args answer
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --tree) tree="${2:-}"; shift 2 || die "attach-coverage: --tree needs the host tree the bridge reads" ;;
+      *) if [ -z "$id" ]; then id="$1"; elif [ -z "$src" ]; then src="$1"; else die "attach-coverage: unexpected '$1'"; fi; shift ;;
+    esac
+  done
+  [ -n "$id" ] && [ -n "$src" ] || die "attach-coverage: usage: story attach-coverage <id> <bashcov report or folder> [--tree <host tree>]"
+  [ "${STORY_BACKEND:-local}" = gitlab ] || die "attach-coverage: coverage receipts live on the GitLab issue (STORY_BACKEND=gitlab)"
+  [ -n "${STORY_GITLAB_PROJECT:-}" ] || die "attach-coverage: STORY_GITLAB_PROJECT is unset - no issue to attach the receipt to"
+  if [ -f "$src" ]; then report="$src"
+  elif [ -d "$src" ]; then report="$(find "$src" -maxdepth 3 -type f -name '*.xml' -exec grep -l '<coverage' {} + 2>/dev/null | sort | head -1)"
+  fi
+  [ -n "${report:-}" ] && [ -s "$report" ] || die "attach-coverage: no bashcov cobertura report (an .xml holding <coverage>) found at '$src'"
+  require_lib "$HERE/../../hooks/lib/proof-tool-gate.sh" proof_receipt_call \
+    || die "attach-coverage: cannot load hooks/lib/proof-tool-gate.sh completely" 1
+  args="$(jq -cn --arg s "$id" --arg p "$STORY_GITLAB_PROJECT" --rawfile c "$report" --arg t "$tree" \
+      '{story:$s, project:$p, cobertura:$c} + (if $t == "" then {} else {tree:$t} end)')"
+  # The request's size goes with every refusal: the bridge reads requests up to a set limit (KYKLOS_BRIDGE_MAX_REQUEST_BYTES).
+  local sent; sent="$(printf '%s' "$args" | wc -c | tr -d ' ')"
+  answer="$(proof_receipt_call coverage_receipt "$args")" || die "attach-coverage: $answer (request: $sent bytes)"
+  case "$answer" in
+    "recorded: "*) printf '%s\n' "$answer" ;;
+    *) die "attach-coverage: ${answer#refused: } (request: $sent bytes)" ;;
+  esac
+}
+
+# cmd_audit — report every open story whose state contradicts itself: not exactly one status, a phase past Design on
+# a story nobody started, in progress with no phase or no branch, or still open after its branch merged. One
+# `#<iid><TAB><rule><TAB><detail>` line per finding. Exit 0 when clean, 1 when anything is found (so a sweep can
+# branch on it); it never changes a story — each finding names the story-tool command that repairs it.
+cmd_audit() {
+  local dir=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 || die "missing value after $1" ;;
+      *) die "audit: unknown argument: $1" ;;
+    esac
+  done
+  [ -n "$dir" ] || dir="$(default_stories_dir)"
+  command -v backend_story_audit >/dev/null 2>&1 || die "audit: the ${STORY_BACKEND:-local} backend has no audit seam (the audit reads GitLab issue labels; use STORY_BACKEND=gitlab)"
+  local out; out="$(backend_story_audit "$dir")"
+  if [ -z "$out" ]; then printf 'audit: every open story is consistent.\n'; return 0; fi
+  printf '%s\n' "$out" | sed 's/^/#/'
+  printf 'audit: %s finding(s). Repair with the story tool only: status -> %s set <id> status=<S> [--reason ...]; phase -> %s phase <id> <Phase>; branch -> %s set <id> branch=<name>; merged-open -> prove and close.\n' \
+    "$(printf '%s\n' "$out" | grep -c .)" "$PROG" "$PROG" "$PROG" >&2
+  return 1
+}
+
+# cmd_structure — MECHANICALLY check (no AI) that a story carries the 7 required SSDLC-story items,
+# backend-agnostically: reads the story's combined text (body + Risk Assessment register — the same seams both
+# backends expose) and runs story_min_structure_problem. Fail-HARD — prints the missing items and exits 1 when any
+# is absent (a non-conforming story is surfaced loudly, never silently passed); prints an OK line + exits 0 when all
+# 7 are present. The same check runs at story pickup (cmd_adopt); the _TEMPLATE carries all 7 by design.
+cmd_structure() {
+  local ref dir
+  _parse_ref_dir structure "$@"; ref="$_PRD_REF"; dir="$_PRD_DIR"
+  # No id given -> default to the CURRENT (single In-progress) story.
+  if [ -z "$ref" ]; then
+    ref="$(_story_current_ref "$dir")"
+    [ -n "$ref" ] || die "structure: no <id> given and no single In-progress story to default to — pass an id, or mark one story In-progress"
+  fi
+  command -v story_min_structure_problem >/dev/null 2>&1 || die "structure: story-lib.sh not loaded (reinstall kyklos)" 1
+  local handle; handle="$(resolve_story structure "$dir" "$ref")" || exit $?
+  local missing; missing="$(_story_missing_items "$dir" "$handle")"
+  if [ -n "$missing" ]; then
+    printf 'STORY %s is NOT ready to work — %d unmet SSDLC-story requirement(s):\n' "$ref" "$(printf '%s\n' "$missing" | grep -c .)"
+    printf '%s\n' "$missing" | while IFS= read -r _m; do [ -n "$_m" ] && printf '  - %s\n' "$_m"; done
+    printf 'Add any missing section(s) AND author every unfilled <FILL: ...> placeholder (see the ssdlc story _TEMPLATE) BEFORE working, then re-check.\n'
+    return 1
+  fi
+  printf 'STORY %s has all 7 required SSDLC-story items and every spec section the close requires (OK).\n' "$ref"
+}
+
+# _story_kind_of <dir> <handle> -> the story's NORMALIZED kind (development|analysis|documentation|ops).
+# Reads the backend of record (the kind:: label on gitlab / the Kind bullet on FS); ANY absence, ambiguity or read
+# error resolves to development — the strictest set. The ONE resolver every kind consumer in this CLI routes through.
+_story_kind_of() {
+  local raw=""
+  command -v backend_get_kind >/dev/null 2>&1 && raw="$(backend_get_kind "$1" "$2" 2>/dev/null || true)"
+  if command -v proof_kind_normalize >/dev/null 2>&1; then proof_kind_normalize "$raw"; else printf 'development'; fi
+}
+
+# `story kind [<id|NNN>]` -> print the story's normalized kind. With no id, default to the single
+# In-progress story (same resolution as `story structure`). The reader the kind-nudge hook and agents consult.
+cmd_kind() {
+  local ref dir
+  _parse_ref_dir kind "$@"; ref="$_PRD_REF"; dir="$_PRD_DIR"
+  if [ -z "$ref" ]; then
+    ref="$(_story_current_ref "$dir")"
+    [ -n "$ref" ] || die "kind: no <id> given and no single In-progress story to default to — pass an id"
+  fi
+  local handle; handle="$(resolve_story kind "$dir" "$ref")" || exit $?
+  _story_kind_of "$dir" "$handle"
+  printf '\n'
+}
+
+# _story_check_reopen <dir> <handle> <ref> <reopen 0|1> <reason> <field=value>... -> dies unless the status change is
+# coherent with the story's open/closed state. Moving a CLOSED story to open work reopens it: refused unless the
+# caller asked for it explicitly (--reopen) AND gave a reason. --reopen on anything else is refused too, so the flag
+# can never become a habit that pre-records a root cause for a reopen that has not happened.
+_story_check_reopen() {
+  local dir="$1" handle="$2" ref="$3" reopen="$4" reason="$5"; shift 5
+  local kv target=""
+  for kv in "$@"; do
+    [ "$(canonical_field "${kv%%=*}" 2>/dev/null)" = "Status" ] && target="$(story_normalize_status "${kv#*=}")"
+  done
+  if [ -z "$target" ] || ! story_status_is_open_work "$target"; then
+    [ "$reopen" = 1 ] && die "set: --reopen needs an open status to reopen $ref into (status=Todo|In-progress|Blocked|Parked)."
+    return 0
+  fi
+  local cur; cur="$(story_normalize_status "$(backend_get_status "$dir" "$handle" 2>/dev/null || true)")"
+  if story_status_is_closed "$cur"; then
+    [ "$reopen" = 1 ] || die "set: refusing to move $ref to $target: the story is CLOSED ($cur), so this would REOPEN it. A reopen must be deliberate and explained. If the closed work really must be reopened: $PROG set $ref status=$target --reopen --reason \"<why the closed work must be reopened>\" (the reason is recorded as the $STORY_REOPEN_ROOT_CAUSE_MARKER note). To free a work slot, change an OPEN story instead."
+    [ -n "$(story_trim "$reason")" ] || die "set: --reopen needs a non-empty --reason \"<why the closed work must be reopened>\"; it is recorded as the $STORY_REOPEN_ROOT_CAUSE_MARKER note."
+  elif [ "$reopen" = 1 ]; then
+    die "set: --reopen refused: $ref is not closed (it is ${cur:-unknown}), so there is nothing to reopen. Drop --reopen."
+  fi
+}
+
+# _story_record_reopen_root_cause <dir> <handle> <ref> <reason> -> post the reason as the story's root-cause note
+# (the one implementation behind both `set --reopen --reason` and `reopen-root-cause`). Dies if the note does not land.
+_story_record_reopen_root_cause() {
+  local dir="$1" handle="$2" ref="$3" reason; reason="$(story_trim "$4")"
+  [ -n "$reason" ] || die "reopen-root-cause: the reason for $ref is empty; say why the closed work had to be reopened."
+  if ! command -v backend_note_required >/dev/null 2>&1; then
+    warn "NOTE: the local story backend keeps no notes or reopen history, so the reason for $ref is not recorded (there is no re-close gate to satisfy)."
+    return 0
+  fi
+  backend_note_required "$dir" "$handle" "$STORY_REOPEN_ROOT_CAUSE_MARKER $reason" \
+    || die "reopen-root-cause: the $STORY_REOPEN_ROOT_CAUSE_MARKER note was NOT posted on $ref; the re-close gate still demands it. Retry: $PROG reopen-root-cause $ref --reason \"<why>\"." 1
+  printf 'reopen-root-cause: recorded on %s\n' "$ref"
+}
+
+# cmd_reopen_root_cause <id> (--reason "<why>" | --file <f>) [--dir <d>] — record why an ALREADY reopened story was
+# reopened (reopened by hand, or before reopening needed --reopen), so the re-close gate can pass.
+cmd_reopen_root_cause() {
+  local ref="" reason="" file="" dir="" have_reason=0
+  [ "$#" -ge 1 ] || die "reopen-root-cause: missing <id|NNN>"
+  ref="$1"; shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --reason) reason="${2:-}"; have_reason=1; shift 2 || die "missing value after $1" ;;
+      --file)   file="${2:-}"; shift 2 || die "missing value after $1" ;;
+      --dir)    dir="${2:-}"; shift 2 || die "missing value after $1" ;;
+      *) die "reopen-root-cause: unexpected argument: $1 (use --reason \"<why>\" or --file <f>)" ;;
+    esac
+  done
+  if [ -n "$file" ]; then
+    [ "$have_reason" -eq 0 ] || die "reopen-root-cause: give --reason OR --file, not both."
+    [ -f "$file" ] || die "reopen-root-cause: no such file: $file"
+    reason="$(cat "$file")"
+  fi
+  [ -n "$(story_trim "$reason")" ] || die "reopen-root-cause: give a non-empty --reason \"<why>\" or --file <f>."
+  [ -n "$dir" ] || dir="$(default_stories_dir)"
+  local handle; handle="$(resolve_story reopen-root-cause "$dir" "$ref")" || exit $?
+  _require_adopted_story "$handle" "reopen-root-cause"
+  command -v backend_last_reopen_at >/dev/null 2>&1 || die "reopen-root-cause: the local story backend keeps no reopen history; there is nothing to record."
+  local cur; cur="$(story_normalize_status "$(backend_get_status "$dir" "$handle" 2>/dev/null || true)")"
+  story_status_is_closed "$cur" && die "reopen-root-cause: $ref is CLOSED ($cur). To reopen it, use: $PROG set $ref status=<status> --reopen --reason \"<why>\" (it records the reason too)."
+  local at; at="$(backend_last_reopen_at "$dir" "$handle")" || die "reopen-root-cause: could not read the state history of $ref; nothing was posted. Retry when GitLab answers." 3
+  [ -n "$at" ] || die "reopen-root-cause: $ref was never reopened, so there is no reopen to explain."
+  _story_record_reopen_root_cause "$dir" "$handle" "$ref" "$reason"
+}
+
+# cmd_resume <id> [--dir <d>] — the parked-story resume rule: the surviving ssdlc:phase:: label decides
+# the target (phase present -> In-progress, else Todo). A thin wrapper over cmd_set so EVERY status gate
+# (adoption, phase-coherence chokepoint, blocked-reason) is inherited, never bypassed.
+cmd_resume() {
+  local ref="" dir="" ; local -a passthru=()
+  [ "$#" -ge 1 ] || die "resume: missing <id|NNN>"
+  ref="$1"; shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --dir) dir="${2:-}"; passthru+=(--dir "${2:-}"); shift 2 || die "missing value after $1" ;;
+      *) die "resume: unexpected argument: $1" ;;
+    esac
+  done
+  [ -n "$dir" ] || dir="$(default_stories_dir)"
+  local handle; handle="$(resolve_story resume "$dir" "$ref")" || exit $?
+  local st; st="$(backend_get_status "$dir" "$handle" 2>/dev/null || true)"
+  [ "$(story_normalize_status "$st")" = "Parked" ] || die "resume: story $ref is '$st', not Parked - resume only un-parks"
+  local ph target="Todo"
+  ph="$(backend_get_phase "$dir" "$handle" 2>/dev/null || true)"
+  [ -n "$ph" ] && target="In-progress"
+  cmd_set "$ref" "status=$target" ${passthru[@]+"${passthru[@]}"}
+  printf 'resumed %s -> %s (derived from phase: %s)\n' "$ref" "$target" "${ph:-<none>}"
+}
+
+usage() {
+  cat <<EOF
+$PROG — mutate story state + regenerate Stories/BACKLOG.md (the generated index).
+
+Usage:
+  $PROG [--canary] <subcommand> ...   (--canary, or STORY_CANARY=1: run against the canary project, never the real one)
+  $PROG new <kebab-slug> --type <t> --kind <k> --severity <critical|high|medium|low> (--epic <E0N> | --no-epic) [--title "<title>"] [--parent <N>] [--dir <StoriesDir>]
+                                                        (gitlab: --no-epic is refused; a story needs an epic with a milestone;
+                                                         --severity is required there and becomes the severity:: label)
+  $PROG next                                   (what to work on next in this project, in the corporate policy's order: the
+                                                        bridge's next_work verb decides; this only asks it and prints the answer)
+  $PROG adopt <N> --type <t> --epic <E0N> [--kind <k>] [--severity <critical|high|medium|low>] [--work <branch|commit|!MR>] [--dir <StoriesDir>]   (gitlab: bring a USER-created issue #N into the lifecycle;
+                                                        --work: its own work (branch story-<N>, or commits with Refs: #<N>) already
+                                                        exists, so it starts at Implementation; needs the bridge)
+  $PROG kind [<id|NNN>] [--dir <StoriesDir>]   (print the story's kind: development | analysis | documentation | ops)
+  $PROG set <id|NNN> <field=value> [<field=value>...] [--reason "<why>"] [--reopen] [--no-sync] [--dir <StoriesDir>]
+                                                        (status=Blocked is refused: use $PROG block. --reason is required for --reopen; an open
+                                                         status on a CLOSED story is refused unless --reopen --reason "<why>",
+                                                         which records the reason as the root-cause note)
+  $PROG block <id|NNN> --kind <issue|user|external> --on <target> --reason "<why>"   (block a story on what it waits on;
+                                                         --kind is required: issue = an issue, story or merge request in
+                                                         any project (#<n>, !<n>, group/project#<n>, group/project!<n> or a
+                                                         web link); user = the web link to the note that asks the user
+                                                         (#note_<n>); external = the https link of what is awaited.
+                                                         The status label names the kind (status::blocked-on-<kind>);
+                                                         the bridge records the blocker once, marks the open tasks,
+                                                         sets Blocked and posts one note. '$PROG block <id>' alone re-checks the
+                                                         blocker and lifts the block once that reference closes or merges.
+                                                         Needs the bridge's story stack in mode 'on' for this project)
+  $PROG reopen-root-cause <id|NNN> (--reason "<why>" | --file <f>) [--dir <StoriesDir>]
+                                                        (record why an already reopened story was reopened; the re-close gate needs it)
+  $PROG resume <id|NNN> [--dir <StoriesDir>]   (un-park - phase present -> In-progress, else Todo)
+  $PROG parent <child id|NNN> <N> [--dir <StoriesDir>]   (make the child a child of story #N; closing all children auto-closes #N)
+  $PROG close <id|NNN> [--branch "<ref>"] [--summary "<text>"] [--no-sync] [--dir <StoriesDir>]
+                                                        (set and close also take --no-proof-gate / --no-quality-gate, for a
+                                                         LOCAL story migrated from elsewhere only; refused for a tracker story)
+  $PROG proof <id|NNN> [--format markdown|text] [--write] [--template] [--dir <StoriesDir>]
+                                                        (--format text = the terminal form of the stored table: show THAT
+                                                         in a reply; markdown, the default, is the table GitLab shows;
+                                                         --template = the blank canonical scaffold)
+  $PROG proof <id|NNN> --draft [--branch "<deliverable>"] [--dir <StoriesDir>]
+                                                        (START HERE: the bridge assembles the proof from the evidence it holds
+                                                         - receipt, tokens, review, pipeline, tests, spec - and leaves open,
+                                                         with what each needs, only the rows evidence cannot prove; fill those
+                                                         with --set. A drafted row is never edited by hand. Needs the bridge's
+                                                         story stack in mode 'on'; --branch names the deliverable to cite)
+  $PROG proof <id|NNN> --set 'Dimension=VERDICT[|evidence[|metrics]]' [--set ...] [--dir <StoriesDir>]
+                                                        (fill named rows of the stored proof; a literal pipe is written \\|)
+  $PROG proof <id|NNN> --apply <file|-> [--dir <StoriesDir>]   (store a complete filled table from a file or stdin)
+  $PROG ra <id|NNN> [--apply <file|->] [--dir <StoriesDir>]   (print the Risk Assessment register, or store one)
+  $PROG structure [<id|NNN>] [--dir <StoriesDir>]   (check the 7 required story items; no id = the current story; exit 1 if any is missing)
+  $PROG phase <id|NNN> <Requirements|Design|Implementation|Testing|Deployment|Review> [--advance] [--reason "<why>"] [--dir <StoriesDir>]
+                                                        (set the SSDLC phase; forward is free, a BACKWARD move needs --reason; --advance is monotonic)
+  $PROG requirements <id|NNN> --file <f> [--dir <StoriesDir>]   author the spec body via the tool (preserves the metadata header)
+  $PROG audit [--dir <StoriesDir>]                           list open stories whose status, phase or branch contradict each other (exit 1 if any)
+  $PROG sync [--dir <StoriesDir>]
+  $PROG refresh [--dir <StoriesDir>]   (gitlab: re-sync the derived mirror from the SoT, or say-so when offline)
+  $PROG materialize [<id|NNN>|--all] [--dir <StoriesDir>]
+  $PROG check [--dir <StoriesDir>]
+  $PROG archive <E0N> [--dir <StoriesDir>]
+  $PROG epic-set <E0N> --title "<title>" [--goal "<text>"] [--start <yyyy-MM-dd|none>] [--due <yyyy-MM-dd|none>] [--dir <StoriesDir>]
+                                                        (also: epic set ...; an update keeps the goal and dates it is not given)
+  $PROG epic list [--state active|closed|all] [--search "<text>"]   (the project's epics, one line each)
+  $PROG epic show <E0N> [--state open|closed|all] [--search "<text>"]   (one epic: goal, dates, progress, its issues)
+  $PROG epic close|reopen|delete|archive <E0N>   (close: every issue closed; delete: no issue attached at all)
+                                                        (move a story to another epic: $PROG set <id> epic=<E0N>)
+  $PROG migrate [--from-dir <StoriesDir>] [--prune NNN,NNN] [--preserve-numbers] [--faithful] [--start-at N] [--apply]
+  $PROG track-finding [--type <t>] [--dir <StoriesDir>]   (reads one AI-review finding JSON on stdin)
+  $PROG attach <file>   (attach a proof report - .json, .txt, .md, .xml, .csv, .html or .log - and print its link)
+  $PROG attach-coverage <id> <bashcov report or folder> [--tree <host tree>]
+                                                        (attach a SHELL coverage receipt through the bridge: one comment on
+                                                         the story with the summary, the changed scripts' coverage lines and
+                                                         the compressed report; the bridge reads the change from its own tree;
+                                                         prints the link the Test Discipline row must carry. A .NET receipt is
+                                                         posted by the bridge's coverage run itself)
+  $PROG shadow-report [--all]   (the bash-vs-C# comparisons recorded while the bridge's story stack is in shadow mode)
+
+track-finding: file an AI-review finding as a first-class tracked story (idempotent by title; the finding's severity
+  maps to a severity:: label - blocker critical, major high, minor medium, nit low - plus ai-review on gitlab). The reconcile step of the AI-review fix loop.
+
+materialize: (re)write the ON-DISK story folder(s) from the backend of record so BACKLOG links resolve and a
+  hand-off agent finds the files. Under the gitlab backend it renders requirements.md from the issue (Status
+  synced to the native state), seeds tasks.md if absent (never clobbers the agent's Work checklist) and shows the
+  issue's stored proof table in its generated Proof section; a same-number folder of ANOTHER story is moved to
+  _archive/superseded (never deleted); '--all' backfills every
+  story. No-op on the FS backend (its files ARE the record). 'story new'/'sync' call it automatically — this is
+  the manual/backfill entry point. NEVER hand-craft a story folder; use this.
+
+migrate: DRY-RUN by default — prints the filesystem->GitLab plan (old-id -> new-issue# map, labels/epic/proof,
+  pruned set, cross-references to rewrite). --apply needs STORY_BACKEND=gitlab + an EMPTY target project (so
+  iid==id holds by construction). Read the plan and decide the prune set BEFORE --apply.
+
+Field aliases for set: status, type (story-type), epic, kind, target (target-repo), branch, summary, title,
+  archived, assignee (gitlab only; the one value is self).
+
+kind: a story's kind (development | analysis | documentation | ops; chosen at 'new', a kind:: label on gitlab)
+  selects the proof dimensions it owes; the sets are defined in skills/ssdlc-story-proof/proof-dimensions.sh.
+  analysis/documentation also get a soft (advisory, never blocking) "don't write code" nudge.
+Exit codes: 0 ok · 1 refused, or findings (audit, structure) · $EXIT_USAGE usage error · $EXIT_DRIFT check drift
+  · $EXIT_NETWORK GitLab unreachable (nothing changed; retry).
+EOF
+}
+
+# Extract a --dir <path> from an arg list (for the dir-only subcommands); default otherwise.
+dir_from_args() {
+  local dir=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --dir) dir="${2:-}"; shift 2 || die "missing value after $1" ;;
+      *) shift ;;
+    esac
+  done
+  [ -n "$dir" ] || dir="$(default_stories_dir)"
+  printf '%s' "$dir"
+}
+
+main() {
+  [ "$#" -ge 1 ] || { usage >&2; exit "$EXIT_USAGE"; }
+  local sub="$1"; shift
+  case "$sub" in -h|--help|help) ;; *) _story_refuse_mirror_in_source "$@" ;; esac
+  story_own_lane_gate "$sub" "$@"
+  case "$sub" in
+    new)      ssdlc_route new "$@" ;;
+    adopt)    ssdlc_route adopt "$@" ;;
+    set)      ssdlc_route set "$@" ;;
+    block)    ssdlc_block "$@" ;;
+    resume)   ssdlc_route resume "$@" ;;   # un-park: phase present -> In-progress, else Todo
+    reopen-root-cause) ssdlc_route reopen_root_cause "$@" ;;   # record why an already reopened story was reopened
+    close)    ssdlc_route close "$@" ;;
+    proof)    ssdlc_route proof "$@" ;;
+    ra)       ssdlc_route ra "$@" ;;
+    phase)    ssdlc_route phase "$@" ;;
+    parent)   ssdlc_route parent "$@" ;;
+    structure) ssdlc_route structure "$@" ;;
+    next)      cmd_next "$@" ;;   # the next work, as the bridge's next_work verb orders it
+    attach)    cmd_attach "$@" ;;   # attach a proof report and print its markdown link
+    attach-coverage) cmd_attach_coverage "$@" ;;   # attach a shell (bashcov) coverage receipt through the bridge
+    audit)     cmd_audit "$@" ;;
+    kind)     ssdlc_route kind "$@" ;;   # print a story's kind (development|analysis|documentation|ops)
+    requirements) ssdlc_route requirements "$@" ;;
+    sync)     cmd_sync "$(dir_from_args "$@")" ;;
+    refresh)  cmd_refresh "$(dir_from_args "$@")" ;;
+    materialize) cmd_materialize "$@" ;;
+    check)    cmd_check "$(dir_from_args "$@")" ;;
+    archive)  ssdlc_route archive "$@" ;;
+    epic-set) ssdlc_route epic_set "$@" ;;
+    # M11 Accept the TWO-TOKEN `epic set ...` form too: every error string and SKILL.md instruct the user to
+    # run `story epic set E0N --title "..."` (a space), but dispatch only had the hyphenated `epic-set` -> a hard
+    # stall for anyone following the printed guidance. Poka-yoke: the documented invocation now succeeds.
+    epic)
+      case "${1:-}" in
+        set) shift; ssdlc_route epic_set "$@" ;;
+        # The epic desk: list/search, show (stories + progress), close, reopen, delete: the bridge's verbs in mode 'on',
+        # the bash mechanics otherwise (moving a story between epics is 'set <id> epic=E0N').
+        list|show|close|reopen|delete) ssdlc_epic_desk "$@" ;;
+        archive) shift; ssdlc_route archive "$@" ;;
+        ""|-h|--help) die "epic: subcommands are set, list, show, close, reopen, delete and archive — e.g. story epic list --search \"...\"" ;;
+        *) die "epic: unknown subcommand '${1}' (use set, list, show, close, reopen, delete or archive; e.g. story epic show ${1})" ;;
+      esac ;;
+    migrate)  cmd_migrate "$@" ;;
+    track-finding) ssdlc_route track_finding "$@" ;;
+    shadow-report) cmd_shadow_report "$@" ;;   # the bash-vs-C# comparisons recorded in shadow mode
+    -h|--help|help) usage ;;
+    *) die "unknown subcommand: $sub" ;;
+  esac
+}
+
+# Run main only when EXECUTED, not when SOURCED. Executing (`bash story ...`) keeps $0 == this file, so main runs
+# exactly as before; sourcing (a unit test that exercises _story_current_ref / the pure helpers directly) skips it.
+# A behaviour-preserving enabler for testability — no change to any invoked path.
+if [ "${BASH_SOURCE[0]:-$0}" = "${0}" ]; then
+  main "$@"
+fi

@@ -1,0 +1,193 @@
+#!/usr/bin/env bash
+# advreview <story-id> <report-file> — the mechanical half of the ssdlc-adversarial-review skill.
+#
+# Poka-yoke: the agent NEVER hand-crafts the token OR the comment. This helper (a) has the bridge mint the content-bound
+# adversarial-review token under its host-only signing key (MCP tool advreview_mint), (b) has the bridge post the
+# findings report PLUS the token as a GitLab comment on the story with its own token (advreview_post; a bridge without
+# that verb makes it post with the container's token, announced on the direct-token fallback ledger), and (c) prints
+# the two values the Proof "Adversarial Review" row needs, exactly:
+#     Report=<comment-url>
+#     Token=<token>
+# The close gate re-verifies the Token with the bridge (advreview_check, keyed), so a fabricated row cannot pass.
+#
+# Config (same seam the other Kyklos tools use; each read from the environment, else from the workspace's
+# .claude/standards.env; all overridable, so tests stub curl on PATH):
+#   KYKLOS_ISSUES_API        - GitLab API base, e.g. https://gitlab.example.com/api/v4 (else STORY_GITLAB_API)
+#   KYKLOS_ISSUES_TOKEN_ENV  - name of the env var holding the API token (else STORY_GITLAB_TOKEN_ENV); only used by
+#                                a bridge without advreview_post
+#   KYKLOS_ADVREVIEW_PROJECT - the GitLab project id of the story (else STORY_GITLAB_PROJECT)
+#   KYKLOS_BRIDGE_MCP_JSON            - the .mcp.json naming the bridge endpoint (default: the workspace .mcp.json)
+# bash + curl + jq only. Fail-HARD + loud on any missing prerequisite, including an unreachable bridge (never a
+# silent partial that yields a fillable-but-unverifiable row, and never a token minted without the key).
+set +e -uo pipefail
+
+_die() { printf 'advreview: %s\n' "$1" >&2; exit 1; }
+
+# Strip a leading "Adversarial review" title heading (any markdown level), plus the blank lines around it, from the
+# report body, so the wrapper heading added below is the ONLY title in the posted comment. The model-authored report
+# routinely opens with its own "Adversarial review - STORY-<id> ..." heading; concatenated after the wrapper's own
+# "Adversarial review - STORY-<id>" heading that produces a DUPLICATED title in the rendered comment. Normalizing
+# here makes the duplication impossible by construction - a higher poka-yoke rung than asking the review prose not to
+# add a title (which the model reliably does anyway). Only a leading heading whose text IS the review title is
+# dropped, so a body that opens with any other heading is left untouched, and only the FIRST such title is removed.
+_advreview_strip_leading_title() {
+    local line dropped=0 started=0 t h
+    local -a out=()
+    while IFS= read -r line || [ -n "$line" ]; do
+        if [ "$started" -eq 0 ]; then
+            if [ -z "${line//[ $'\t'$'\r']/}" ]; then
+                continue                                     # swallow leading blank lines
+            fi
+            started=1
+            if [ "$dropped" -eq 0 ]; then
+                t="${line#"${line%%[! $'\t']*}"}"            # drop leading spaces/tabs
+                case "$t" in
+                    '#'*)                                    # a markdown heading ...
+                        h="${t#"${t%%[!#]*}"}"               # ... strip its leading run of '#'
+                        h="${h#"${h%%[! $'\t']*}"}"          # ... and the spaces after it
+                        case "${h,,}" in
+                            'adversarial review'*)           # ... whose text IS the review title
+                                dropped=1; started=0; continue
+                                ;;
+                        esac
+                        ;;
+                esac
+            fi
+        fi
+        out+=("$line")
+    done < "$1"
+    [ "${#out[@]}" -gt 0 ] && printf '%s\n' "${out[@]}"
+}
+
+story="${1:-}"; report="${2:-}"
+[ -n "$story" ] && [ -n "$report" ] || _die "usage: advreview <story-id> <report-file>"
+[ -f "$report" ] || _die "report file not found: $report"
+# [CySec] Prevents CWE-20: the story id goes into API paths and the round-count pattern, so only an issue number passes.
+[[ "$story" =~ ^[0-9]+$ ]] || _die "the story id must be the issue number (digits only), not '$story'"
+command -v curl >/dev/null 2>&1 || _die "curl is required"
+command -v jq   >/dev/null 2>&1 || _die "jq is required"
+
+# Settings come from the environment first, else from the workspace's .claude/standards.env (parsed, never sourced),
+# through the same resolver the story tool and the hooks use; the story tool's own STORY_GITLAB_* keys are the
+# fallback, so a repository that declares its story project once needs nothing else. [CySec] Prevents CWE-829: the
+# settings file is read as data, never executed.
+_rrlib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../hooks/lib/repo-role.sh"
+[ -f "$_rrlib" ] || _die "repo-role.sh not found (reinstall kyklos)"
+# shellcheck source=../../hooks/lib/repo-role.sh
+. "$_rrlib"
+_root="$(repo_workspace_root)"
+if [ -n "$_root" ]; then _where="the environment or $_root/.claude/standards.env"
+else _where="the environment (no workspace found: set CLAUDE_PROJECT_DIR or run inside the repository)"; fi
+api="$(repo_setting KYKLOS_ISSUES_API || repo_setting STORY_GITLAB_API)" \
+    || _die "the GitLab API address is unknown: set KYKLOS_ISSUES_API or STORY_GITLAB_API in $_where"
+# The container's own token is needed only on the transition path (a bridge without advreview_post); the bridge posts
+# with its own token otherwise.
+_tokvar="$(repo_setting KYKLOS_ISSUES_TOKEN_ENV || repo_setting STORY_GITLAB_TOKEN_ENV)" || _tokvar=""
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../hooks/lib/gitlab-curl.sh"   # gitlab_curl: the token never leaves the helper
+pid="$(repo_setting KYKLOS_ADVREVIEW_PROJECT || repo_setting STORY_GITLAB_PROJECT)" \
+    || _die "the story's GitLab project is unknown: set KYKLOS_ADVREVIEW_PROJECT or STORY_GITLAB_PROJECT in $_where"
+
+# 1) the bridge mints the token: it holds the host-only signing key, the container never does, so a token minted here
+#    could be computed by anyone. There is no local fallback: an unreachable or refusing bridge stops the review step.
+_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_bmcp="$_HERE/../../hooks/lib/bridge-mcp.sh"
+[ -f "$_bmcp" ] || _die "bridge-mcp.sh not found (reinstall kyklos)"
+# shellcheck source=../../hooks/lib/bridge-mcp.sh
+. "$_bmcp"
+# The bridge refuses a report larger than its MaxReportBytes (512 KiB, owned by the bridge's AdversarialReviewToken):
+# this copy of the limit only refuses it here, by name, before anything is sent; the bridge stays the authority.
+_rbytes="$(wc -c < "$report" | tr -d '[:space:]')"
+[ "${_rbytes:-0}" -le 524288 ] || _die "the report is ${_rbytes} bytes; the limit is 524288 (512 KiB) - shorten it (findings and what was checked, not whole files)"
+# The report's own leading review title (if any) is dropped BEFORE minting, so the bridge judges, signs and posts the
+# same text; the bridge refuses a report that does not follow the review template (see SKILL.md), and nothing is posted.
+_prepf="$(mktemp "${TMPDIR:-/tmp}/advreview-report.XXXXXX")" || _die "could not stage the review report"
+trap 'rm -f "$_prepf"' EXIT
+_advreview_strip_leading_title "$report" > "$_prepf" || _die "could not stage the review report"
+_margs="$(jq -cn --arg s "$story" --rawfile r "$_prepf" '{story:$s, report:$r}')" || _die "could not read the report file"
+_mreply="$(bridge_mcp_call advreview_mint "$_margs" 120)"; _mrc=$?
+case "$_mrc" in
+    0) : ;;
+    2) _die "the KyklosBridge is not configured: no bridge entry in $(bridge_mcp_json_path) (set KYKLOS_BRIDGE_MCP_JSON to the session's .mcp.json when running outside the session folder) - only the bridge can mint a review token; nothing was posted" ;;
+    *) _die "the KyklosBridge did not answer (rc $_mrc) - only the bridge can mint a review token; nothing was posted" ;;
+esac
+bridge_mcp_is_error "$_mreply" && _die "the bridge refused to mint the review token: $(bridge_mcp_text "$_mreply" | head -c 4000)"
+_mtext="$(bridge_mcp_text "$_mreply")"
+tok="$(printf '%s' "$_mtext" | tr -d '[:space:]')"
+[[ "$tok" =~ ^[0-9a-f]{64}$ ]] || _die "the bridge did not mint a review token: ${_mtext:0:4000}"
+
+# 2) the bridge posts the report + token as the story's review note, with its own token, and answers the note's link.
+. "$_HERE/../../hooks/lib/coordination-read.sh"
+# The report reaches jq from a file (staged above), never as a command-line argument (one argument is capped at 128 KiB).
+_pargs="$(jq -cn --arg p "$pid" --arg i "$story" --rawfile r "$_prepf" --arg t "$tok" '{project:$p, iid:$i, report:$r, token:$t}')" \
+    || _die "could not build the review post"
+_ptext="$(coordination_read advreview_post "$_pargs")"; _prc=$?
+case "$_prc" in
+    0)  url="$(printf '%s' "$_ptext" | jq -r '.url // empty' 2>/dev/null)"
+        [ -n "$url" ] || _die "the bridge posted the review but answered no link: ${_ptext:0:300}" ;;
+    4)  url="" ;;   # a bridge without advreview_post: the direct-token transition path below
+    *)  _die "the bridge could not post the review comment (see above) - refusing to emit an unposted Report link" ;;
+esac
+
+# 2b) transition: a bridge without advreview_post. Post with the container's own token, announced on the ledger.
+if [ -z "$url" ]; then
+[ -n "$_tokvar" ] && gitlab_token_present "$_tokvar" \
+    || _die "the bridge has no advreview_post verb and this container has no GitLab token ($([ -n "$_tokvar" ] && printf '%s is empty' "$_tokvar" || printf 'set KYKLOS_ISSUES_TOKEN_ENV or STORY_GITLAB_TOKEN_ENV in %s' "$_where")) - nothing was posted"
+coordination_read_fallback advreview "the bridge has no advreview_post verb"
+# The round is 1 + the story's earlier review notes, the same count the bridge makes: a note counts when it STARTS with
+# the story's hidden marker (with or without a round) and carries the review token line, so a comment quoting the marker
+# does not; CRLF line ends (a note edited in the web form) are read as LF first. Every page is read, and an unreadable page stops the post instead of guessing a round. The round is advisory:
+# two reviews posted at the same moment, or a deleted review note, can repeat a number.
+round=1; _page=1
+while :; do
+    nresp="$(gitlab_curl "$_tokvar" -s -w $'\n%{http_code}' --max-time 20 \
+               "$api/projects/$pid/issues/$story/notes?per_page=100&page=$_page" 2>/dev/null || true)"
+    [ "$(printf '%s' "$nresp" | tail -n1)" = "200" ] \
+        || _die "the story's notes could not be read to number the review round (HTTP $(printf '%s' "$nresp" | tail -n1)) - nothing was posted"
+    _n="$(printf '%s' "$nresp" | sed '$d' | jq --arg s "$story" \
+            '(map(select((.body // "") | gsub("\r\n"; "\n") | test("\\A<!-- dogma:adversarial-review story=" + $s + "( round=[0-9]+)? -->")
+                    and test("(\\A|\n)\\*\\*Adversarial-Review-Token:\\*\\* `[0-9a-f]{64}`(\n|\\z)"))) | length), length' 2>/dev/null)" \
+        || _die "the story's notes could not be parsed to number the review round - nothing was posted"
+    _hits="$(printf '%s\n' "$_n" | sed -n 1p)"; _size="$(printf '%s\n' "$_n" | sed -n 2p)"
+    [[ "$_hits" =~ ^[0-9]+$ && "$_size" =~ ^[0-9]+$ ]] || _die "the story's notes could not be parsed to number the review round - nothing was posted"
+    round=$((round + _hits))
+    [ "$_size" -lt 100 ] && break
+    _page=$((_page + 1))
+done
+# A hidden marker makes the review comments greppable; the heading and the marker carry the round.
+body="$(printf '<!-- dogma:adversarial-review story=%s round=%s -->\n## Adversarial review (round %s) — STORY-%s\n\n%s\n\n---\n**Adversarial-Review-Token:** `%s`\n' \
+        "$story" "$round" "$round" "$story" "$(cat "$_prepf")" "$tok")"
+# The comment reaches curl from a file, never as a command-line argument: one argument is capped (128 KiB on Linux), so
+# a long report would otherwise fail to post after the bridge had already minted its token.
+_bodyf="$(mktemp "${TMPDIR:-/tmp}/advreview-body.XXXXXX")" || _die "could not stage the review comment"
+trap 'rm -f "$_bodyf" "$_prepf"' EXIT
+printf '%s' "$body" > "$_bodyf" || _die "could not stage the review comment"
+resp="$(gitlab_curl "$_tokvar" -s -w $'\n%{http_code}' --max-time 20 \
+          --data-urlencode "body@$_bodyf" \
+          "$api/projects/$pid/issues/$story/notes" 2>/dev/null || true)"
+code="$(printf '%s' "$resp" | tail -n1)"
+json="$(printf '%s' "$resp" | sed '$d')"
+[ "$code" = "201" ] || _die "posting the review comment failed (HTTP ${code:-none}) — refusing to emit an unposted Report link"
+# 3) build the comment's browser link. GitLab's note object carries an `id` but NO `web_url`, so the link is the
+#    issue's own web_url plus the "#note_<id>" anchor GitLab uses for every comment. A missing id or issue url fails
+#    LOUD: a Report cell must point at the real comment, never at a guessed or API-only address.
+note_id="$(printf '%s' "$json" | jq -r '.id // empty' 2>/dev/null || true)"
+[[ "$note_id" =~ ^[0-9]+$ ]] || _die "the review comment was posted but GitLab returned no note id — cannot build its link"
+url="$(printf '%s' "$json" | jq -r '.web_url // empty' 2>/dev/null || true)"
+if [ -z "$url" ]; then
+    iresp="$(gitlab_curl "$_tokvar" -s -w $'\n%{http_code}' --max-time 20 \
+               "$api/projects/$pid/issues/$story" 2>/dev/null || true)"
+    icode="$(printf '%s' "$iresp" | tail -n1)"
+    issue_url="$(printf '%s' "$iresp" | sed '$d' | jq -r '.web_url // empty' 2>/dev/null || true)"
+    [ "$icode" = "200" ] && [ -n "$issue_url" ] \
+        || _die "the review comment was posted (note $note_id) but the story's web url could not be read (HTTP ${icode:-none})"
+    url="$issue_url#note_$note_id"
+fi
+fi
+
+# Tell the bridge GUI the review was posted (display-only; fail-open; never affects the Report/Token output).
+_fyi="$_HERE/../../hooks/lib/fyi.sh"
+# shellcheck source=../../hooks/lib/fyi.sh
+if [ -f "$_fyi" ]; then . "$_fyi" 2>/dev/null && command -v fyi_emit >/dev/null 2>&1 && fyi_emit adversarial-review "$story" "review posted" || true; fi
+
+printf 'Report=%s\n' "$url"
+printf 'Token=%s\n'  "$tok"

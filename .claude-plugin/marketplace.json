@@ -1,0 +1,11 @@
+{
+  "name": "dogmasolutions",
+  "owner": { "name": "Dogma Solutions" },
+  "plugins": [
+    {
+      "name": "kyklos",
+      "source": "./plugins/kyklos",
+      "description": "Shared engineering-discipline Kyklos every Dogma Solutions project inherits: enforcement hooks + skills (poka-yoke, running-tests, coverage). Later ships the KyklosBridge MCP."
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# bridge — the KyklosBridge's read-only verbs from the shell. It lists them and forwards a call to one of them through
+# the bridge's `front_door` verb; the bridge decides which verbs are read-only and refuses every other one, so this
+# command holds no verb list and no rule of its own.
+#
+# Usage:
+#   bridge                     list the read-only verbs this bridge offers (name, then its description)
+#   bridge list                the same
+#   bridge <verb> [json]       call <verb> with the JSON object [json] as its arguments (default {})
+#   bridge --json ...          print the whole answer (the MCP result object, every field) instead of its text
+#
+# Prints the bridge's answer text. Exit 0 = answered; 1 = the bridge refused or the verb reported an error (the reason
+# on stderr); 2 = no answer could be had (bad arguments, no bridge configured, an older bridge without the front door);
+# 3 = the bridge did not answer.
+set +e -uo pipefail
+
+usage() { echo "usage: bridge [--json] [list] | bridge [--json] <verb> [json-object]" >&2; exit 2; }
+
+command -v jq >/dev/null 2>&1 || { echo "bridge: jq is required to talk to the bridge" >&2; exit 2; }
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../hooks/lib/bridge-mcp.sh"
+
+as_json=0
+[ "${1:-}" = "--json" ] && { as_json=1; shift; }
+
+case "${1:-list}" in
+  list) [ "$#" -le 1 ] || usage; args='{}' ;;
+  -h|--help|help) usage ;;
+  -*) usage ;;
+  *)
+    [ "$#" -le 2 ] || usage
+    json="${2:-}"; [ -n "$json" ] || json='{}'
+    printf '%s' "$json" | json_test 'type == "object"' \
+      || { echo "bridge: the arguments must be one JSON object, e.g. '{\"runId\":\"abc\"}'" >&2; exit 2; }
+    args="$(printf '%s' "$json" | jq -c --arg verb "$1" '{verb: $verb, arguments: .}')" || usage
+    ;;
+esac
+
+reply="$(bridge_mcp_call front_door "$args" 300)"; rc=$?
+case "$rc" in
+  0) : ;;
+  2) echo "bridge: no KyklosBridge is configured for this workspace (.mcp.json) — start the session through its launcher" >&2; exit 2 ;;
+  *) echo "bridge: the KyklosBridge did not answer (rc $rc)" >&2; exit 3 ;;
+esac
+text="$(bridge_mcp_text "$reply")"
+if ! printf '%s' "$reply" | json_test '.error | not'; then
+  echo "bridge: $(printf '%s' "$reply" | jq -r '.error.message // "the bridge refused the call"')" >&2
+  exit 1
+fi
+case "$text" in
+  "unknown tool: front_door"*) echo "bridge: this KyklosBridge has no front door yet — relaunch the session to update it" >&2; exit 2 ;;
+esac
+if bridge_mcp_is_error "$reply"; then
+  printf '%s\n' "$text" >&2
+  exit 1
+fi
+if [ "$as_json" -eq 1 ]; then printf '%s' "$reply" | jq '.result'; else printf '%s\n' "$text"; fi
+exit 0

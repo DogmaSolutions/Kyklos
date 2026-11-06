@@ -1,0 +1,5 @@
+# Force LF for the plugin shell hooks + skill docs: a CRLF hook breaks bash on Linux runners, and a
+# CRLF SKILL.md taints frontmatter values. (Checked by tests/validate-plugin.sh.) Bridge/ is out of scope.
+*.sh text eol=lf
+*.md text eol=lf
+*.py text eol=lf

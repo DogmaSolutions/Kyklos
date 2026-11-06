@@ -58,7 +58,7 @@ Kyklos splits credentials by purpose (see [Secrets](SECRETS.md)): the agent can 
 | **CI token** | the source project (or the group) | `read_api` (`api` if the agent should create and arm merge requests there) | The Bridge reads pipelines, jobs, logs and test reports of the source project. Stays on the host. |
 | **Source push token** | the source project | `write_repository` only | The agent pushes its story branches to the source repository. The Launcher refuses to start a project whose push token could also call the API. |
 | **Companion push token** | the companion project | `write_repository` only | The agent pushes its changes to the companion (instructions, settings, documents). |
-| **Distribution read token** | wherever the Kyklos components are published for you | `read_api`, `read_repository` | The Launcher downloads the `Kyklos Bridge` and installs the `Kyklos Plugin` from the marketplace. Not needed when they come from the public Kyklos repository. |
+| **Distribution read token** | wherever the Kyklos components are published for you | `read_api`, `read_repository` | The Launcher downloads the `Kyklos Bridge`, and installs the `Kyklos Plugin` from a preview marketplace on a GitLab server. Not needed when they come from the public Kyklos repository: the public marketplace on GitHub is freely accessible, without a token. |
 
 Keep each value only until the next step, where it goes into your machine's credential store; you will not see it again in GitLab. Never put a token value in a file, a repository or a chat.
 
@@ -139,7 +139,7 @@ Push the branch, open a merge request into `develop`, check that the pipeline is
 
 ### 2.4 The Kyklos Launcher
 
-1. Download the `Kyklos Launcher` release from the [Kyklos GitHub repository](https://github.com/DogmaSolutions/Kyklos). Until the Launcher is published there, take the self-contained bundle for Windows (`kyklos-launcher-win-x64.zip`) from the package registry of the Kyklos distribution you were given access to, with your distribution read token.
+1. Download `kyklos-launcher-win-x64.zip` from the [Kyklos releases page](https://github.com/DogmaSolutions/Kyklos/releases/latest). To check the download, compare `Get-FileHash kyklos-launcher-win-x64.zip` with its line in `SHA256SUMS.txt` on the same page; the programs inside are signed by Dogma Solutions.
 2. The self-contained bundle needs nothing else installed (no .NET runtime): unzip it into an empty folder of its own, for example `C:\Tools\Kyklos`.
 
 Do not start it yet: it first needs your organisation's settings and a settings folder for the Bridge, the next two steps.
@@ -151,32 +151,35 @@ The Launcher reads a few values that describe where your Kyklos components come 
 ```json
 {
   "Launcher": {
-    "Bridge": {
-      "GitLabUrl": "https://gitlab.example.com",
-      "PackageProjectId": "<number of the project that publishes the Kyklos Bridge>",
-      "TokenName": "KYKLOS_DISTRIBUTION_TOKEN"
-    },
     "Projects": {
-      "MarketplaceRepositoryUrl": "<clone address of the Kyklos marketplace repository>",
-      "MarketplaceTokenName": "KYKLOS_DISTRIBUTION_TOKEN",
       "PolicyOrganisationLayer": "C:\\KyklosSettings\\CLAUDE.org.md",
       "SettingsRoot": "C:\\KyklosSettings"
+    },
+    "Marketplace": {
+      "RepositoryUrl": "https://github.com/DogmaSolutions/Kyklos.git"
     }
   }
 }
 ```
+
+**The marketplace and its token.** Most users install the `Kyklos Plugin` from the public marketplace on GitHub, which is freely accessible without a token: set `Marketplace:RepositoryUrl` to its clone address and nothing else. Some users reach early previews through a preview marketplace on a GitLab server, which needs a token: also set `"TokenName": "KYKLOS_DISTRIBUTION_TOKEN"` in the `Marketplace` section, and store that token in the credential store (step 2.7) like any other secret. So the token is an explicit, optional setting that you apply only for the marketplace you use. The Launcher gives it to the plugin install inside the container only; you do not list it among a project's secrets.
+
+| Setting | What it is |
+|---------|------------|
+| `Marketplace:RepositoryUrl` | the clone address of the marketplace the `Kyklos Plugin` is installed from |
+| `Marketplace:TokenName` | optional: the name of the token that clones a preview marketplace on a GitLab server (usually the distribution read token); leave it out for the public marketplace on GitHub |
+| `Projects:PolicyOrganisationLayer` | your organisation layer: the file that completes the generic engineering policy with your organisation's facts (start from the sample layer the marketplace ships, `dist/CLAUDE.org.sample.md`) |
+| `Projects:SettingsRoot` | the folder that holds each project's reviewed `Kyklos Bridge` settings (step 2.6) |
+
+**Where the `Kyklos Bridge` comes from.** The Launcher downloads it from the [Kyklos releases page](https://github.com/DogmaSolutions/Kyklos/releases), checks it against the checksum published with the release, and needs no token and no setting for it. `Bridge:ReleaseUrl` holds that address. To use a GitLab package registry instead (for early previews), set these three settings, and the Launcher reads that registry:
 
 | Setting | What it is |
 |---------|------------|
 | `Bridge:GitLabUrl` | the GitLab address the `Kyklos Bridge` packages are downloaded from |
 | `Bridge:PackageProjectId` | the number of the project whose package registry publishes the `Kyklos Bridge` |
 | `Bridge:TokenName` | the name of the token that reads that package registry (the distribution read token) |
-| `Projects:MarketplaceRepositoryUrl` | the clone address of the marketplace the `Kyklos Plugin` is installed from |
-| `Projects:MarketplaceTokenName` | the name of the token that clones the marketplace (usually the same distribution read token) |
-| `Projects:PolicyOrganisationLayer` | your organisation layer: the file that completes the generic engineering policy with your organisation's facts (start from the sample layer the marketplace ships, `dist/CLAUDE.org.sample.md`) |
-| `Projects:SettingsRoot` | the folder that holds each project's reviewed `Kyklos Bridge` settings (step 2.6) |
 
-Write the two paths as **absolute** paths (in JSON, every `\` is written `\\`). A relative path is never read from the folder you start the Launcher in: a relative `Projects:SettingsRoot` is read from the Launcher's own folder, and a relative `Projects:PolicyOrganisationLayer` from the settings root (or from the Launcher's own folder when no settings root is set). An absolute path leaves no doubt.
+Write the two paths as **absolute** paths (in JSON, every `\` is written `\\`). A relative path is never read from the folder you start the Launcher in: a relative `Projects:SettingsRoot` is read from the Launcher's own folder, and a relative `Projects:PolicyOrganisationLayer` from the settings root (or from the Launcher's own folder when no settings root is set). An absolute path leaves no doubt. A path written for Windows (with a drive letter, or a `\\server\share` path) is taken as it is written on every operating system: on a Linux or macOS host it is never joined under another folder, so such a file is reported as missing, naming the path exactly as you wrote it.
 
 Then start the Launcher. It prints a start-up link to its control panel, which listens on your machine only. Open it in your browser. If a value above is missing, the Launcher says which one.
 
@@ -203,7 +206,7 @@ On the control panel's home page, use the **Credentials and tokens** section to 
 | `HELLO_CI_TOKEN` | the CI token |
 | `HELLO_SOURCE_PUSH_TOKEN` | the source push token |
 | `HELLO_COMPANION_PUSH_TOKEN` | the companion push token |
-| `KYKLOS_DISTRIBUTION_TOKEN` | the distribution read token, if you need one |
+| `KYKLOS_DISTRIBUTION_TOKEN` | the distribution read token, if you need one (a preview marketplace, or the `Kyklos Bridge` from a GitLab package registry) |
 
 The configuration you create next, and the organisation settings of step 2.5, refer to these **names**, never to the values. The values stay in the credential store; the Launcher reads them at launch time and hands them only to the component that needs them.
 
@@ -211,15 +214,15 @@ The configuration you create next, and the organisation settings of step 2.5, re
 
 On the configurations page, create a configuration named `hello-world-sources`. The **Essentials** card lists every required setting; for this project, set:
 
-- the **project name** (`hello-world-sources`). It must match the folder name of step 2.6, and it also decides the port of the project's `Kyklos Bridge`. Two different names can lead to the same port; the Launcher then refuses the second project and names the first, and you rename one of them;
+- the **project name** (`hello-world-sources`). It must match the folder name of step 2.6, and it also decides the port of the project's `Kyklos Bridge`. Two different names can lead to the same port; the Launcher then refuses the second project and names the first, and you rename one of them. When you leave it empty, the project takes the configuration's name;
 - the **workspace folder** (`C:\work\hello-world-companion`). The folder must already exist: the Launcher does not create it;
-- the **GitLab address** (`https://gitlab.example.com`);
+- the **GitLab address** (`https://gitlab.example.com`). It is needed because this project keeps its stories in GitLab and uses the Bridge's CI verbs. A project that keeps its stories in files (`STORY_BACKEND=filesystem`) and turns the CI verbs off (`KYKLOS_BRIDGE_CI_OFF_REASON` set to the reason, in the configuration or in the project's reviewed Bridge settings file) needs no GitLab address;
 - the **story storage** set to GitLab, with the **story project** being the companion project's number (shown on its GitLab home page), and the story token's name (`HELLO_STORY_TOKEN`);
 - the **source push repository** (the source project's clone address) with its push token's name, and the **companion push repository** with its push token's name;
 - the **repository shape**: a companion with the source in the folder `Repo`, the source following GitFlow;
-- the **CI project** (the source project's number) with the CI token's name;
-- the **Kyklos Plugin** turned on (`KYKLOS=1`);
-- the **secrets the container receives** (`KYKLOS_SECRETS`), which must include the name of the marketplace token (`KYKLOS_DISTRIBUTION_TOKEN`): without it the container cannot clone the plugin marketplace, and the `Kyklos Plugin` is not installed.
+- the **CI project** (the source project's number) with the CI token's name: the project whose pipelines the plugin's CI gate watches after a push (`KYKLOS_CI_PROJECT_ID`, `KYKLOS_CI_TOKEN_ENV`). The `Kyklos Bridge`'s own CI verbs take their project and token from the story settings above (the story project and the story token's name), whatever the story storage, unless you turn them off with `KYKLOS_BRIDGE_CI_OFF_REASON`;
+- the **Kyklos Plugin** turned on (`KYKLOS=1`). It is installed from the marketplace of step 2.5; a project can use another one in the editor's **Plugin marketplace** section (`KYKLOS_MARKETPLACE_URL`, and `KYKLOS_MARKETPLACE_TOKEN_NAME` for a preview marketplace that needs a token). The marketplace token is not one of the project's secrets: do not add it to `KYKLOS_SECRETS`.
+- optionally, the project's **own names** (`KYKLOS_OWN_NAMES`): the product and customer names this project may write in its own source although they are on the organisation's disclosure list. They are exempted only there, as whole names, and from that one check; with no list, nothing is exempted.
 
 Press **Save**. The configuration check runs before anything is launched and reports **every** problem it finds in one answer, field by field: a missing setting, a workspace folder that does not exist, a Bridge settings file that is missing or not committed, a project name whose Bridge port another project already uses, a missing organisation setting. Fix them all, then save again until the check confirms the configuration. The configuration's secrets view then shows each declared secret as available or missing: all of them must be available before the first launch.
 
@@ -256,11 +259,11 @@ Anything the agent may not do on its own (publishing outward, deleting shared th
 ## When something does not work
 
 - **The Launcher refuses to launch:** the configuration check names every missing setting, secret, folder or tool in one answer, and the configuration's secrets view shows which secrets are missing; both are available before you launch. A launch that stops later marks the step that failed and shows the reason on it.
-- **An organisation setting is reported missing:** check that `appsettings.json` sits next to the Launcher program (`DogmaSolutions.Kyklos.Launcher.exe` on Windows, `DogmaSolutions.Kyklos.Launcher` on Linux), that its keys are under `Launcher:Bridge` and `Launcher:Projects` exactly as in step 2.5, and that its paths are absolute.
+- **An organisation setting is reported missing:** check that `appsettings.json` sits next to the Launcher program (`DogmaSolutions.Kyklos.Launcher.exe` on Windows, `DogmaSolutions.Kyklos.Launcher` on Linux), that its keys are under `Launcher:Bridge`, `Launcher:Projects` and `Launcher:Marketplace` exactly as in step 2.5, and that its paths are absolute. A file written for an earlier Launcher, with the marketplace keys under `Launcher:Projects`, is moved to `Launcher:Marketplace` when the Launcher starts (a backup of the file is kept beside it).
 - **The Bridge settings file is refused:** it is missing, its folder name differs from the project name, or it is not exactly the committed and pushed version. Commit and push it in the settings root (step 2.6), and keep the settings root outside the workspace folder.
 - **The project name is refused because of its Bridge port:** another project's name leads to the same port. Rename one of the two projects, and rename its Bridge settings folder to match.
 - **The workspace folder is refused:** create the folder (or clone the companion into it) before launching.
-- **The `Kyklos Plugin` is not installed in the session:** the container could not clone the marketplace. Add the marketplace token's name to the project's secrets (`KYKLOS_SECRETS`), check that the token is stored under that name and can read the marketplace repository, and launch again.
+- **The `Kyklos Plugin` is not installed in the session:** the container could not clone the marketplace. Check the marketplace address. For the public marketplace on GitHub, no token is needed: leave `Marketplace:TokenName` empty. For a preview marketplace on a GitLab server, check that `Marketplace:TokenName` names the token, that the token is stored under that name (the configuration check reports a token that is not) and that it can read the marketplace repository, and launch again.
 - **A push token is refused:** it has more than `write_repository`. Create a new one with that scope only.
 - **The container does not start:** check that Docker Desktop's engine is running, and that `devcontainer --version` works in a new terminal.
 - **The agent cannot reach GitLab:** check the story and CI tokens' expiry dates and scopes, then store the new values under the same names in the credential store; the next request picks them up.
