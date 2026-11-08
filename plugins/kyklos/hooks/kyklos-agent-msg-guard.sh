@@ -18,7 +18,13 @@
 #
 # FRONT GATE (no escape): a raw write that CREATES an issue - any issue, whatever its labels - is refused before any
 # escape is consulted. Issues are created only through `story new` (work) or `agent-msg new` (a message to another
-# agent); those tools make their API calls inside their own process, so this hook never sees them.
+# agent); those tools make their API calls inside their own process, so this hook never sees them. A creation is told by
+# the route and the method, never by the word "issues": a write to the issues collection (`.../issues`) that is or may
+# be a POST (a method the command does not show counts as one; curl's last -X counts), GitLab's GraphQL createIssue or
+# workItemCreate mutation, or a GraphQL write whose document the command does not show. Routes are read after `.` and
+# `..` segments are resolved. A write aimed at one issue (a number, or a placeholder such as {iid} or $IID followed by
+# more route, so a note or a note edit) or naming only another method (PUT, PATCH, DELETE) creates nothing; a
+# placeholder that ends the route may be empty and counts as the collection.
 # FAIL-OPEN: not a supported client, not the /issues API, a bare READ, or an escape present => exit 0 (allow).
 # FAIL-HARD: the detector library missing, failing to load or lacking a function => every command refused, named.
 # Escape, for a deliberate operation on an EXISTING issue only (a note, an admin edit, close, reopen or delete):

@@ -42,6 +42,30 @@ The table below lists, for every dimension, the **metrics** its row must carry, 
 
 Adversarial Review is in every kind's set and the agent can never waive it. As for every row, only a person can override it, and the override is recorded.
 
+## The owner's Proof Discipline
+
+Every story's header holds a **Proof Discipline** section, filled when the story is created or adopted, from its kind and the
+values in force:
+
+```markdown
+# Proof Discipline
+
+* [ ] **i18n**
+* [x] **Test Discipline**
+  * Max CRAP Score: 50
+  * Min Coverage: 85%
+* [x] **Documentation**
+```
+
+The section belongs to the owner of the project, and it applies to that one story. Unticking a dimension disables it, ticking one
+requires it, and writing a number changes a threshold, relaxed or tightened. The Bridge alone reads it. An agent can read it and
+ask for a change, and cannot change it: an edit by the agent's own account is no change, and the section is restored.
+
+A disabled dimension needs no evidence. A threshold relaxed past the last measured result satisfies the dimension at once, with
+no new run, as long as the code is still the code that was measured. Every change is shown in the row it touches, with the
+original value, the new value, who decided and when, so a reader never takes it for a measured pass. A change that cannot be
+verified counts as no change.
+
 ## The dimensions, one by one
 
 Each dimension below says **what** it checks, **how** the check is made, **how its metrics are enforced**, and **why**.

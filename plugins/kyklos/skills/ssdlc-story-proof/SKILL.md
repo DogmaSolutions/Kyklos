@@ -317,8 +317,10 @@ one shared seam so the two can never diverge:
   an explicit `on` forces it. When applicable, the score must be ≤ the CRAP ceiling: `PROOF_TD_MAX_CRAP` if set,
   else the repository's own `CRAP_THRESHOLD` (the bar its CI crap-gate enforces), else 30; on a
   no-CRAP-tool stack coverage carries Test Discipline. A **present** CRAP is always thresholded regardless.
-- **A refused token says GAP or TOOL-LIMIT first** — a `GAP` needs the missing evidence (tests, a green run, every
-  shard); a `TOOL-LIMIT` of a green run makes the bridge post one note on the story for the owner to tick. When the owner
+- **A refused token says GAP or its limit's code first** — a `GAP` needs the missing evidence (tests, a green run, every
+  shard); `PROCESS-DID-NOT-RUN` and `REPORT-UNREADABLE` are named retries (fix the named cause, measure again; never a
+  gap, never put to the owner); a `BASE-UNMEASURABLE` of a green run makes the bridge post one note on the story for the
+  owner to tick. When the owner
   ticked "accept", the Test Discipline row cites that note (its `#note_<id>` link) and the close takes it as the
   evidence, with no coverage token and no override label. The rule (who may tick, what voids it) is the bridge's: see
   the bridge README, "Every refusal has a class".
@@ -376,9 +378,12 @@ column is purely advisory.
   - **Named Cause.** The label waives nothing unless the story names the cause of its gap: a line
     starting with `Override cause: <reference>` (in a note or the Test Discipline row) naming an OPEN story or triage item
     that removes the cause, is not the story itself, was not created by the closing agent (unless an owner account created
-    it) and refers back to it in text another account wrote (the item's description, a note or a link), or a note
-    `Override cause: accepted <figure>%` by one of the configured owner accounts, at a figure no higher than the story
-    measured. The same
+    it) and refers back to it in text another account wrote (the item's description, a note or a link). When one of the
+    configured owner accounts writes that line in a note of its own, the owner's line vouches for the item: it then
+    counts even when the closing agent created it and nothing else refers back (still OPEN, a story or triage item, not
+    the story itself). Or a note `Override cause: accepted <figure>%` by one of the configured owner accounts, at a
+    figure no higher than the story measured. An owner's note edited after it was written, or whose change time is
+    missing or unreadable, counts for neither (GitLab does not say who edited it): the owner writes a new note. The same
     rule holds for an arm's one-shot `automerge-coverage-ok` override. The bridge decides it (`proof_validate`); with no
     bridge answer no override counts.
 - The clean path is not to override but to turn each `UNPROVEN` into `PROVEN` (write the missing named test)

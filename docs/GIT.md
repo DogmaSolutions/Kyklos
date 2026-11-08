@@ -12,8 +12,8 @@ the agent:
 Each project's launch configuration names its push credential; the value lives in the [Windows Credential Manager](https://support.microsoft.com/windows/accessing-credential-manager-1b5c916a-6a16-889f-8581-fc16e8165ac0). At every launch the `Kyklos Launcher` reads it,
 asks [GitLab](https://about.gitlab.com/) what the token is allowed to do, and only then hands it to the container: a token that could also call the GitLab API, or an expired one, stops the launch (see [Secrets](SECRETS.md)). Inside the container the push
 credential is the only Git secret, and the guards decide what it may be used for: the agent pushes only its own `feature/` and `hotfix/` branches, plus the trunk of a repository declared
-trunk-based (such as a companion), and only where the project lets the agent watch its own pipelines, through a dedicated token (see the [least-privilege tokens](SECRETS.md)); never a GitFlow trunk, a tag or a forced update. Where the agent may not push, a person
-pushes for it.
+trunk-based (such as a companion), and only where the project lets the agent watch its own pipelines, through a dedicated token (see the [least-privilege tokens](SECRETS.md)); never a GitFlow trunk, a tag or a forced update. Where the agent may not push, a person,
+or the organisation's push-authorised session (see [The Infrastructure session](INFRASTRUCTURE_SESSION.md)), pushes for it.
 
 ## Rules
 Trunks, release and support branches, tags and force pushes are never pushed by the agent.  

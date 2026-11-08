@@ -12,7 +12,8 @@
 #
 # How: lib/piped-script.sh reads the command the way the shell does (the shared normaliser in lib/issue-api-detect.sh)
 # and reports each download whose output reaches a shell or interpreter. A command word computed when the command runs
-# is refused only when a download is piped into it. What it does not catch: plugin README.
+# is refused only when a download is piped into it. A static check of shell text cannot follow names computed at run
+# time in general: the guard is a deterrent with the coverage listed in the plugin README, not a sandbox.
 #
 # Default ON. The only off switch: KYKLOS_PIPED_SCRIPT_GUARD=off (environment or .claude/standards.env); every use is
 # audited. Wired: PreToolUse, matcher Bash.
@@ -73,6 +74,7 @@ while IFS=$'\t' read -r kind detail; do
     [ -n "$kind" ] || continue
     case "$kind" in
         script) reasons+="  - the download from $detail is run as code in the same command, unread"$'\n' ;;
+        unread) reasons+="  - a download is piped into $detail, which is not known to read it only as data (an interpreter or shell may run it as code, even with a program of its own). To read the data, pipe it into jq (curl -s <address> | jq -r '.field'), or save it to a file first (curl -s -o /tmp/data.json <address>) and read the file"$'\n' ;;
         computed) reasons+="  - a download is piped into the command $detail, whose name is computed when the command runs, so what would run the download cannot be read"$'\n' ;;
         *) reasons+="  - $detail (broken install: reinstall or repin the kyklos plugin)"$'\n' ;;
     esac

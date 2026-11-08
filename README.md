@@ -99,4 +99,5 @@ To get started, follow [Installing and configuring Kyklos on Windows](docs/INSTA
 9. [How the agent uses Git: branching and authorisation](docs/GIT.md)
 10. [The Proof Table](docs/PROOF.md)
 11. [Adversarial reviews](docs/ADVERSARIAL_REVIEW.md)
-12. [Knowledge base](docs/KB.md)
+12. [The Infrastructure session: one privileged agent across projects](docs/INFRASTRUCTURE_SESSION.md)
+13. [Knowledge base](docs/KB.md)

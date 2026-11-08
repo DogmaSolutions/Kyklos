@@ -282,6 +282,49 @@ _proof_tool_measured_lines() {
     printf '%s\n' "$lines" | sed '/^$/d'
 }
 
+# A sidecar may also carry, per entry, the trunk branch and commit that entry's run measured against (handed in through
+# KYKLOS_PROOF_TRUNK_REF and KYKLOS_PROOF_TRUNK_COMMIT): "trunk:<path><TAB><ref><TAB><commit>". Two tabs, so the entry
+# reader above (one tab) never reads it and the "mac:" line does not cover it; a "mac2:" line signs the token's MAC and
+# every entry and trunk line in file order. The bridge reads them to decide whether a token survives later trunk merges;
+# a reader that knows only entry lines reads the sidecar exactly as before.
+_PTG_TRUNK_LINE_RE=$'^trunk:[^\t]+\t[^\t]+\t[0-9a-f]{40,64}$'
+_PTG_ENTRY_LINE_RE=$'^[^\t]+\t[0-9a-f]{40,64}$'
+
+# _proof_tool_trunk_given -> rc 0 iff this emit was handed a usable trunk (a branch name without tabs or line breaks and a
+# full commit id); an emit without one writes no trunk line.
+_proof_tool_trunk_given() {
+    local ref="${KYKLOS_PROOF_TRUNK_REF:-}" commit="${KYKLOS_PROOF_TRUNK_COMMIT:-}"
+    [ -n "$ref" ] && [ -n "$commit" ] || return 1
+    case "$ref" in *$'\t'*|*$'\n'*|*$'\r'*) return 1 ;; esac
+    [[ "$commit" =~ ^[0-9a-f]{40,64}$ ]]
+}
+
+# _proof_tool_signed_sidecar_lines TEXT -> the entry and trunk lines of a sidecar's TEXT, in file order: what "mac2:" signs.
+# Only the MAC lines themselves ("mac:", "mac2:") are left out, never an entry whose path merely starts with "mac".
+_proof_tool_signed_sidecar_lines() {
+    printf '%s\n' "$1" | grep -vE '^mac[0-9]*:' | grep -E -e "$_PTG_ENTRY_LINE_RE" -e "$_PTG_TRUNK_LINE_RE" 2>/dev/null
+}
+
+# _proof_tool_measured_trunk_lines TOKFILE -> the trunk lines of TOKFILE's sidecar, nothing when there are none or, under
+# the host key, when its "mac2:" does not sign them with the token's current MAC (so a later run never carries forged or
+# stale trunk lines forward).
+# [CySec] Prevents CWE-345 "Insufficient Verification of Data Authenticity": trunk lines are carried only when signed with
+# the token they belong to.
+_proof_tool_measured_trunk_lines() {
+    local mf stored signed mac2 tmac
+    mf="$(_proof_tool_measured_file "$1")"
+    [ -f "$mf" ] || return 0
+    stored="$(tr -d '\r' < "$mf" 2>/dev/null)"
+    if [ -n "${KYKLOS_PROOF_HMAC_KEY:-}" ]; then
+        signed="$(_proof_tool_signed_sidecar_lines "$stored")"
+        mac2="$(printf '%s\n' "$stored" | sed -n 's/^mac2://p' | head -1)"
+        tmac="$(sed -n 's/^hmac://p' "$1" 2>/dev/null | head -1)"
+        [ -n "$mac2" ] && [ -n "$tmac" ] && [ "$mac2" = "$(_proof_tool_hmac "$(printf '%s\n%s' "$tmac" "$signed")")" ] || return 0
+    fi
+    printf '%s\n' "$stored" | grep -E "$_PTG_TRUNK_LINE_RE" 2>/dev/null
+    return 0
+}
+
 # The change fingerprint -- what a token records for a file the story changed.
 #
 # A coverage run proves the story's OWN change. Recording a file's whole content made the token fail whenever the
@@ -1120,16 +1163,18 @@ EOF
 }
 
 # _proof_tool_merge_measured TOKEN NEW PREVIOUS -> the sidecar lines of the merged TOKEN: this run's NEW lines, then a
-# PREVIOUS line for each entry the merged token still records that this run did not measure.
+# PREVIOUS line for each entry the merged token still records that this run did not measure. Used alike for the
+# measured-against lines and the trunk lines ("trunk:<path>..."), each keyed by its entry path, so a kept entry keeps its
+# own trunk commit.
 _proof_tool_merge_measured() {
     local token="$1" new="$2" prev="$3" line key
     local -A have=() kept=()
     while IFS= read -r line; do [ -n "$line" ] && have["${line%:*}"]=1; done <<< "$token"
     printf '%s' "$new" | sed '/^$/d'
-    while IFS= read -r line; do [ -n "$line" ] && kept["${line%%$'\t'*}"]=1; done <<< "$new"
+    while IFS= read -r line; do [ -n "$line" ] && key="${line#trunk:}" && kept["${key%%$'\t'*}"]=1; done <<< "$new"
     while IFS= read -r line; do
         [ -n "$line" ] || continue
-        key="${line%%$'\t'*}"
+        key="${line#trunk:}"; key="${key%%$'\t'*}"
         [ -n "${have[$key]:-}" ] && [ -z "${kept[$key]:-}" ] && printf '%s\n' "$line"
     done <<< "$prev"
     return 0
@@ -1254,6 +1299,13 @@ proof_tool_emit() {
         [ -n "$_mtop" ] && [ -n "${_PTG_BASE_CACHE[$_mtop]:-}" ] || continue
         measured="$measured$_mrel"$'\t'"${_PTG_BASE_CACHE[$_mtop]}"$'\n'
     done
+    # The trunk this run measured against, one trunk line per entry it recorded (none when no trunk was handed in).
+    local trunk="" _tl
+    if _proof_tool_trunk_given; then
+        while IFS= read -r _tl; do
+            [ -n "$_tl" ] && trunk="${trunk}trunk:${_tl%:*}"$'\t'"$KYKLOS_PROOF_TRUNK_REF"$'\t'"$KYKLOS_PROOF_TRUNK_COMMIT"$'\n'
+        done <<< "$token"
+    fi
     # Bind the token with an HMAC when a host-only key is present (the bridge emit path). The MAC
     # covers the sorted content-hash body; it rides ALONGSIDE the content (an `hmac:<mac>` line), so a keyless
     # container verify is UNCHANGED (content-only), while a keyed (host) verify additionally proves authenticity —
@@ -1279,12 +1331,14 @@ proof_tool_emit() {
     # container's mounts (another repository is mounted elsewhere), so it gets no sidecar and is read as before.
     local base=""
     [ -n "$root_opt" ] || base="$(_proof_tool_rel_between "$(dirname "$tokfile")" "$root")" || base=""
-    local prev_measured=""
+    local prev_measured="" prev_trunk=""
     _proof_tool_lock "$tokfile" || { echo "proof_tool_emit($dim): could not lock the token of story $story (another emit holds $tokfile.lock) -> run the coverage again (a lock left by a killed run is cleared after two minutes)" >&2; return 1; }
     prev_measured="$(_proof_tool_measured_lines "$tokfile")"
+    prev_trunk="$(_proof_tool_measured_trunk_lines "$tokfile")"
     token="$(_proof_tool_merge_previous "$tokfile" "$token" "${root_opt:+$root}" "$base" "$story")"
     # A run that merges earlier runs' entries keeps their measured-against lines and replaces only its own.
     measured="$(_proof_tool_merge_measured "$token" "$measured" "$prev_measured")"
+    trunk="$(_proof_tool_merge_measured "$token" "$trunk" "$prev_trunk")"
     local atts=""
     # A token a receipt-capable bridge minted is never rewritten by an emit that cannot record receipts (an older CLI, a
     # tool without --receipt-capable): that would drop its signed marker and records, and so turn it into a token the
@@ -1308,15 +1362,18 @@ proof_tool_emit() {
     # pair is copied aside, then both are renamed; any failure puts the old pair back, so an old token never sits next
     # to a new root (the gate would read a good token in the wrong folder) and a new token never next to an old one.
     # No relative path (another drive) -> no sidecar, and the gates use the project root.
-    local bf btmp="" tokbak="" bfbak="" ok=1 mf mtmp="" mfbak="" mmac=""; bf="$(_proof_tool_base_file "$tokfile")"; mf="$(_proof_tool_measured_file "$tokfile")"
+    local bf btmp="" tokbak="" bfbak="" ok=1 mf mtmp="" mfbak="" mmac="" mmac2=""; bf="$(_proof_tool_base_file "$tokfile")"; mf="$(_proof_tool_measured_file "$tokfile")"
     { printf '%s\n' "$token"; if [ -n "$mac" ]; then printf 'hmac:%s\n' "$mac"; fi
       if [ -n "$root_opt" ]; then printf 'root:%s\n' "$root"; fi
       if [ -n "$atts" ]; then printf '%s\n' "$atts"; fi; } > "$tmp" || ok=0
     if [ "$ok" = 1 ] && [ -n "$base" ]; then btmp="$bf.${BASHPID:-$$}.$RANDOM.tmp"; printf '%s\n' "$base" > "$btmp" || ok=0; fi
-    if [ "$ok" = 1 ] && [ -n "$measured" ]; then
+    if [ "$ok" = 1 ] && { [ -n "$measured" ] || [ -n "$trunk" ]; }; then
         mtmp="$mf.${BASHPID:-$$}.$RANDOM.tmp"
         [ -z "$mac" ] || mmac="$(_proof_tool_hmac "$(printf '%s\n%s' "$mac" "$measured")")"
-        { printf '%s\n' "$measured"; if [ -n "$mmac" ]; then printf 'mac:%s\n' "$mmac"; fi; } > "$mtmp" || ok=0
+        # mac2 signs the token's MAC and every entry and trunk line, in the order they are written.
+        [ -z "$mac" ] || [ -z "$trunk" ] || mmac2="$(_proof_tool_hmac "$(printf '%s\n%s' "$mac" "$(printf '%s\n%s\n' "$measured" "$trunk" | sed '/^$/d')")")"
+        { [ -z "$measured" ] || printf '%s\n' "$measured"; if [ -n "$mmac" ]; then printf 'mac:%s\n' "$mmac"; fi
+          [ -z "$trunk" ] || printf '%s\n' "$trunk"; if [ -n "$mmac2" ]; then printf 'mac2:%s\n' "$mmac2"; fi; } > "$mtmp" || ok=0
     fi
     if [ "$ok" = 1 ] && [ -f "$tokfile" ]; then tokbak="$tokfile.${BASHPID:-$$}.$RANDOM.bak"; cp -p "$tokfile" "$tokbak" || ok=0; fi
     if [ "$ok" = 1 ] && [ -f "$bf" ]; then bfbak="$bf.${BASHPID:-$$}.$RANDOM.bak"; cp -p "$bf" "$bfbak" || ok=0; fi
@@ -1755,7 +1812,7 @@ case "${_PTG_SEAL_DEADLINE:-}" in
 esac
 
 proof_tool_bridge_seal() {
-    local dim="$1" story="$2" reply text rc left
+    local dim="$1" story="$2" purpose="${3:-arm}" reply text rc left
     PROOF_TOOL_SEAL_REASON=""
     if ! command -v bridge_mcp_call >/dev/null 2>&1; then
         # shellcheck source=/dev/null
@@ -1784,7 +1841,9 @@ proof_tool_bridge_seal() {
         return 1
     fi
     [ "$wait" -le "$left" ] || wait="$left"
-    reply="$(bridge_mcp_call verify_proof_token "$(jq -cn --arg d "$dim" --arg s "$story" '{dimension:$d, story:$s}')" "$wait")"; rc=$?
+    # The purpose tells the bridge what a trunk it cannot fetch means: an arm refuses, a Stop keeps the patch-id verdict
+    # with a note. A bridge without the reuse rule ignores it.
+    reply="$(bridge_mcp_call verify_proof_token "$(jq -cn --arg d "$dim" --arg s "$story" --arg p "$purpose" '{dimension:$d, story:$s, purpose:$p}')" "$wait")"; rc=$?
     if [ "$rc" -ne 0 ]; then
         PROOF_TOOL_SEAL_REASON="the bridge could not be reached, or did not answer within ${wait}s, to check the token's signature (bridge client rc $rc); a large change takes longer to check: raise KYKLOS_PROOF_VERIFY_TIMEOUT_SECONDS, or start the bridge (or relaunch), then retry"
         return 1
@@ -1799,15 +1858,16 @@ proof_tool_bridge_seal() {
     return 1
 }
 
-# proof_tool_verify_sealed DIM ROOT STORY -> rc 0 iff the content check passes AND, for a sealed dimension, the bridge
-# confirms the signature. PROOF_TOOL_SEAL_REASON says which part failed.
+# proof_tool_verify_sealed DIM ROOT STORY [PURPOSE] -> rc 0 iff the content check passes AND, for a sealed dimension, the
+# bridge confirms the signature for PURPOSE (arm, the default and strict reading, or stop). PROOF_TOOL_SEAL_REASON says
+# which part failed.
 proof_tool_verify_sealed() {
-    local dim="$1" root="${2:-}" story="${3:-}" key
+    local dim="$1" root="${2:-}" story="${3:-}" purpose="${4:-arm}" key
     PROOF_TOOL_SEAL_REASON=""
     proof_tool_verify "$dim" "$root" "$story" || { PROOF_TOOL_SEAL_REASON="no valid content token (${PROOF_TOOL_VERIFY_REASON:-missing, or a recorded file changed since it was minted})"; return 1; }
     proof_tool_is_sealed "$dim" || return 0
     key="$(_proof_tool_story_key "${story:-${KYKLOS_PROOF_STORY:-}}")"; [ -n "$key" ] || key="$(_proof_tool_detect_story "${root:-$(_proof_tool_root)}")"
-    proof_tool_bridge_seal "$dim" "$key"
+    proof_tool_bridge_seal "$dim" "$key" "$purpose"
 }
 
 # proof_tool_token_root DIM STORY FALLBACK -> the ONE root the story's DIM token's relative entries are read under, by
@@ -1850,7 +1910,7 @@ proof_tool_gate_finding() {
     key="$(_proof_tool_story_key "${story:-${KYKLOS_PROOF_STORY:-}}")"; [ -n "$key" ] || key="$(_proof_tool_detect_story "$(_proof_tool_root)")"
     local troot; troot="$(proof_tool_token_root "$dim" "$key" "$(_proof_tool_root)")"
     if [ -n "$key" ] && [ -n "$troot" ] && proof_tool_verify "$dim" "$troot" "$key"; then
-        proof_tool_verify_sealed "$dim" "$troot" "$key" && return 1
+        proof_tool_verify_sealed "$dim" "$troot" "$key" stop && return 1
         printf 'Tool-gated dimension "%s": the token for this story has the right content, but %s.\n' "$dim" "$PROOF_TOOL_SEAL_REASON"
         return 0
     fi
@@ -3113,7 +3173,7 @@ proof_receipt_close_finding() {
                 # MAC) fails that check whether or not its marker line was removed, and refuses below. A story with no
                 # token at all has nothing a receipt could bind; its coverage token gate judges it as before.
                 local tokfile; tokfile="$(_proof_tool_token_file "Test Discipline" "$key")"
-                if [ ! -f "$tokfile" ] || { ! grep -qxF "$_PTG_CAPABLE_LINE" "$tokfile" 2>/dev/null && proof_tool_bridge_seal "Test Discipline" "$key"; }; then
+                if [ ! -f "$tokfile" ] || { ! grep -qxF "$_PTG_CAPABLE_LINE" "$tokfile" 2>/dev/null && proof_tool_bridge_seal "Test Discipline" "$key" stop; }; then
                     printf '[kyklos] WARNING: story %s closes without a coverage receipt: its Test Discipline token was minted by a bridge older than coverage receipts, and that bridge cannot check them (%s). Relaunch to get a receipt-capable bridge.\n' "$key" "$answer" >&2
                     return 1
                 fi

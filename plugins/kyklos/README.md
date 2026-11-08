@@ -5,15 +5,10 @@ proven project discipline (mechanisms only; project specifics live in each proje
 
 > **One owner per concern.** Kyklos owns the corporate-baseline guards; a consuming project deletes its
 > duplicate rather than double-blocking. The ownership table and escape paths are in **[`GOVERNANCE.md`](GOVERNANCE.md)**.
-> Which component owns which kind of fact (a setting, a label, a policy rule), so that other files point to it
-> instead of restating it, is in **[`docs/OWNERSHIP.md`](docs/OWNERSHIP.md)**.
 
-> 📖 **New here? Start with [`docs/SSDLC-WORKFLOW.md`](docs/SSDLC-WORKFLOW.md).** It is the developer's guide
-> to *how* the Kyklos turns an agile Secure SDLC into an enforced GitLab workflow — the plugin/project
-> layering, epics↔milestones and stories↔issues, the label scheme, story adoption/parking and the
-> GitLab-vs-filesystem source of truth, agent identity and coordination, the SSDLC phases and how the hooks
-> enforce them, the Kyklos Bridge contract, autonomy enforcement, Poka-Yoke, the **Proof Table** (its dimensions,
-> where their criteria live, and the anti-forgery/anti-hallucination guarantees), and where each setting is owned.
+> **New here?** Start with the workflow guide, `docs/WORKFLOW.md` at the root of the marketplace repository: how the
+> Kyklos turns an agile Secure SDLC into an enforced GitLab workflow (stories, labels, phases, the hooks that enforce
+> them, the Kyklos Bridge and the Proof Table).
 > This README below is the mechanism-level companion.
 
 ## Ships
@@ -51,7 +46,7 @@ proven project discipline (mechanisms only; project specifics live in each proje
   | `build-execution-guard` | builds and tests run the way `BUILD_EXECUTION` declares (bridge or local) |
   | `scenario-gate` / `scenario-init` | a valid working scenario before build or test in a scenario-enabled project; first-run seeding |
   | `tool-first-guard` / `tool-catalog-surface` | a story issue's lifecycle runs through the `story` tool; the capability catalog at session start |
-  | `agent-msg-guard` | coordination issues only through `agent-msg`; no issue created by a raw API call |
+  | `agent-msg-guard` | coordination issues only through `agent-msg`; no issue created by a raw API call (a POST, or a write whose method it cannot see, to an issues collection, or a GraphQL `createIssue`/`workItemCreate` mutation or GraphQL write whose document it cannot see; a note, a note edit or a PUT is no creation; a placeholder that ends the route, such as `/issues/$E`, is the collection) |
   | `inbound-issues-guard` / `inbound-monitor-init` | a coordination issue with the ball in your court is answered before the turn ends; the idle monitor |
   | `epic-gate-guard` | an epic (GitLab milestone) is changed only through the epic verbs |
   | `proof-table-guard` | a proof table is written only through `story proof` |
@@ -127,23 +122,42 @@ proven project discipline (mechanisms only; project specifics live in each proje
   **What the piped-script guard does not catch.** The guard reads the command text before it runs
   (`hooks/lib/piped-script.sh`) with the shared command normaliser: quotes and backslashes inside a word are removed,
   the text of a quoted string the shell may run (a shell's `-c`, `eval`, PowerShell's `-Command`, an echo piped into
-  a shell) is read as a command of its own, a `|` inside a quoted string that is only text (a commit message,
-  `x="..."`) is not a pipe, redirections are not arguments (`2>&1`, `>&2`, `&>f`, `> log`; `|&` is a pipe), a line
-  ending in `|` continues on the next line, and a plain-text here-document body (a quoted closing word, no shell on its
-  line reading it; a body handed to another language's interpreter is that language's code) is data. A download
+  a shell) is read as a command of its own, a `|`, `;`, `&`, `(`, `)` or backtick inside a quoted string that is only
+  text (a commit message, `x="..."`, an address holding `&`, the program of `python3 -c '...'`) splits nothing, a
+  comment is dropped (`curl u | bash # run` is still refused), a quoted string that goes on over several lines is one word (`python3 -c '<newline><program>'` reads its
+  input as data; a quote that never closes hides no later line), redirections are not arguments (`2>&1`, `>&2`,
+  `&>f`, `> log`; `|&` is a pipe), a line ending in `|` continues on the next line, and a plain-text here-document
+  body (a quoted closing word, no shell on its line reading it; a body handed to another language's interpreter is that language's code) is data. A download
   counts at every later stage of its pipeline (`curl u | tr -d '\r' | bash`), also out of a `( ... )` or `{ ...; }`
   group; `bash -n` (a syntax check) is not a run. The command run by a wrapper is read, with or without a directory
   (sudo, su -c, env, timeout, nice, xargs, `xargs -I{} sh -c '{}'`, a `find -exec`, GNU `parallel` and the others listed
-  in that file). A command word computed when the command runs is refused only when a download is piped into it. It
-  does not see: a download tool or shell called through an alias, a function or a variable (`$FETCH u | $SH`,
-  `| $SHELL`); a download kept in a variable and run later (`x=$(curl u); eval "$x"`); a script saved to a file and run
+  in that file). A command word computed when the command runs, or held in a variable (`| $SHELL`), is refused only
+  when a download is piped into it; a variable assigned a download and run later in the same command
+  (`x=$(curl u); eval "$x"`, `sh -c "$x"`) is refused; an output process substitution (`| tee >(sh)`) is a stage of
+  the pipeline; an inline program that hands its own input to an evaluator (`python3 -c 'exec(open(0).read())'`) runs
+  the download; lua, `deno run -` and `awk -f -` are interpreters too. A download reaches only programs known to read
+  it as data (an allow-list in that file: jq, grep, head, tail, cut, tr, wc, sort, uniq,
+  checksum and archive tools, tee, and a shell's read, whose variables are followed into a later eval); every
+  interpreter and shell receiving it is refused, with one narrow exception: a small inline program that only parses the
+  JSON on its input (python `-c` importing nothing but json and sys and calling `json.load(sys.stdin)`, node `-e` using
+  only `process.stdin` and `JSON.parse`, with no exec, eval, require, import, getattr, open, os or subprocess) is a reader
+  of data and passes (read other data with `| jq ...` or from a saved file); so is refused any other program, a command reached through `sh -c`, `eval` or
+  `xargs`, sed and awk (programmable), a compound command (`| while ...`, `| if ...`, `| { ...; }`), and a variable
+  such as `$0`. A download saved to a file and run later is out of scope by design: saving first is the remedy.
+  `env -S` / `--split-string` carries the command. It does not see: a download tool or shell called
+  through an alias, a function or a variable (`$FETCH u | sh`); a script saved to a file and run
   later (this is the intended way); a download run by a program's own code (`python -c "import urllib..."`); a fetcher
   it does not know (only curl, wget, iwr, irm, Invoke-WebRequest, Invoke-RestMethod and a WebClient call); a group
   whose download is followed by another command inside it (`(curl u; echo) | sh`); a stage that runs its input as code
   but is not a shell, an interpreter (python, node, perl, ruby, php), PowerShell, `su`, `iex` or a shell's `-c` (for
   example `at`, `ssh host`, `script`, `expect`); an interpreter option that takes a value and is not listed in that
-  file; a quoted string that spans several lines, or a pipe followed by a comment at the end of a line. It is a
-  deterrent, not a sandbox. Off switch: `KYKLOS_PIPED_SCRIPT_GUARD=off` (audited).
+  file. It is a deterrent, not a sandbox. Off switch: `KYKLOS_PIPED_SCRIPT_GUARD=off` (audited).
+  A static check of shell text cannot follow names computed at run time in general. For the tools whose behaviour an
+  environment variable changes (tar, bsdtar, rg, the grep family, less, more) the guard is conservative: a download
+  piped into one of them is refused when the name of a variable that tool reads appears anywhere in the command, when
+  the command sources a file, or when it contains `eval`, an expansion where a variable name stands (`${v}OPTIONS=`,
+  `export "$(...)=..."`, `env "$(...)"`), or an escape sequence such as `\x54`. Beyond that listed coverage the guard
+  promises nothing: it is a deterrent, not a sandbox.
 
   **Which CI project a lookup reads.** Every pipeline, job, artifact and merge-request lookup of the guards and skills
   passes the origin address of the repository the branch or number belongs to (`hooks/lib/ci-access.sh`), and the

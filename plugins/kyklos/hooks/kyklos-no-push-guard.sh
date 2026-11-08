@@ -12,6 +12,11 @@
 #   - KYKLOS_CI_MONITOR=1: a non-force, non-tag push of the repo's own current feature/* or hotfix/* branch, or
 #     of main/master in a trunk-declared repo.
 #   - everything else: DENY.
+#   - a push ALLOWED above is still refused, as "queued", while the person at the host has declared the git remote
+#     unavailable: the bridge records it (repository without credentials, branch, commit) in its own queue through
+#     its mode_queue_push verb, and hands it back when the mode ends. This only ADDS a refusal; a bridge that cannot
+#     be read, or that does not know the verb, leaves the decision to the checks above. Off-switch:
+#     KYKLOS_PUSH_QUEUE=off.
 #
 # Wired: PreToolUse, matcher Bash.
 # [json-answer-required] Every answer this hook reads goes through the JSON reader; without it a check would exit 127
@@ -66,6 +71,64 @@ git_cmd_invokes "$CMD_REAL" push || exit 0
 # repo's pipeline, NEVER hand-pushed. This wires the artifact-facade check the guard's comments already claimed.
 _np_block() { local r="${1//\\/\\\\}"; r="${r//\"/\\\"}"; r="$(printf '%s' "$r" | tr '\n' ' ')"; printf '{"decision":"block","reason":"%s"}' "$r"; exit 0; }
 _np_tgt="$(target_repo_dir "$CMD")"
+
+# The last step of every ALLOWED push: while the git remote is declared unavailable, the bridge queues the push and the
+# guard refuses it as queued (the agent runs it when the mode ends, through this same guard). The record lives only in
+# the bridge's host-side store, never in a file the agent can edit; the remote address loses any user name or token
+# before it leaves (the bridge refuses one anyway). The record names what the command pushes: the branch of its one
+# refspec (`origin feature/x`, `origin HEAD:feature/x`) and that refspec's commit, else the checked-out branch. A push the
+# bridge cannot record while the mode is on (a detached HEAD, several refspecs, a project it does not serve) comes back
+# "not queued, push refused:" and is refused too. Any other answer changes nothing.
+# [CySec] Prevents CWE-522 "Insufficiently Protected Credentials": a credential embedded in the remote address is never
+# sent to the queue. [RiskMitigation RA-01]
+_np_queue_if_remote_down() {
+    kyklos_control_off "${KYKLOS_PUSH_QUEUE:-}" && return 0
+    command -v jq >/dev/null 2>&1 || return 0
+    # shellcheck source=lib/bridge-mcp.sh
+    . "$_GD_HERE/lib/bridge-mcp.sh" 2>/dev/null || return 0
+    local current branch commit remote url args reply text seg tok expect="" src dst
+    local -a toks positional=()
+    current="$(git -C "$_np_tgt" symbolic-ref --quiet --short HEAD 2>/dev/null)"
+    # The words after the last `git ... push`, up to the next command separator.
+    seg="$(sed -E 's/.*(^|[[:space:];&|(])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)*[[:space:]]+push([[:space:]]|$)//; s/(&&|\|\||;|\|).*//' <<< "$CMD_REAL")"
+    read -ra toks <<< "${seg//[\"\']/}"
+    for tok in "${toks[@]}"; do
+        if [ -n "$expect" ]; then expect=""; continue; fi
+        case "$tok" in
+            -o|--push-option|--repo|--receive-pack|--exec) expect=1 ;;
+            -*) ;;
+            *) positional+=("$tok") ;;
+        esac
+    done
+    remote="${positional[0]:-}"
+    branch="$current"; src="HEAD"
+    if [ "${#positional[@]}" -eq 2 ]; then
+        dst="${positional[1]#+}"; src="${dst%%:*}"; dst="${dst#*:}"
+        dst="${dst#refs/heads/}"
+        [ "$dst" = "HEAD" ] && dst="$current"
+        branch="$dst"; [ -n "$src" ] || src="HEAD"
+    elif [ "${#positional[@]}" -gt 2 ]; then
+        branch=""   # several refspecs: one record cannot name them, so the bridge refuses it while the mode is on
+    fi
+    commit="$(git -C "$_np_tgt" rev-parse --verify --quiet "$src^{commit}" 2>/dev/null)"
+    if [ -z "$remote" ]; then
+        remote="$(git -C "$_np_tgt" config --get "branch.$current.pushRemote" 2>/dev/null || git -C "$_np_tgt" config --get "branch.$current.remote" 2>/dev/null || echo origin)"
+    fi
+    case "$remote" in
+        *://*|*@*:*) url="$remote" ;;
+        *) url="$(git -C "$_np_tgt" remote get-url --push "$remote" 2>/dev/null)" ;;
+    esac
+    url="$(sed -E 's#^(https?://)[^/@]*@#\1#' <<< "$url")"
+    args="$(jq -nc --arg r "$url" --arg b "$branch" --arg c "$commit" '{repository:$r,branch:$b,commit:$c}')" || return 0
+    reply="$(bridge_mcp_call mode_queue_push "$args" 10)" || return 0
+    bridge_mcp_is_error "$reply" && return 0
+    text="$(bridge_mcp_text "$reply")"
+    case "$text" in
+        queued:*|"not queued, push refused:"*) _np_block "Push not made, $text" ;;
+    esac
+    return 0
+}
+_np_allow() { _np_queue_if_remote_down; exit 0; }
 # Fail-SAFE on an UNDECIDABLE push target: the shared resolver returns the sentinel when a command substitution feeds
 # the target, so the guard cannot tell which repo the push lands in. Refuse with a disambiguation remedy rather than
 # judge a bogus literal path (and never resolve it to a repo that happened to match). [RiskMitigation RA-02]
@@ -133,14 +196,14 @@ if [ "${KYKLOS_ALLOW_PUSH:-0}" = "1" ]; then
     if { _np_is_force "$CMD" || _np_is_delete "$CMD"; } && _np_shared_ref "$CMD"; then
         _np_block "Push refused: this would force-update or delete a SHARED ref (a trunk main/master/develop, release/*, support/* or a tag). Even a push-authorized session never rewrites or deletes shared history. Push a new commit instead, or ask the owner to do it by hand."
     fi
-    exit 0
+    _np_allow
 fi
 # Override, hardest rung FIRST: a USER-applied `push-override` label on the pushed branch's story issue.
 # An agent cannot author a label as ANOTHER GitLab user, so it cannot self-grant this (unlike the touch-able marker
 # below). Fail-closed => falls through to the legacy marker.
 . "$(dirname "${BASH_SOURCE[0]}")/lib/user-applied-label.sh" 2>/dev/null || true
 if command -v override_user_applied >/dev/null 2>&1 && override_user_applied "$CMD_REAL" "push-override"; then
-    echo "[kyklos] no-push gate: ALLOWED by a USER-applied 'push-override' label on the story issue (un-self-grantable)." >&2; exit 0
+    echo "[kyklos] no-push gate: ALLOWED by a USER-applied 'push-override' label on the story issue (un-self-grantable)." >&2; _np_allow
 fi
 # Legacy one-shot self-touch escape — honored only while the hardening is explicitly off. Warns that it is a
 # SELF-GRANTED (deprecated) override: it counts only when KYKLOS_HARDEN_OVERRIDE is explicitly off (on by default, so
@@ -148,7 +211,7 @@ fi
 # shellcheck source=lib/control-switch.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/control-switch.sh" 2>/dev/null || true   # kyklos_control_off: the one control-switch reader
 if kyklos_control_off "${KYKLOS_HARDEN_OVERRIDE:-}" && override_take "$OK_NAME" "$(override_scope_of "${_np_top:-$PROJECT_DIR}")" "$INPUT"; then
-    echo "[kyklos] no-push gate: OVERRIDDEN once ($OK_NAME spent) — push allowed via a SELF-GRANTED marker. DEPRECATED: remove the KYKLOS_HARDEN_OVERRIDE opt-out to require a user-applied 'push-override' label instead." >&2; exit 0
+    echo "[kyklos] no-push gate: OVERRIDDEN once ($OK_NAME spent) — push allowed via a SELF-GRANTED marker. DEPRECATED: remove the KYKLOS_HARDEN_OVERRIDE opt-out to require a user-applied 'push-override' label instead." >&2; _np_allow
 fi
 
 # ---- Closed-loop allowance (feature/hotfix, monitored) ----
@@ -174,7 +237,7 @@ if [ "${KYKLOS_CI_MONITOR:-0}" = "1" ]; then
     # NEVER opens a trunk push to the public source. [RiskMitigation RA-01]
     if [ "$_forcetag" = 0 ] && [ "$(repo_workflow "$_tgt")" = "trunk" ]; then
         case "$push_branch" in
-            main|master) exit 0 ;;   # ALLOW: trunk bookkeeping push to a trunk-declared repo
+            main|master) _np_allow ;;   # ALLOW: trunk bookkeeping push to a trunk-declared repo
         esac
     fi
 
@@ -185,7 +248,7 @@ if [ "${KYKLOS_CI_MONITOR:-0}" = "1" ]; then
     printf '%s' "$CMD" | grep -ciE '(release|support)/[^[:space:]"]*(:|[[:space:]"]|$)' >/dev/null && deny=1
     if [ "$deny" = 0 ]; then
         case "$push_branch" in
-            feature/*|hotfix/*) exit 0 ;;   # ALLOW: observable feature/hotfix push under the closed loop
+            feature/*|hotfix/*) _np_allow ;;   # ALLOW: observable feature/hotfix push under the closed loop
         esac
     fi
 fi

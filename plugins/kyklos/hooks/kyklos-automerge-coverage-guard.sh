@@ -531,7 +531,7 @@ for _r in "${_repos[@]}"; do
     # its .base sidecar, else this repository. Entries are then compared with this repository's changed files, so a root
     # that is a subfolder of the repository (a solution below its top) is mapped back; a root outside it matches nothing.
     _tr="$(proof_tool_token_root "$DIM" "$_story" "$_r")"
-    if proof_tool_verify "$DIM" "$_tr" "$_story" && ! proof_tool_verify_sealed "$DIM" "$_tr" "$_story"; then
+    if proof_tool_verify "$DIM" "$_tr" "$_story" && ! proof_tool_verify_sealed "$DIM" "$_tr" "$_story" arm; then
         defer_refusal "$_r" "$_story" "Auto-merge arming BLOCKED: the Test Discipline coverage token for story ${_story} has the right content, but ${PROOF_TOOL_SEAL_REASON}. A plain push without auto-merge is still allowed." && continue
     fi
     if ! proof_tool_verify "$DIM" "$_tr" "$_story"; then

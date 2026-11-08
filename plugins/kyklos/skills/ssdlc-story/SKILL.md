@@ -77,6 +77,8 @@ mutation atomically and regenerates the index, so the two can never drift:
 # `story` is on PATH (the plugin's bin/ shim); it operates on $PWD/Stories (or --dir <path>)
 story new <slug> --type <t> --kind <k> --severity <critical|high|medium|low> --epic <e> --title "<title>" [--parent <N>]   # next number, folder+files, then sync
 story next                                                       # what to work on next (the bridge's next_work order)
+story discipline <id>                                            # read the story's Proof Discipline (the owner's section of its header)
+story discipline <id> --ask <subject> --wanted <value> --why <reason> [--measured <value>]   # ask the owner to change it (a tickable comment; changes nothing)
 #   --epic is REQUIRED: give an epic id (e.g. --epic E<nn>) OR --no-epic to DELIBERATELY leave it ungrouped.
 #   Omitting both is rejected — a story must never be silently orphaned from an epic.
 #   GITLAB backend: the epic MUST resolve to a milestone (--no-epic is NOT allowed) — a gitlab story is milestone-backed.
@@ -495,7 +497,40 @@ From here, execution is regulated by the **stories** (the one ACTIVE In-progress
    `story block <id>` alone re-checks it, and the block lifts by itself (status back, note posted) once the reference
    closes or merges. Never write a wait into task text or the local `tasks.md` to express a block: the continue-guard
    reads only the recorded bullet (a Blocked story without one is open work), and `story set <id> status=Blocked` is
-   refused. The full rule: `docs/SSDLC-WORKFLOW.md` section 17. Opt-out: `KYKLOS_BLOCKER_CHECK=off`.
+   refused. Opt-out: `KYKLOS_BLOCKER_CHECK=off`.
+   **The block rule in full.** Use `story block <id> --kind <issue|user|external> --on <target> --reason "<why>"`
+   (the bridge's `story_block` verb); the status label names the kind and a block without a kind is refused:
+   - `status::blocked-on-issue`: the target is an issue, story or merge request in any project (`#<n>`, `!<n>`,
+     `group/project#<n>`, `group/project!<n>` or its web link); the bridge refuses a target it cannot read or that is
+     already closed or merged. An issue also gets GitLab's "blocked by" link; a merge request only the bullet.
+   - `status::blocked-on-user`: the target is the web link to the note that asks the user (ending in `#note_<n>`), on
+     an issue or merge request that is still open; the note must exist.
+   - `status::blocked-on-external`: the target is the https link of what is awaited, because a wait the agent only
+     describes is a stop it grants itself.
+
+   The bridge records the blocker once as a `- **Blocked-On:**` bullet in the story header (`<reference> - <reason>`,
+   or `<kind> since <yyyy-MM-dd>: <target> - <reason>` for a user or external block), appends `(waits on ...)` to each
+   open task, sets the status and posts one `[status-blocked]` note; blocking again on the same target changes
+   nothing. `story block <id>` alone re-checks it: once an issue blocker has closed or merged the block lifts (status
+   back to In-progress, bullet and waits removed, a `[status-unblocked]` note posted); a user or external block is
+   reported with its age. Leaving Blocked by hand (`story set <id> status=...`) drops the bullet, the waits and the
+   kind. A legacy bare `status::blocked` (no kind) is a defect: `story next` and `story audit` list it as "blocked,
+   reason unknown" (`story next` never offers it); blocking it again with its kind repairs it. `story audit` also
+   reports two kinds on one story as `blocked-kind-conflict`.
+
+   **What the Stop guard does with it.** The continue guard reads only the recorded bullet: a Blocked story without a
+   `Blocked-On:` bullet is open work again, whatever its task text or the local `Stories/` mirror says. For a story
+   that records one, the guard asks the bridge to re-check the blocker on every Stop (that re-check is never cached), so an
+   issue or merge-request block lifts by itself once the reference closes or merges; a block on the user or on
+   something external stays until it is changed by hand and is reported with its age. Parked, disposition-labelled (`wontfix`, `duplicate`, `invalid`) and
+   routed coordination issues keep their exclusion and are never judged by this check, even with `status::blocked`.
+   A Stop gate never becomes impossible to pass: a Blocked story the guard cannot judge (description unreadable, past
+   the read cap `CONTINUE_GUARD_BLOCKED_READ_MAX` of 30 reads per Stop, or past the time budget
+   `CONTINUE_GUARD_BLOCKED_TIME_BUDGET` of 45 seconds) keeps the plain exclusion and is named in a warning, never
+   counted as work. Each description verdict is cached by issue id and `updated_at`, so only new or changed stories are read; a
+   story whose read failed is read last. The cache is read only when it is a regular file of at most 1 MiB; anything
+   else is ignored with a warning and replaced. The hook has a 300-second timeout in `hooks.json`; a timeout is a
+   non-blocking error, so even then the Stop passes.
 5. **Finish** — every `tasks.md` Verification box checked (build + tests for the whole surface + any poka-yoke scans +
    docs in the same commit + merged), **and the final quality gate passed** — run the [`ssdlc-story-proof`] skill.
    **Generate** the story's `## Proof` table with `story proof <id> --write` (the canonical dimensions of its kind, N/A

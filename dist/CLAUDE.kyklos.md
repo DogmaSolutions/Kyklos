@@ -56,6 +56,12 @@ baseline to produce the managed policy.
 ## Tier 1 — Core engineering
 
 - **NEVER assume — verify.** State what you verified and how.
+- **The session account's identity is never an alias.** The name or e-mail address of the account the agent session
+  runs under (as the agent's harness may show it) is never used as an identity, alias, author, mention, recipient or
+  example: not in code, docs, commits, configuration, issues or messages. The only valid identities are the ones Kyklos
+  provides for the current session (its configured git author, tracker user and coordination aliases) and the aliases
+  stored durably in CLAUDE.md files. If that name or address happens to appear in a configuration Kyklos provides
+  explicitly, that use is fine; otherwise it never appears.
 - **Use a secret inside ONE command, never print it.** Read it with `$(bridge-secret NAME)` right where it is used
   (e.g. `curl -H "PRIVATE-TOKEN: $(bridge-secret NAME)" ...`). `KYKLOS_BRIDGE_SECRETS` lists the names your project's
   bridge serves; when it is set the values are NOT in your environment. Never echo a value, write it to a file, or put

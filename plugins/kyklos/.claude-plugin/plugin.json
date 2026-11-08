@@ -1,7 +1,7 @@
 {
   "name": "kyklos",
   "description": "Shared engineering-discipline Kyklos for Dogma Solutions projects: enforcement hooks + skills, genericized from proven project discipline. Projects inherit it via the dogma-ai marketplace; per-project values live in .claude/standards.env.",
-  "version": "0.2.21572",
+  "version": "0.2.22488",
   "author": {
     "name": "Dogma Solutions",
     "email": "info@dogmasolutions.com"

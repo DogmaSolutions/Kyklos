@@ -107,7 +107,7 @@ IAD_NODE_WRITE_RE='(method\\?['"'"'"]?[[:space:]]*:[[:space:]]*\\?['"'"'"`](POST
 # --- python write-hint detection -------------------------------------------------------------------------------
 # A python snippet that WRITES via urllib/requests: a requests.post/put/delete, an explicit method=, a urlopen
 # with a body, or a data= body. Paired with a /issues target this indicates a raw issue write.
-IAD_PY_WRITE_RE='(requests\.(post|put|delete)|method[[:space:]]*=[[:space:]]*['"'"'"](POST|PUT|DELETE)|urlopen\(|(^|[^[:alnum:]_])data[[:space:]]*=)'
+IAD_PY_WRITE_RE='(\.(post|put|patch|delete|request)\(|requests\.(post|put|delete)|method[[:space:]]*=[[:space:]]*['"'"'"](POST|PUT|DELETE)|urlopen\(|(^|[^[:alnum:]_])data[[:space:]]*=)'
 
 # iad_split_segments <cmd> -- emit the command split into shell STATEMENT segments (on ; && || and newline), so a
 # guard evaluates client+target+verb as CO-OCCURRING in ONE statement, never smeared across an unrelated command
@@ -174,18 +174,33 @@ for _iad_c in a b c d e f g h i j k l m n o p q r s t u v w x y z A B C D E F G 
     _iad_pct_sed="${_iad_pct_sed}s/%$(printf '%02X' "'$_iad_c")/${_iad_c}/gI;"
 done
 unset _iad_c
+# A `..` segment removes the segment before it, as curl and the server resolve it (`/issues/1/..` is `/issues`); a
+# percent-encoded dot is decoded first.
 iad_route_norm() {
-    printf '%s' "$1" | sed -E "${_iad_pct_sed}"'s#/+#/#g; s#/(\./)+#/#g; s#/\.([^A-Za-z0-9_.-]|$)#\1#g'
+    printf '%s' "$1" | sed -E "${_iad_pct_sed}"'s#/+#/#g; s#/(\./)+#/#g; s#/\.([^A-Za-z0-9_.-]|$)#\1#g' \
+        | sed -E ':a; s#/[^/[:space:]"'"'"'.][^/[:space:]"'"'"']*/\.\.(/|[^A-Za-z0-9_.-]|$)#\1#; ta; s#/+#/#g'
 }
 # create-target: the `/issues` collection, NOT `/issues/<n>` (an item). The route ends at anything that is not a
 # letter, digit, `_` or `-` (a quote, ?, ), |, >, &, a backtick, a blank, a backslash, a format suffix `.json`/`.xml`,
 # `%`, or the end); `/issues/` is the same collection route, `/issues/<n>` an item.
 IAD_ISSUES_COLLECTION_RE='/issues([^A-Za-z0-9_/-]|/([^0-9]|$)|$)'
 iad_seg_hits_issues_collection() { iad_route_norm "$1" | grep -Ec "$IAD_ISSUES_COLLECTION_RE" >/dev/null; }
-# edit-target: `/issues/<n>` (a specific issue -- close/reopen/update).
-iad_seg_hits_issue_item()        { iad_route_norm "$1" | grep -Ec '/issues/[0-9]' >/dev/null; }
-# reply-target: `/issues/<n>/notes` (a note == a reply).
-iad_seg_hits_notes()             { iad_route_norm "$1" | grep -Ec '/issues/[0-9]+/notes' >/dev/null; }
+# An issue number written as a placeholder a program fills in: a format field ({iid}, {0}), a shell variable ($IID,
+# ${IID}), a printf directive (%s, %d) or a route parameter (:iid). Only a route that goes on past the placeholder
+# (`/issues/{iid}/notes`) names an existing issue: a placeholder that ends the route may be empty, and an empty one
+# leaves the issues collection (`/issues/$E` with E unset is `/issues/`), so it counts as the collection.
+IAD_ISSUE_PLACEHOLDER_RE='\{[A-Za-z0-9_][^}/]*\}|\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*|%[sdi]|:[A-Za-z_][A-Za-z0-9_]*'
+# edit-target: `/issues/<n>` (a specific issue -- close/reopen/update), the number literal or a placeholder.
+iad_seg_hits_issue_item()        { iad_route_norm "$1" | grep -Ec "/issues/([0-9]|(${IAD_ISSUE_PLACEHOLDER_RE})/[A-Za-z0-9_])" >/dev/null; }
+# iad_seg_has_collection_route <seg> -- TRUE (0) if at least one issues route in the segment is the collection: each
+# route is judged on its own, so a segment that names an existing issue (`/issues/1`) and also the collection
+# (`/issues`) still reaches the collection.
+iad_seg_has_collection_route() {
+    iad_route_norm "$1" | grep -oE "/issues([^A-Za-z0-9_-][^[:space:]\"'\`]*)?" \
+        | grep -vEc "^/issues/([0-9]|(${IAD_ISSUE_PLACEHOLDER_RE})/[A-Za-z0-9_])" >/dev/null
+}
+# reply-target: `/issues/<n>/notes` (a note == a reply; also `/notes/<id>`, the edit of one note).
+iad_seg_hits_notes()             { iad_route_norm "$1" | grep -Ec "/issues/([0-9]+|${IAD_ISSUE_PLACEHOLDER_RE})/notes" >/dev/null; }
 
 # --- per-segment client predicates -----------------------------------------------------------------------------
 iad_seg_has_curl() { printf '%s' "$1" | grep -Ec "${IAD_CLIENT_PREFIX}curl([^[:alnum:]_]|\$)" >/dev/null; }
@@ -226,20 +241,88 @@ iad_seg_is_raw_issue_write() {
     return 1
 }
 
+# --- the HTTP method of a write ---------------------------------------------------------------------------------
+# Only a POST creates an issue. A write that names its method, and names only methods other than POST (PUT, PATCH,
+# DELETE, GET, HEAD), creates nothing even at the issues collection. A method the command does not show (a variable, a
+# config file, a POST implied by a body) is no named method, so such a write stays a creation.
+IAD_NAMED_POST_RE='(method[[:space:]]*[=:][[:space:]]*\\?['"'"'"`]POST|\.post\(|\.request\([[:space:]]*['"'"'"]POST|(-X|--request|--method)[[:space:]="'"'"']*POST)'
+IAD_NAMED_OTHER_METHOD_RE='(method[[:space:]]*[=:][[:space:]]*\\?['"'"'"`](GET|HEAD|PUT|PATCH|DELETE)['"'"'"`\\]|\.(get|head|put|patch|delete)\(|\.request\([[:space:]]*['"'"'"](GET|HEAD|PUT|PATCH|DELETE)['"'"'"]|(-X|--request|--method)[[:space:]="'"'"']*(GET|HEAD|PUT|PATCH|DELETE)([[:space:]"'"'"']|$))'
+# A method given by a name the reader cannot see: method=m, method: m, -X "$M".
+IAD_UNSEEN_METHOD_RE='(method[[:space:]]*[=:][[:space:]]*[A-Za-z_$({]|(-X|--request|--method)[[:space:]="'"'"']*[$`(])'
+# iad_seg_names_non_post_method <seg> -- TRUE (0) when every write in the segment names its method and none is POST.
+# A curl or wget request is judged on its own words (quotes removed, so a header text holding "-X PUT" is no method);
+# a program (python, node, glab api) on its text. Anything not shown, or a POST anywhere, answers FALSE.
+iad_seg_names_non_post_method() {
+    local seg="$1" cl get hid unk meth w named=0
+    printf '%s' "$seg" | grep -Eic "$IAD_UNSEEN_METHOD_RE" >/dev/null && return 1
+    if iad_seg_has_curl_wget "$seg"; then
+        while IFS=$'\t' read -r cl get hid unk meth w; do
+            # curl sends the last method named; a config file or a word the command does not show may name another.
+            [ "$cl" = curl ] && [ "$unk" = 0 ] || return 1
+            printf '%s' "$w" | grep -Ec "$IAD_CURL_HIDDEN_RE" >/dev/null && return 1
+            case "$meth" in GET|HEAD|PUT|PATCH|DELETE) named=1 ;; *) return 1 ;; esac
+        done < <(iad_http_requests "$(iad_http_client_words "$seg")")
+        [ "$named" = 1 ] || return 1
+        { iad_seg_has_python "$seg" || iad_seg_has_node "$seg" || iad_seg_has_glab "$seg"; } || return 0
+    fi
+    printf '%s' "$seg" | grep -Eic "$IAD_NAMED_POST_RE" >/dev/null && return 1
+    printf '%s' "$seg" | grep -Eic "$IAD_NAMED_OTHER_METHOD_RE" >/dev/null
+}
+# iad_seg_is_issue_graphql_create <seg> -- TRUE (0) if the segment holds GitLab's GraphQL issue-creation mutation
+# (createIssue), which needs no /issues route.
+# iad_decode_body_escapes <text> -> <text> with the escapes a request body may use decoded: JSON \uXXXX (behind any
+# number of backslashes) and form %XX, so an escaped name (create\u0049ssue, create%49ssue) reads as written. When
+# more than 200 escapes are left the text is returned with the marker @@IAD:undecoded@@, read as unreadable.
+iad_decode_body_escapes() {
+    local t="$1" n=0 h
+    while [[ "$t" =~ \\+u([0-9A-Fa-f]{4}) ]] && [ "$n" -lt 200 ]; do
+        h="${BASH_REMATCH[1]}"; t="${t/"${BASH_REMATCH[0]}"/$(printf "\\u$h")}"; n=$((n + 1))
+    done
+    while [[ "$t" =~ %([0-9A-Fa-f]{2}) ]] && [ "$n" -lt 200 ]; do
+        h="${BASH_REMATCH[1]}"; t="${t/"${BASH_REMATCH[0]}"/$(printf "\\x$h")}"; n=$((n + 1))
+    done
+    [ "$n" -ge 200 ] && t+=" @@IAD:undecoded@@"
+    printf '%s' "$t"
+}
+# Quotes and backslashes are dropped before the names are matched, so a name split by quoting (create""Issue) is the
+# same name. Both GitLab creations count: createIssue and workItemCreate.
+iad_seg_is_issue_graphql_create() {
+    local t
+    t="$(iad_decode_body_escapes "$1" | tr -d '"'"'"'\\')"
+    printf '%s' "$t" | grep -Eic 'mutation' >/dev/null && printf '%s' "$t" | grep -Ec '(createIssue|workItemCreate)' >/dev/null
+}
+# iad_seg_is_opaque_graphql_write <seg> -- TRUE (0) if the segment sends a write to the GraphQL endpoint whose document
+# the command does not show (a body file -d @q.json, a substitution, a variable: -f query="$Q"): what it creates cannot
+# be told, so it counts as a creation. A document written out in the command (query { ... }) is judged by its text.
+iad_seg_is_opaque_graphql_write() {
+    local seg="$1"
+    iad_route_norm "$seg" | grep -Eic '(/graphql([^A-Za-z0-9_-]|$)|glab[[:space:]]+api[[:space:]]+graphql)' >/dev/null || return 1
+    if printf '%s' "$seg" | grep -Ec 'glab[[:space:]]+api[[:space:]]+graphql' >/dev/null; then :
+    elif iad_seg_has_curl_wget "$seg" && iad_http_words_write "$(iad_http_client_words "$seg")" "$seg"; then :
+    else return 1; fi
+    # [CySec] CWE-284: a mutation whose text cannot be fully decoded may name a creation; it is refused.
+    iad_decode_body_escapes "$seg" | grep -Eic 'mutation' >/dev/null && iad_decode_body_escapes "$seg" | grep -Ec '@@IAD:undecoded@@' >/dev/null && return 0
+    # [CySec] CWE-284: a GraphQL body the reader cannot see may hold a creation; it is refused, not trusted.
+    ! printf '%s' "$seg" | tr -d '"'"'"'\\' | grep -Eic '(query|mutation)[[:space:]]*[A-Za-z0-9_]*[[:space:]]*[({]|query[[:space:]]*[:=][[:space:]]*\{' >/dev/null
+}
+
 # iad_cmd_is_issue_create <cmd> -- TRUE (0) if ANY statement of the command creates an issue. Besides the per-segment
 # test, a python or node program split at its own `;` (python3 -c "import x; x.post(.../issues)") is caught: when the
 # command starts python/node anywhere, a segment that carries that language's STRONG write hint (an explicit post/put,
 # a mutating method, urlopen; never a bare `data=`, which a read's query string can carry) at an issues collection counts.
-IAD_PY_STRONG_WRITE_RE='(requests\.(post|put)|method[[:space:]]*=[[:space:]]*\\?['"'"'"](POST|PUT)|urlopen\()'
+IAD_PY_STRONG_WRITE_RE='(\.(post|put|request)\(|requests\.(post|put)|method[[:space:]]*=[[:space:]]*\\?['"'"'"](POST|PUT)|urlopen\()'
 iad_cmd_is_issue_create() {
-    local cmd="$1" seg py=1 nd=1
+    local cmd="$1" seg py=1 nd=1 client=1
     iad_seg_has_python "$cmd" && py=0
     iad_seg_has_node "$cmd" && nd=0
+    printf '%s' "$cmd" | grep -Ec "$IAD_CLIENT_RE" >/dev/null && client=0
     while IFS= read -r seg || [ -n "$seg" ]; do
         [ -n "$seg" ] || continue
         iad_seg_is_issue_create "$seg" && return 0
-        iad_seg_hits_issues_collection "$seg" || continue
-        iad_seg_hits_issue_item "$seg" && continue
+        # A GraphQL creation sent by any client the command starts (a program split at its own ; included).
+        [ "$client" = 0 ] && iad_seg_is_issue_graphql_create "$seg" && return 0
+        iad_seg_has_collection_route "$seg" || continue
+        iad_seg_names_non_post_method "$seg" && continue
         [ "$py" = 0 ] && printf '%s' "$seg" | grep -Ec "$IAD_PY_STRONG_WRITE_RE" >/dev/null && return 0
         [ "$nd" = 0 ] && printf '%s' "$seg" | grep -Ec "$IAD_NODE_WRITE_RE" >/dev/null && return 0
     done < <(iad_split_segments "$cmd")
@@ -253,9 +336,13 @@ iad_cmd_is_issue_create() {
 iad_seg_is_issue_create() {
     local seg="$1"
     printf '%s' "$seg" | grep -Ec 'glab[[:space:]]+issue[[:space:]]+(create|new)([^[:alnum:]_-]|$)' >/dev/null && return 0
+    iad_seg_is_issue_graphql_create "$seg" && printf '%s' "$seg" | grep -Ec "$IAD_CLIENT_RE" >/dev/null && return 0
+    iad_seg_is_opaque_graphql_write "$seg" && return 0
     iad_seg_is_raw_issue_write "$seg" || return 1
-    iad_seg_hits_issues_collection "$seg" || return 1
-    iad_seg_hits_issue_item "$seg" && return 1
+    iad_seg_has_collection_route "$seg" || return 1
+    # [CySec] CWE-284: the route and the method decide a creation, never the word "issues": a write that names only
+    # methods other than POST creates nothing; a method the command does not show still counts as a creation.
+    iad_seg_names_non_post_method "$seg" && return 1
     return 0
 }
 
@@ -323,7 +410,11 @@ IAD_CURL_FORM_RE='(^|[[:space:]])(--form[a-z-]*([[:space:]]|=|$)|-[sSLkvViIOfgGj
 # What the command does not show counts as a write: a method held in a variable or a command substitution (-X "$M"),
 # or a config file (-K file, --config file, also -K - whose lines are not read here) that may carry a body or a method.
 IAD_CURL_HIDDEN_RE='((-X|--request|--method)[[:space:]="'"'"']*[$`]|(^|[[:space:]])(--config([[:space:]]|=|$)|--expand-(request|json|form[a-z-]*|upload-file|config)([[:space:]]|=|$)|-[sSLkvViIOfgGjlnNpqRZ0-9#]*K))'
-# iad_http_requests <words> -- split the client words into requests, one line each: "<client><TAB><get><TAB><words>".
+# iad_http_requests <words> -- split the client words into requests, one line each:
+# "<client><TAB><get><TAB><hidden><TAB><unknown><TAB><method><TAB><words>". <hidden> is 1 when the request names a
+# method other than GET or HEAD, or one it does not show; <unknown> is 1 when the words cannot be read for sure (an
+# expansion, a rewritten word, an ambiguous request), so the method may differ from the one shown; <method> is the
+# last method named as written, or "-".
 # A request starts at each client marker and at curl's --next (or -:), because options do not carry across --next.
 # Words are read as the shell splits them: quotes group, a backslash escapes the next character (also a blank, so
 # `title=x\ -G` is one word), an escaped quote inside double quotes does not close them. <words> are those words with
@@ -350,8 +441,10 @@ iad_http_requests() {
                 nw = split("json data data-ascii data-binary data-raw data-urlencode form form-string upload-file request method expand-data post-data post-file body-data body-file config execute", WO, " ")
                 cl = "curl"; get = 0; amb = 0; hid = 0; nxt = 0; txt = ""; started = 0 }
         # an explicit method is a read only when it is GET or HEAD written out; any other, or one the command does not show, writes
-        function method(m, t) { if (UX[t] || LX[t] || m ~ /[$`]/ || (m != "GET" && m != "HEAD")) hid = 1 }
-        function flush() { if (started) printf "%s\t%d\t%d\t%s\n", cl, ((amb || nxt) ? 0 : get), hid, txt; get = 0; amb = 0; hid = 0; endopt = 0; skip = 0; skipkind = ""; txt = ""; started = 0 }
+        # meth: the method the request names, as written; unk: what the request does not show (an expansion, a
+        # rewritten word or an ambiguous reading), so its method cannot be told.
+        function method(m, t) { if (UX[t] || LX[t] || m ~ /[$`]/) { hid = 1; unk = 1 } else if (m != "GET" && m != "HEAD") hid = 1; meth = m }
+        function flush() { if (started) printf "%s\t%d\t%d\t%d\t%s\t%s\n", cl, ((amb || nxt) ? 0 : get), hid, (unk || amb), (meth == "" ? "-" : meth), txt; get = 0; amb = 0; hid = 0; unk = 0; meth = ""; endopt = 0; skip = 0; skipkind = ""; txt = ""; started = 0 }
         # a long option written as an unambiguous prefix of a write option stands for that option
         function expand(w,   name, rest, e, k) { if (w !~ /^--[a-z]/) return w
             name = substr(w, 3); rest = ""; e = index(name, "="); if (e) { rest = substr(name, e); name = substr(name, 1, e - 1) }
@@ -389,8 +482,8 @@ iad_http_requests() {
               started = 1
               # a brace expansion (a comma list or a {a..b} sequence, braces outside quotes even when a quoted part sits
               # inside) or an ANSI-C/locale quote ($'...', $"...") rewrites the words: hidden
-              if (UQV[t] ~ /\{[^}]*(,|\.\.)[^}]*\}/) hid = 1
-              if (T[t] ~ /\$\047|\$"/) hid = 1
+              if (UQV[t] ~ /\{[^}]*(,|\.\.)[^}]*\}/) { hid = 1; unk = 1 }
+              if (T[t] ~ /\$\047|\$"/) { hid = 1; unk = 1 }
               if (E[t] || U[t]) amb = 1
               if (uq && w ~ /^#/) amb = 1
               redirect = (!Q[t] && T[t] ~ /[<>]/)
@@ -446,8 +539,8 @@ iad_http_requests() {
 # [RiskMitigation RA-01] A read is granted only to an unambiguous curl request; anything the scanner cannot be sure of counts as a write (CWE-693).
 IAD_WGET_EXECUTE_WRITE_RE='(^|[[:space:]])(-[A-Za-z]*e[[:space:]]?|--execute[[:space:]=])(post[_-]?(data|file)|body[_-]?(data|file)|method)'
 iad_http_words_write() {
-    local cl get hid w
-    while IFS=$'\t' read -r cl get hid w; do
+    local cl get hid _unk _meth w
+    while IFS=$'\t' read -r cl get hid _unk _meth w; do
         [ "$hid" = 1 ] && return 0
         printf '%s' "$w" | grep -Eic "$IAD_CURL_METHOD_RE" >/dev/null && return 0
         printf '%s' "$w" | grep -Ec "$IAD_CURL_UPLOAD_RE" >/dev/null && return 0

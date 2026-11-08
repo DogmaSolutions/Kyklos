@@ -27,6 +27,27 @@ kyklos_test_sealed() {
     [ -n "${KYKLOS_TEST_SEALED:-}" ] || [ -n "${STORY_GL_STUB_DIR:-}" ] || [ -n "${CI_ACCESS_STUB_DIR:-}" ]
 }
 
+# KYKLOS_SEAL_BRIDGE_VARS -- the ONE list of the bridge settings the plugin's code reads (the bridge client, the secret
+# reader, the scope and CI checks, the hooks). A live session carries them (the launcher sets the bridge's token, secret
+# list and identity pins); in a test shell any of them makes the result depend on the machine: a stand-in bridge is
+# refused as "another project's bridge", a request is sent with the session's token. A structural suite check keeps the
+# list complete (every KYKLOS_BRIDGE_* name the plugin reads is on it).
+KYKLOS_SEAL_BRIDGE_VARS=(KYKLOS_BRIDGE_ARGS KYKLOS_BRIDGE_AUTH_TOKEN KYKLOS_BRIDGE_CI_OFF_REASON KYKLOS_BRIDGE_FYI
+                         KYKLOS_BRIDGE_HEALTH_CHECK KYKLOS_BRIDGE_MAX_REQUEST_BYTES KYKLOS_BRIDGE_MCP_JSON
+                         KYKLOS_BRIDGE_MCP_URL KYKLOS_BRIDGE_MUTATION_LEVEL KYKLOS_BRIDGE_PROJECT_NAME KYKLOS_BRIDGE_SECRETS
+                         KYKLOS_BRIDGE_SECRET_BIN KYKLOS_BRIDGE_SECRET_TIMEOUT_SECONDS KYKLOS_BRIDGE_SOLUTION_ROOT)
+
+# kyklos_seal_clear_bridge_env -> removes from this shell every variable of KYKLOS_SEAL_BRIDGE_VARS and any other
+# KYKLOS_BRIDGE_* variable (one added later is cleared before the list names it). A test that needs one sets it
+# explicitly afterwards.
+# [CySec] CWE-668 (exposure of a resource to the wrong sphere): a sealed test never carries the live bridge's token or
+# identity into a request.
+kyklos_seal_clear_bridge_env() {
+    local v
+    for v in "${KYKLOS_SEAL_BRIDGE_VARS[@]}" $(compgen -v KYKLOS_BRIDGE_); do unset "$v" 2>/dev/null; done
+    return 0
+}
+
 kyklos_url_host() {
     local rest="$1" authority host
     case "$rest" in *://*) rest="${rest#*://}" ;; esac

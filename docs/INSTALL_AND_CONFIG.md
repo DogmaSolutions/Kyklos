@@ -179,9 +179,11 @@ The Launcher reads a few values that describe where your Kyklos components come 
 | `Bridge:PackageProjectId` | the number of the project whose package registry publishes the `Kyklos Bridge` |
 | `Bridge:TokenName` | the name of the token that reads that package registry (the distribution read token) |
 
+The `Kyklos Bridge` is also published on [NuGet.org](https://www.nuget.org/packages/DogmaSolutions.Kyklos.Bridge) as a .NET tool, for a machine with the .NET 10 SDK that starts it by hand (`dotnet tool install --global DogmaSolutions.Kyklos.Bridge`, or `dnx DogmaSolutions.Kyklos.Bridge` without installing). The Launcher does not need it. Each package carries NuGet.org's repository signature (check it with `dotnet nuget verify --all <the .nupkg file>`), and the Bridge's own assemblies inside it are signed by Dogma Solutions.
+
 Write the two paths as **absolute** paths (in JSON, every `\` is written `\\`). A relative path is never read from the folder you start the Launcher in: a relative `Projects:SettingsRoot` is read from the Launcher's own folder, and a relative `Projects:PolicyOrganisationLayer` from the settings root (or from the Launcher's own folder when no settings root is set). An absolute path leaves no doubt. A path written for Windows (with a drive letter, or a `\\server\share` path) is taken as it is written on every operating system: on a Linux or macOS host it is never joined under another folder, so such a file is reported as missing, naming the path exactly as you wrote it.
 
-Then start the Launcher. It prints a start-up link to its control panel, which listens on your machine only. Open it in your browser. If a value above is missing, the Launcher says which one.
+Then start the Launcher. It opens its control panel in your browser (it listens on your machine only; the address is printed too). The first time, the page asks you to choose a username and a password of at least 12 characters: the Launcher keeps the username and a salted hash of the password in the Windows Credential Manager (entries `Kyklos:Launcher:Username` and `Kyklos:Launcher:Password`), never the password itself. From then on, open the same address and log in; the **Account** link changes the password or logs out. Forgot the password? Delete those two entries in the Windows Credential Manager and reload the page to choose a new login. If a value above is missing, the Launcher says which one.
 
 ### 2.6 The Bridge settings, reviewed
 

@@ -625,6 +625,44 @@ cmd_next() {
   esac
 }
 
+# discipline <id> [--ask <dimension or metric> --wanted <value> --why <reason> [--measured <value>]]
+# Read a story's Proof Discipline, or ask the owner to change it. Both are the bridge's alone (its proof_discipline_get
+# and proof_discipline_ask verbs): this forwards the request and prints the answer. No command writes the section.
+cmd_discipline() {
+  local id="${1:-}" subject="" measured="" wanted="" why=""
+  [ -n "$id" ] || die "discipline: name the story: story discipline <id> [--ask <subject> --wanted <value> --why <reason> [--measured <value>]]" 2
+  shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --ask) subject="${2:-}"; shift 2 || die "missing value after $1" ;;
+      --measured) measured="${2:-}"; shift 2 || die "missing value after $1" ;;
+      --wanted) wanted="${2:-}"; shift 2 || die "missing value after $1" ;;
+      --why) why="${2:-}"; shift 2 || die "missing value after $1" ;;
+      *) die "discipline: unknown argument '$1'" 2 ;;
+    esac
+  done
+  [ "${STORY_BACKEND:-local}" = gitlab ] || die "discipline: Proof Discipline is judged on the tracker (STORY_BACKEND=gitlab); the local backlog has none" 2
+  local project verb args resp rc text key
+  project="$(ssdlc_project)"; key="$(ssdlc_story_key "$id")"
+  if [ -n "$subject" ]; then
+    verb=proof_discipline_ask
+    args="$(jq -cn --arg p "$project" --arg i "$key" --arg s "$subject" --arg m "$measured" --arg w "$wanted" --arg y "$why" \
+      '{project:$p,id:$i,subject:$s,wanted:$w,why:$y} + (if $m == "" then {} else {measured:$m} end)')"
+  else
+    verb=proof_discipline_get
+    args="$(jq -cn --arg p "$project" --arg i "$key" '{project:$p,id:$i}')"
+  fi
+  resp="$(bridge_mcp_call "$verb" "$args" 120)"; rc=$?
+  case "$rc" in
+    0) : ;;
+    2) die "discipline: no KyklosBridge is configured for this workspace; Proof Discipline lives only in the bridge (start the session through its launcher)" 3 ;;
+    *) die "discipline: the KyklosBridge did not answer (transport rc $rc); retry once it answers" 3 ;;
+  esac
+  text="$(bridge_mcp_text "$resp")"
+  if bridge_mcp_is_error "$resp"; then printf '%s\n' "$text" >&2; return 1; fi
+  printf '%s\n' "$text"
+}
+
 # adopt <N> --type <t> --epic <E0N> [--kind <k>] [--dir <StoriesDir>]
 # Bring an EXISTING (typically USER-created) gitlab issue #N into the SSDLC story lifecycle: stamp the story labels
 # (backend_adopt lists them), attach the epic's milestone (REQUIRED), inject the canonical metadata block preserving
@@ -2606,6 +2644,7 @@ main() {
     parent)   ssdlc_route parent "$@" ;;
     structure) ssdlc_route structure "$@" ;;
     next)      cmd_next "$@" ;;   # the next work, as the bridge's next_work verb orders it
+    discipline) cmd_discipline "$@" ;;   # read a story's Proof Discipline, or ask the owner to change it (bridge only)
     attach)    cmd_attach "$@" ;;   # attach a proof report and print its markdown link
     attach-coverage) cmd_attach_coverage "$@" ;;   # attach a shell (bashcov) coverage receipt through the bridge
     audit)     cmd_audit "$@" ;;
