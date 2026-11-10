@@ -68,7 +68,7 @@ Decide mechanically with the gate (don't eyeball it):
 ## First-run interview (agent ⇄ developer)
 
 Ask the developer the SINGLE **Project Topology** question — their answer is all you need; the Kyklos DERIVES
-every knob from it (the agent sets none by hand). The derivation is `hooks/lib/topology.sh`; the policy side is the corporate policy's Project structure section.
+every knob from it (the agent sets none by hand). The derivation is `hooks/lib/topology.sh`; the policy side is the engineering policy's Project structure section.
 
 1. **Project Topology** — which of the four is this User project?
    - **PriComPubSou** (Private Companion + Public Sources) — a private companion at the workspace root holds the

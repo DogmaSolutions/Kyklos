@@ -59,7 +59,7 @@ carries them in the issue body) but all 7 must be present. Once a story carries 
 same check also requires every spec section the close gate requires (Use cases, Failure modes, Fail-open vs
 fail-hard, Poka-yoke, Enforcement, Anti-circumvention), each with content: `story structure`, the Requirements ->
 Design advance of `story requirements`, `story close` and the raw-close guard apply one list, so a story that passes
-the work-time check is never refused at close for a missing section. **Enforced fleet-wide** by the
+the work-time check is never refused at close for a missing section. **Enforced across all projects** by the
 `kyklos-story-structure-guard` Stop hook: it blocks the Stop while the current In-progress story is structurally
 incomplete (fail-open on any uncertain state; disable per-container with `KYKLOS_STRUCTURE_GATE=0`). Restructure
 the story to clear it.
@@ -98,7 +98,8 @@ story set <id> summary="<one concise line>" branch="<ref>"       # any of: statu
 story close <id> --branch "<ref>" --summary "<one-liner>"        # = set status=Done (+fields), then sync
 story attach-coverage <id> <bashcov report or folder> [--tree <host tree>]  # SHELL coverage receipt: the bridge reads the change from its tree, posts ONE comment on the
 #   story (summary, the changed scripts' coverage lines, the compressed report) and records its fingerprint in the story's
-#   Test Discipline token; link the printed archive in the Test Discipline row. A .NET receipt is posted by the bridge's
+#   Test Discipline token; link the printed archive in the Test Discipline row. A report over the bridge's request limit is
+#   sent reduced to the classes of the story's changed shell scripts (a notice names them); a script no class lists counts as not run. A .NET receipt is posted by the bridge's
 #   own coverage run (get_coverage / run_tests with story). The close refuses a PROVEN Test Discipline row that does not
 #   link the latest receipt of each kind the cited change needs (development stories; gitlab backend).
 story set <id> status=Todo --reopen --reason "<why>"             # reopen a CLOSED story: explicit + explained (see below)
@@ -107,7 +108,7 @@ story proof <id> --write                                         # GENERATE the 
 story proof <id> --format text                                   # the TERMINAL form of the stored table: what you show in a reply
 story sync                                                       # regenerate BACKLOG.md from the folders (idempotent)
 story check                                                      # exit 3 if the index has drifted (the Stop guard runs this)
-story archive <e>                                                # a fully-done epic -> harvest lessons + fold to _archive/
+story archive <e>                                                # a fully-done epic -> collect lessons + fold to _archive/
 story epic set <E0N> --title "<t>" [--goal "<g>"] [--start <yyyy-MM-dd|none>] [--due <yyyy-MM-dd|none>]  # create/configure
 story epic list [--state active|closed|all] [--search "<text>"]  # find epics
 story epic show <E0N> [--state open|closed|all] [--search "<text>"]  # one epic: goal, dates, progress, its stories
@@ -242,7 +243,7 @@ or a page that fails twice is refused with a message, never judged on the part t
 
 **Canary mode — a safe playground for hand/demo runs (GitLab backend).** An interactive or teaching run must NEVER
 mint junk issues in the real tracker: GitLab's per-project issue-iid counter never decreases, so a deleted demo issue
-leaves a permanent gap that later surfaces as a 4-digit story number (this has bitten the fleet before). Pass
+leaves a permanent gap that later surfaces as a 4-digit story number (this has bitten before). Pass
 **`--canary`** (or export `STORY_CANARY=1`) and every write is redirected to a throwaway canary project instead:
 
 ```
@@ -277,7 +278,7 @@ production. Two guards close that gap:
 **Kebab-case slug (every backend, always on).** The slug names the story folder (`Stories/STORY-<nnn>-<slug>/`), so
 `story new` refuses a slug that is not kebab-case (lowercase letters/digits joined by single dashes) or is longer than
 40 characters, and prints the corrected command with a suggested slug. A human title goes in `--title`:
-`story new clean-names --title "Clean Names: story new refuses a title as the slug" --type fix --epic E12`. Under the
+`story new clean-names --title "Clean Names: story new refuses a title as the slug" --type fix --epic E01`. Under the
 gitlab backend the mirror applies the same rule: a legacy folder whose name is not kebab-case (a title used as the
 slug, or an old cut that ended in `-`) is renamed to its slugified name by the next `story refresh`/`sync`, keeping
 its files. Only a generated mirror folder is moved: if a clean folder for the same story already exists, or the legacy
@@ -469,7 +470,7 @@ From here, execution is regulated by the **stories** (the one ACTIVE In-progress
 ## Workflow
 
 0. **Choose** — the next item to work on is the one `story next` (the bridge's `next_work` tool) names first.
-   It applies the corporate policy's "Choosing the next work" rule and lists every open issue without a severity as a
+   It applies the engineering policy's "Choosing the next work" rule and lists every open issue without a severity as a
    defect to fix first; do not pick work by any other order.
 1. **Create** — `story new <kebab-slug> --title "<title>" --type <t> --kind <development|analysis|documentation|ops> --severity <critical|high|medium|low> --epic <e>` (creates the folder from templates + regenerates the index). On a tracker `--severity` is required: it becomes the `severity::` label the next-work order ranks by. `--epic` is mandatory (an epic id, or `--no-epic` for a deliberately ungrouped story) so a story is never silently orphaned.
    **Create or adopt the story BEFORE the first edit of the work**, so its phases follow the work as it happens. If the
@@ -547,7 +548,7 @@ From here, execution is regulated by the **stories** (the one ACTIVE In-progress
 
 ### Closing the loop — commit → (push?) → monitor → close-on-green
 
-> **Commit trailer.** Every commit on a story branch carries the `Refs: #<N>` footer the corporate policy requires
+> **Commit trailer.** Every commit on a story branch carries the `Refs: #<N>` footer the engineering policy requires
 > (Tier 2; `kyklos-commit-message-guard` enforces it). The close uses the same trailer to find the story's own commits
 > when the branch name carries no story number (`hotfix/<slug>`) or the merge was squashed: the Test Discipline token is judged there. The trailer places the story only after its named
 > merge and branches found nothing, and only through the story's OWN commits: a commit whose every `Refs:` line names
@@ -569,7 +570,7 @@ From here, execution is regulated by the **stories** (the one ACTIVE In-progress
 > keeps a record of an earlier run that no longer matches its file (this run's tests did not cover it), the bridge's
 > answer carries a WARNING naming the file, and the close names the earlier merge the record comes from.
 
-Whether you may push, and the push → monitor → close-on-green loop, are the corporate policy's PUSH POLICY; CI is
+Whether you may push, and the push → monitor → close-on-green loop, are the engineering policy's PUSH POLICY; CI is
 read through `hooks/lib/ci-access.sh`. What the story adds:
 
 - Once the branch is pushed the story is only *awaiting CI* (its phase is now Testing), so its active-work slot is
@@ -653,5 +654,5 @@ SSDLC phase from lagging the real work:
   coverage/test run (bridge `get_coverage` / `run_tests` with a `story`), not only on a push — so a story pushed
   just before merge does not sit in `Implementation` through its whole test stage. When the run names a `tree`, the story
   is looked up in the repository that tree belongs to: a relative tree is the session's own project; a host path
-  (`R:\<Repo>\...`) is the repository mounted beside the workspace under the same folder name (`/mnt/<Repo>`),
+  (`C:\<Repo>\...`) is the repository mounted beside the workspace under the same folder name (`/mnt/<Repo>`),
   whose own story settings decide the project; a tree not visible in the container advances nothing.

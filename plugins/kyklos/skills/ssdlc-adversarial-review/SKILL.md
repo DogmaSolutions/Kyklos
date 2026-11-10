@@ -70,7 +70,16 @@ to be kept carries no `Refs:` naming the story, or its branch is deleted after t
 
    ### Checked, no finding
    (optional) what was checked and found sound
+   Not checked: <ids> — why (optional, one line for what you did not check)
    ```
+   - On a documentation, analysis or ops story, name each spec item you checked (`R1`, `AC1`, `UC1`, `FM1`, `RA-01`,
+     `FAIL-HARD`, ...) in `### Checked, no finding`: there the review is what covers those items.
+   - Anything you did not check goes on a `Not checked: <ids> — why` line in `### Checked, no finding` (an optional
+     `- ` or `* ` before it, the label may be bold); the line runs on until a blank line or a new bullet. Or put
+     `(not checked)` right after an id (`UC1 (not checked)`): one id per `(not checked)`; for a list use the
+     `Not checked:` line. Only that marker, or an item named in a `### Findings` bullet, takes an item's cover away:
+     prose elsewhere ("the second page was not checked") is not read as a veto, so an item it names still counts as
+     checked.
    - **Severity:** `blocker` (must be fixed before the merge), `major` (a real defect or gap), `minor` (small, low
      impact). Findings are listed blocker first, then major, then minor, numbered F1, F2, ... in that order, so a
      search for `· blocker ·` finds every blocker.
@@ -86,7 +95,7 @@ to be kept carries no `Refs:` naming the story, or its branch is deleted after t
      backticked path or name holds visible text.
    - Do not add a title: the posted note gets its heading from the bridge, `Adversarial review (round N) — STORY-<id>`,
      with the round counted from the story's earlier review notes (also in the hidden marker
-     `<!-- dogma:adversarial-review story=<id> round=N -->`). A note counts when it starts with that marker and carries
+     `<!-- kyklos:adversarial-review story=<id> round=N -->`). A note counts when it starts with that marker and carries
      the review token line (CRLF line ends included), so a comment that quotes the marker does not. The round is a
      reading aid, not a lock: two reviews posted at the same moment, a deleted review note, or a comment that copies a
      whole review note's marker and token line can shift or repeat a number; the token is the proof.
@@ -140,11 +149,12 @@ the author never handles it; the verb claims no detection (any agent holding the
   the text exactly as sent (trimmed of leading and trailing whitespace only; the bridge adds nothing), mints no token and
   touches neither the code review note, its token nor its round count. It answers `{note_id, url}`.
 - The report follows the design review shape (the bridge refuses anything else, naming the line and repeating the
-  template): an optional first line `<!-- dogma:design-review story=<n> round=<k> -->`, the heading
+  template): an optional first line `<!-- kyklos:design-review story=<n> round=<k> -->`, the heading
   `## Independent design review (round <k>) <any text>`, any preamble, `### Summary` (free text), `### Findings`
   (`- **F<n>** · <blocker|major|minor> · <location> — <text>`, or the single line `- none` for a clean round), optionally
   `### Hygiene`, `### New adversarial tests <any text>` (``- **T<n>** `<name>` — <text>``), optionally
-  `### Checked, no finding`.
+  `### Checked, no finding` (what you did not check goes on a `Not checked: <ids> — why` line there, as in a code
+  review).
 - The round is the design review notes the bridge's account already posted on the story, plus one. A report whose marker
   or heading names another round is refused with `DESIGN-ROUND-MISMATCH`, naming the expected round: renumber the marker
   and the heading and post again. A refusal `DESIGN-OFF-TEMPLATE` names the offending line; an issue that is not a story is

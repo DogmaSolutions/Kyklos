@@ -60,7 +60,7 @@ cmd_fetch() {
   [ -n "$pipe" ] || die "fetch: no pipeline for branch '$br' yet — the AI review has not run (push to trigger it)" 4
   local jbs; jbs="$(ci_access_jobs "$pipe" "$repo")" || die "fetch: could not read the jobs of the pipeline for '$br' (bridge down and no direct-token exception, or out of scope). $(ci_access_failure_reason $?)" 3
   local job; job="$(printf '%s' "$jbs" | jq -r '[.jobs[] | select(.name=="ai-review")][0].id // empty' 2>/dev/null)"
-  [ -n "$job" ] || die "fetch: the latest pipeline for '$br' has no 'ai-review' job — the review did not run (is AI_REVIEW=true?)" 4
+  [ -n "$job" ] || die "fetch: the latest pipeline for '$br' has no 'ai-review' job — the review did not run (add one to the pipeline)" 4
   local findings; findings="$(ci_access_artifact "$job" "ai-review/findings.json" "$repo")" \
     || die "fetch: could not read the ai-review findings.json (bridge down and no direct-token exception, or out of scope). $(ci_access_failure_reason $?) — not treating that as zero findings" 4
   printf '%s' "$findings" | json_test 'has("findings") or has("status")' \

@@ -66,6 +66,70 @@ no new run, as long as the code is still the code that was measured. Every chang
 original value, the new value, who decided and when, so a reader never takes it for a measured pass. A change that cannot be
 verified counts as no change.
 
+### The Bridge's signed copy of the section
+
+Next to each story, the Bridge keeps one **note** that holds a signed copy of its Proof Discipline section. You will see it in the
+story's notes: it opens with a sentence saying what it is, and the data it holds is folded away under a small
+"Signed record" heading.
+
+- **What it is:** the Bridge's own record of what the section said when it last accepted it. The Bridge needs it to tell a change
+  made by the owner from any other change, because the issue tracker records who edited the story's description, and the
+  Bridge compares that with the copy.
+- **What it records:** who changed the story's proof requirements, to what, and when.
+- **Nobody needs to act on it.** Do not edit it or delete it. To change the section, edit it in the story's header, as described
+  above. A note that only looks like the copy, or an old copy posted again, is ignored: only a copy that carries the Bridge's
+  signature for this story counts, and when several do, the newest one counts.
+
+## What Kyklos assumes about the agent
+
+Kyklos protects you from an agent that **makes mistakes**: it forgets a step, trusts a claim it did not check, edits a file after
+its proof was taken, or cites evidence that does not exist. It is **not** designed to withstand an agent that is **acting
+deliberately against you**, one that sets out to defeat the checks. No tooling around a language model can promise that, and a
+design that tried would also get in the way of an honest agent.
+
+Signing is the clearest example. The Bridge signs the facts it records after a passing test run (which changed lines the tests
+ran) with a key the agent never sees:
+
+- **What the signing stops:** a plain write to those records, by accident or by a test that does not go after the key, and a
+  record that was changed or copied from somewhere else. Such a record reads as absent and is named in the answer.
+- **What it does not stop:** a test written to steal the key. Tests run as the same user on the same machine as the Bridge,
+  and a program running as that user can read the key from the credential store or from the Bridge's own memory. Starting
+  the tests without the key in their environment does not change that. Only running tests under another account or on
+  another machine would, and Kyklos does not do that.
+
+The control Kyklos relies on for a deliberately hostile change is the one a person would use: the
+[adversarial review](ADVERSARIAL_REVIEW.md) of the tests and the code, and your own reading of it.
+
+### An optional hardening: `Agile:Proof:AdversarialAgentHardening`
+
+For an owner who wants some extra defence anyway, the Bridge has one switch, **off by default**.
+It is the one exception to the rule that every new check of Kyklos ships switched on: these checks add friction for an honest
+agent and buy protection only against a deliberate one, so the choice is yours.
+
+- `off` (the default): nothing changes.
+- `on`: both of the following apply.
+
+When it is `on`:
+
+1. **Reserved markers.** The Bridge keeps several sections of a story (the proof table, the risk register, its signed records) in
+   notes that begin with a marker line such as `<!-- kyklos:story-proof -->` or `<!-- kyklos:proof-discipline -->`. The Bridge's
+   comment verbs (the coordination reply, and the comment given when closing or reopening a conversation) then refuse a note that
+   begins with such a marker, and the answer points to the story tool, which is how those sections are meant to change. Without
+   the switch, an agent could post a note that looks like one of those sections.
+2. **The close checks the citations.** `proof_draft` records which items of the specification it found no evidence for, and
+   `proof_set` already refuses a row that cites one of them. With the switch on, closing a story applies the same check to the
+   rows already stored, using that record (which the Bridge signs). Without it, a row written another way could cite an item
+   that was never covered and still pass the close.
+
+With the Launcher, set the project's launch parameter `KYKLOS_BRIDGE_ADVERSARIAL_AGENT_HARDENING` to `on` in its configuration (the
+default is `off`); the Launcher passes it to the Bridge it starts, when the project has the story tools switched on (without them there is nothing to harden, and the parameter does nothing). The Bridge itself reads it as the setting
+`Agile:Proof:AdversarialAgentHardening`, which a Bridge you start by hand takes from the environment variable
+`Agile__Proof__AdversarialAgentHardening=on`. A value placed in the project's Bridge settings file or in the launch environment is
+dropped, because the Launcher builds that section itself.
+
+Any value other than `off` or `on` stops the Bridge at start-up and names the setting. The owner's exception label on a story
+still waives the close check, as it does for every other proof check.
+
 ## The dimensions, one by one
 
 Each dimension below says **what** it checks, **how** the check is made, **how its metrics are enforced**, and **why**.
@@ -73,7 +137,7 @@ Each dimension below says **what** it checks, **how** the check is made, **how i
 ### Completeness
 
 - **What:** every behaviour the story adds has at least one *named* automated test that shows it working and one that shows it refusing what it should refuse; every acceptance criterion is shown.
-- **How:** the specification's items (requirements, use cases, failure modes, acceptance criteria) are matched to the tests that name or tag them.
+- **How:** the specification's items (requirements, use cases, failure modes, acceptance criteria) are matched to the tests that name or tag them. A documentation, analysis or operations story has no tests by its kind, so an adversarial review with no finding covers any item its "Checked, no finding" section names, risk items included, unless the bullet naming it says that item was left unchecked; for a development story a review never replaces a test for a use case or a failure mode.
 - **Metrics enforced:** one metric per item, naming its test. The close compares the specification with the metrics: an item with no metric is reported as uncovered and the row stays UNPROVEN.
 - **Why:** a requirement nobody tested is a requirement nobody knows is met.
 
@@ -250,3 +314,7 @@ A realistic, complete Proof Table of a small development story ("Retry Export": 
 | Adversarial Review   | ✅ PROVEN        | Round 1 found one major (the wait was not cancelled on shutdown), fixed; round 2 clean. Token verified by the Bridge.                                                                                       | <kbd>Rounds:</kbd> 2<br><kbd>Open blockers or majors:</kbd> 0<br><kbd>Review note:</kbd> round 2, clean                                                                                                                        |
 
 **Tally: 16 PROVEN · 1 NOT_PERTINENT**
+
+## Related pages
+
+[Adversarial reviews](ADVERSARIAL_REVIEW.md), [The Kyklos workflow](WORKFLOW.md), [Hooks and skills](HOOKS_AND_SKILLS.md), [Stories and epics](AGILE.md), and [the README](../README.md) for the full list.

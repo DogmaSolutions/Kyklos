@@ -56,7 +56,7 @@ labels), `coordination_notes`, `coordination_label_events` and `coordination_who
 the bridge is the only way to read GitLab, and a script that still reads it directly logs
 `[kyklos] direct-token fallback: ...` while a bridge without these verbs is in use.
 **The next work.** `next_work` (with `project`) answers what to work on next in that project, in the order of the
-corporate policy's "Choosing the next work" rule, with a reason per issue, the issues missing a severity and what each
+engineering policy's "Choosing the next work" rule, with a reason per issue, the issues missing a severity and what each
 blocked issue waits on; issues set aside or someone else's are listed by name, never offered. It is read-only and
 served whatever the project's story-stack mode.
 **Epics** are changed only through the story tool's epic commands; see [`ssdlc-story`].

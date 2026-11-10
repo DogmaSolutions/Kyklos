@@ -14,3 +14,7 @@ The agent does not watch CI dashboards. It talks to CI through the [`Kyklos Brid
 - a CI capability that would affect every project is proven first in a dedicated test project, never directly on a real one.
 
 How the push, the pipeline and the merge decide when a story can close, in each kind of project, is described in [The Kyklos Workflow](WORKFLOW.md).
+
+## Related pages
+
+[Git: branching and authorisation](GIT.md), [Secrets](SECRETS.md), [The Kyklos workflow](WORKFLOW.md), [The three components](COMPONENTS.md), and [the README](../README.md) for the full list.

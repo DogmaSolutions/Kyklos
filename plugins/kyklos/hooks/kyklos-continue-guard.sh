@@ -22,7 +22,7 @@
 # agent works and stops again; the hook re-runs. The loop ends when work is complete or a motivation holds.
 #
 # TWO MODES:
-#   * directive (FLEET DEFAULT)  -  block on any open in-scope work item: stories AND unlabelled/non-story issues
+#   * directive (DEFAULT)  -  block on any open in-scope work item: stories AND unlabelled/non-story issues
 #                              (routed, parked, status::blocked and disposition-labelled issues are excluded, see
 #                              _cg_classify; an explicit CONTINUE_GUARD_LABEL narrows the query instead). The agent
 #                              auto-pulls the NEXT item ("keep rolling"). On by default for ALL containers. An optional
@@ -179,7 +179,7 @@ _trans="$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null |
 if _cg_awaiting_user "$_trans"; then allow "awaiting-user (a question was posed this turn)  -  allowing this stop."; fi
 
 # (4) mode + open in-scope work. Echo a space-separated list of open story iids, or the literal ERR (fail-open).
-# directive mode = block on ANY open scope story ("keep rolling"). This is the FLEET DEFAULT: on by default for
+# directive mode = block on ANY open scope story ("keep rolling"). This is the DEFAULT: on by default for
 # every container - keep working the whole backlog, don't idle. Opt OUT
 # with CONTINUE_GUARD_DIRECTIVE=off (then: the narrow "finish what you STARTED" default, unless a /tmp marker forces
 # directive for one session). Env on|1|true is the explicit (now redundant) form. Marker still forces it (back-compat).
@@ -234,9 +234,9 @@ _cg_open_stories() {   # $1 = mode
     # scope, per an "all issues in these groups/projects regardless of label" backlog). Unset keeps the story default.
     # Build the label-filter fragment(s). GitLab's labels= filter is exact-match AND, so matching the
     # in-progress story across BOTH the new scoped `status::doing` and the legacy single-colon `status:doing` (the
-    # rename window) needs ONE query per scheme, unioned by the project#iid dedup below. Directive mode (the fleet
+    # rename window) needs ONE query per scheme, unioned by the project#iid dedup below. Directive mode (the usual
     # default) filters only on `story` and is unaffected by the status rename.
-    # Dual-read a multi-level routing label (e.g. for:<agent>) across BOTH schemes during the fleet rename
+    # Dual-read a multi-level routing label (e.g. for:<agent>) across BOTH schemes during the rename
     # window: the configured single-colon `for:<agent>` AND the scoped `for::<agent>`, so the guard keeps seeing the
     # backlog whether an issue is relabelled or not. Mirrors the status:: dual-read below.
     _cg_label_schemes() {   # <label> -> the label + its sibling-scheme variant (single<->double colon), one per line

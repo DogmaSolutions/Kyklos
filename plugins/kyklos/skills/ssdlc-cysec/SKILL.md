@@ -1,6 +1,6 @@
 ---
 name: ssdlc-cysec
-description: The canonical corporate `[CySec]` security-annotation convention — the single source of truth for its format, verbs, and references. Use WHILE writing or reviewing code whose purpose is to prevent a vulnerability: annotate the check inline, at the moment you write it. Recalled like Test Discipline. The ssdlc-story-proof Security dimensions AUDIT this; the ssdlc-cysec-comments skill BACKFILLS it on existing code; both defer to this skill for the format.
+description: The canonical `[CySec]` security-annotation convention — the single source of truth for its format, verbs, and references. Use WHILE writing or reviewing code whose purpose is to prevent a vulnerability: annotate the check inline, at the moment you write it. Recalled like Test Discipline. The ssdlc-story-proof Security dimensions AUDIT this; the ssdlc-cysec-comments skill BACKFILLS it on existing code; both defer to this skill for the format.
 user-invocable: false
 ---
 

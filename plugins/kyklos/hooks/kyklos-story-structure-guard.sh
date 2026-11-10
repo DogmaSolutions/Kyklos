@@ -4,7 +4,7 @@
 # rule is owned by story_min_structure_problem in skills/ssdlc-story/lib/story-lib.sh).
 #
 # THREE MODES (arg $1):
-#   * edit (PreToolUse: Edit|Write|MultiEdit) - the PRIMARY gate (user directive): the story must be
+#   * edit (PreToolUse: Edit|Write|MultiEdit) - the PRIMARY gate: the story must be
 #     RESTRUCTURED to conform IMMEDIATELY after it is read and BEFORE any work starts. So a WORK-file edit is BLOCKED
 #     while the current In-progress story is non-conforming - forcing the agent to add the missing section(s) FIRST.
 #     An edit UNDER Stories/ IS the restructure and is always allowed (never block the fix itself).

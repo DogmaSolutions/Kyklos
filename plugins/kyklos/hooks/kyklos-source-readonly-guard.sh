@@ -10,7 +10,7 @@
 # NEVER refused, so the running-tests diagnosis procedure (stash -> run -> pop) keeps working.
 #
 # DEFAULT-ON: the moment a project declares a source as agent-readonly, this enforcement is active — there is no
-# separate enable flag. The SINGLE greppable fleet opt-out is KYKLOS_SOURCE_READONLY_GUARD=0. A single sanctioned
+# separate enable flag. The SINGLE greppable opt-out is KYKLOS_SOURCE_READONLY_GUARD=0. A single sanctioned
 # exception uses the scoped, self-spent one-shot marker:
 #   bash hooks/lib/override-marker.sh set source-readonly-ok <repo-dir>
 #

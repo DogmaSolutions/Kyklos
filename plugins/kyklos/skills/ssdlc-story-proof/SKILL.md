@@ -5,7 +5,7 @@ description: The FINAL gate for a ssdlc-story. Before a story may be marked Done
 
 # ssdlc-story-proof — the story's final quality gate
 
-Corporate engineering policy applied to **every** story, on top of its own Acceptance Criteria. Acceptance
+The engineering policy applied to **every** story, on top of its own Acceptance Criteria. Acceptance
 Criteria define **what** the story must deliver; the Quality Dimensions below define **how well** it is
 engineered. This gate is the last step of the [`ssdlc-story`] **Finish** workflow: a story is not Done
 until its `## Proof` table is filled and passes.
@@ -46,7 +46,9 @@ exact upper-case token with no letter or digit touching it (an underscore is fin
 `R<n>`, `RA-<n>`, `FAIL-OPEN`, `FAIL-HARD` (so `AC1_band_starts_at_edge` and `[Property("Spec", "FAIL-OPEN")]` count;
 `SampleAC3Strips`, `ac4` and `AC_1` do not). Doc comments, `//` comments, `[Description]`, `[TestCase]` arguments and
 helper methods never count. The newest adversarial review whose token verifies counts for `AC`, `R` and `FAIL-` items
-only (use cases and failure modes always need a test); `RA-` items come from the risk register. What to cite as
+only (use cases and failure modes need a test); `RA-` items come from the risk register. A kind with no tests
+(documentation, analysis, ops) is the exception: a review with no finding covers any item its `Checked, no finding`
+section names, `RA-` included, unless the bullet naming it says the item was left unchecked. What to cite as
 `--branch`: `group/project!<n>` (a merge request), `group/project@<commit>` (several, separated by spaces; a commit
 not yet on the trunk stands for its whole branch, every file changed since it left the branch its own open merge
 request (same project, same head commit) targets, or the default branch before there is one, so the head alone is enough; a commit on the trunk stands for itself), `group/project@<branch>` (a pushed story branch of that project, for a draft before the merge), or the bare project

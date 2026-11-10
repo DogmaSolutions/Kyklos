@@ -144,7 +144,7 @@ while :; do
     [ "$(printf '%s' "$nresp" | tail -n1)" = "200" ] \
         || _die "the story's notes could not be read to number the review round (HTTP $(printf '%s' "$nresp" | tail -n1)) - nothing was posted"
     _n="$(printf '%s' "$nresp" | sed '$d' | jq --arg s "$story" \
-            '(map(select((.body // "") | gsub("\r\n"; "\n") | test("\\A<!-- dogma:adversarial-review story=" + $s + "( round=[0-9]+)? -->")
+            '(map(select((.body // "") | gsub("\r\n"; "\n") | test("\\A<!-- (kyklos|dogma):adversarial-review story=" + $s + "( round=[0-9]+)? -->")
                     and test("(\\A|\n)\\*\\*Adversarial-Review-Token:\\*\\* `[0-9a-f]{64}`(\n|\\z)"))) | length), length' 2>/dev/null)" \
         || _die "the story's notes could not be parsed to number the review round - nothing was posted"
     _hits="$(printf '%s\n' "$_n" | sed -n 1p)"; _size="$(printf '%s\n' "$_n" | sed -n 2p)"
@@ -154,7 +154,7 @@ while :; do
     _page=$((_page + 1))
 done
 # A hidden marker makes the review comments greppable; the heading and the marker carry the round.
-body="$(printf '<!-- dogma:adversarial-review story=%s round=%s -->\n## Adversarial review (round %s) — STORY-%s\n\n%s\n\n---\n**Adversarial-Review-Token:** `%s`\n' \
+body="$(printf '<!-- kyklos:adversarial-review story=%s round=%s -->\n## Adversarial review (round %s) — STORY-%s\n\n%s\n\n---\n**Adversarial-Review-Token:** `%s`\n' \
         "$story" "$round" "$round" "$story" "$(cat "$_prepf")" "$tok")"
 # The comment reaches curl from a file, never as a command-line argument: one argument is capped (128 KiB on Linux), so
 # a long report would otherwise fail to post after the bridge had already minted its token.

@@ -98,3 +98,7 @@ A hands-on guide for Engineering Teams and Tech Leadership.
 <p align="center">
 <a href="https://www.amazon.it/dp/B0GV61WF7L"><img src="../assets/kb/CRA_book.png" width="250"/></a>
 </p>
+
+## Related pages
+
+[The Proof Table](PROOF.md), [The Kyklos workflow](WORKFLOW.md), [Similar projects](SIMILAR_PROJECTS.md), and [the README](../README.md) for the full list.

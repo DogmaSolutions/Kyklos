@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # kyklos-proof-table-guard.sh — PreToolUse(Bash). HARD-BLOCK a raw HTTP/client write that posts or edits a PROOF
-# TABLE (a `<!-- dogma:story-proof -->` note, or a rendered Quality-Dimension table / Tally) OUTSIDE the `story
+# TABLE (a `<!-- kyklos:story-proof -->` note, or a rendered Quality-Dimension table / Tally) OUTSIDE the `story
 # proof` tool. This is the circumvention that let an agent GREEN-WASH a proof: post the table straight to the GitLab
 # notes API and thereby skip every proof enforcement the tool applies — the canonical-dimension SET check (so a
 # MANDATORY dimension like Adversarial Review can be dropped), the metrics gate, the correlation gate, and the
@@ -55,13 +55,13 @@ block(){ local r="$1"; r="${r//\\/\\\\}"; r="${r//\"/\\\"}"; r="$(printf '%s' "$
 # Detection is GLOBAL over the command (not per-segment), because a rendered Proof Table contains `|` pipes that a
 # shell-segment splitter mistakes for pipelines — splitting the client away from the table content and defeating a
 # per-segment co-occurrence check (the very evasion an agent could stumble into). Two signatures:
-#   (1) the `<!-- dogma:story-proof -->` MARKER — unambiguous WRITE-intent: it only appears when an agent is
+#   (1) the `<!-- kyklos:story-proof -->` MARKER (or its earlier `dogma:` form) — unambiguous WRITE-intent: it only appears when an agent is
 #       CONSTRUCTING a proof-note body (a read returns it in the RESPONSE, never in the command). Client + marker => block.
 #   (2) the canonical HEADER (`| Quality Dimension |`) or a `Tally: N PROVEN/NOT_PERTINENT` line — these can also
 #       appear in a READ/grep, so they block ONLY alongside a WRITE indicator (POST/PUT/PATCH, -d/--data*, -F, a
 #       /notes target, a state_event, or `glab issue note|comment|create`).
 _ptg_write_indicator='(-X[[:space:]=]*(POST|PUT|PATCH)|--request[[:space:]=]*(POST|PUT|PATCH)|--method[[:space:]=]*(POST|PUT|PATCH)|--data(-raw|-binary|-urlencode)?[[:space:]=]|[[:space:]]-d[[:space:]]|[[:space:]]-F[[:space:]]|/notes|state_event|glab[[:space:]]+issue[[:space:]]+(note|comment|create|new))'
-if printf '%s' "$cmd" | grep -cE 'dogma:story-proof' \
+if printf '%s' "$cmd" | grep -cE '(kyklos|dogma):story-proof' \
  >/dev/null   || { printf '%s' "$cmd" | grep -cE '\|[[:space:]]*Quality Dimension[[:space:]]*\||Tally:[^|]*(PROVEN|NOT_PERTINENT)' \
  >/dev/null        && printf '%s' "$cmd" | grep -cE "$_ptg_write_indicator" >/dev/null; }; then
     block "BLOCKED: writing/editing a Proof Table via a raw curl/wget/python/node/glab call CIRCUMVENTS the SSDLC proof enforcement — it skips the canonical-dimension SET check (so a MANDATORY dimension like Adversarial Review can be silently dropped), the metrics gate, the correlation gate, and the adversarial-review token verification. Generate the Proof Table ONLY with the tool: 'story proof <id> --set \"<Dimension>=VERDICT|evidence|metrics\"' (repeatable), or 'story proof <id> --apply <file>' for a complete table (validated before write). If the tool genuinely cannot express what you need, DO NOT hand-post — send the tooling owner a message with 'agent-msg new --to <owner> ...' (see the ssdlc-agent-msg skill) requesting the improvement; and if the work is stuck, mark the story 'status::blocked' and move to another issue. (Deliberate migration/admin only: set PROOF_RAW_OK=1, or add '# proof-raw-ok' to the command.)"

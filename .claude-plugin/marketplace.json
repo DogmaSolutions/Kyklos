@@ -5,7 +5,7 @@
     {
       "name": "kyklos",
       "source": "./plugins/kyklos",
-      "description": "Shared engineering-discipline Kyklos every Dogma Solutions project inherits: enforcement hooks + skills (poka-yoke, running-tests, coverage). Later ships the KyklosBridge MCP."
+      "description": "Engineering discipline for AI coding agents: enforcement hooks and skills (mistake-proofing, running tests, coverage, stories and proof)."
     }
   ]
 }

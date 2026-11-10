@@ -165,8 +165,8 @@ git_target_repo_dir() {
     if [ -z "$d" ]; then
         # No explicit -C/cd/work-tree: the bare git command runs in the shell's ACTUAL cwd (hook-input .cwd), NOT
         # necessarily <project_dir>. Resolve the repo from that cwd; fall back to <project_dir> only when cwd is not
-        # inside a git repo. [RiskMitigation RA-01] fixes a bare trunk/feature push being mis-resolved to a
-        # non-companion <project_dir> and wrongly BLOCKED (a consumer project had needed `git -C /workspace` as a workaround).
+        # inside a git repo. [RiskMitigation RA-01] so a bare trunk/feature push is never mis-resolved to a
+        # non-companion <project_dir> and wrongly BLOCKED.
         local cwdtop=""
         [ -n "$hook_cwd" ] && cwdtop="$(git -C "$hook_cwd" rev-parse --show-toplevel 2>/dev/null || echo "")"
         if [ -n "$cwdtop" ]; then printf '%s' "$cwdtop"; else printf '%s' "$project_dir"; fi

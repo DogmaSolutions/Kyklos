@@ -21,8 +21,7 @@ if [ ! -f "$FILE" ]; then
 fi
 
 # A knob is "set" iff a non-comment line assigns it a value that is non-empty AFTER stripping surrounding
-# whitespace/quotes — so `KEY=""` and `KEY=''` count as UNSET (a `"` matched the old `[^[:space:]#]` and
-# wrongly passed the interview with an empty knob). Mirrors has-build-execution.sh's normalisation.
+# whitespace/quotes — so `KEY=""` and `KEY=''` count as UNSET. Mirrors has-build-execution.sh's normalisation.
 # val KEY -> the normalised value of KEY (empty if unset). Same extraction is_set uses.
 val() {
   local v

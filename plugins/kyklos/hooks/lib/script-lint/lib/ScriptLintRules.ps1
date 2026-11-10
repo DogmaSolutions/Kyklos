@@ -20,7 +20,7 @@
 #          a zero-width character or a byte-order mark after the start of the file.
 #   SL012  PowerShell 7-only syntax in a PowerShell file (pipeline chains && and ||, the ternary ?:, the null
 #          operators ??, ??=, ?. and ?[], a clean block). Windows PowerShell 5.1 cannot parse it, so it is a parse
-#          error on the fleet's Windows hosts. Under 5.1 the parser already reports it as SL010; under PowerShell 7 the
+#          error on Windows hosts. Under 5.1 the parser already reports it as SL010; under PowerShell 7 the
 #          parser accepts it, and this rule reports it instead, so the verdict is the same on both.
 # Shell scripts may otherwise keep UTF-8 text: bash reads it correctly.
 

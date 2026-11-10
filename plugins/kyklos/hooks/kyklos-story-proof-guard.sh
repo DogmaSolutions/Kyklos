@@ -322,7 +322,7 @@ if [ "${STORY_BACKEND:-local}" = gitlab ]; then
               continue
           fi
           if [ "${_n:-0}" -gt 0 ]; then
-              gl_problems="${gl_problems}; issue #$_h is Done but its Proof still has $_n UNPROVEN Quality Dimension(s) — fill them mechanically: 'story proof $_h --set \"<Dimension>=PROVEN|evidence\"' (edits the CANONICAL '<!-- dogma:story-proof -->' note the gate reads — a sibling note or a stray Proof-Override does NOT count), or mark NOT_PERTINENT with a reason"
+              gl_problems="${gl_problems}; issue #$_h is Done but its Proof still has $_n UNPROVEN Quality Dimension(s) — fill them mechanically: 'story proof $_h --set \"<Dimension>=PROVEN|evidence\"' (edits the CANONICAL '<!-- kyklos:story-proof -->' note the gate reads — a sibling note or a stray Proof-Override does NOT count), or mark NOT_PERTINENT with a reason"
               continue
           fi
           # [SHOWN-in-reply, gitlab] the "render the Proof table in the reply" rule applies here too: a gitlab proof lives as a NOTE the remote user never
@@ -787,7 +787,7 @@ for dir in "$STORIES_DIR"/STORY-*/; do
     #
     # DEFAULT ON (KYKLOS_TOOL_GATE_<DIMENSION>=1 by default; set =0 in a repo's standards.env to opt down). Still fail-OPEN by construction on the two innocent paths: a story that changed NO source is not
     # gated, and a NOT_PERTINENT/UNPROVEN verdict is never blocked — so an armed gate can only ever block a
-    # genuinely-fabricated PROVEN, never wedge a legitimate close. This enforces the anti-fabrication spirit fleet-wide.
+    # genuinely-fabricated PROVEN, never wedge a legitimate close. This enforces the anti-fabrication spirit in every project.
     _tg_src="$(_tool_gate_source_root)"   # diff the SOURCE repo (nested Repo/ under companion, else $PROJECT_DIR)
     # only re-grade the diff-dependent gates while the live diff is still THIS story's own — if the last
     # commit belongs to a DIFFERENT story (its own Refs: #<other>), or the deliverable is cross-repo, the diff isn't

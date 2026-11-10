@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # override-marker.sh - the one way to grant and spend a guard's one-shot override.
 #
-# A guard's override used to be a bare file (`touch $KYKLOS_STATE_DIR/<name>`) spent by whichever guard run came
-# first. With several agents in one container (a session and the subagents it starts) that let one agent spend
-# another's override, overwrite it with its own, or get a push or commit through on an override it never set. Here an
+# A bare file (`touch $KYKLOS_STATE_DIR/<name>`) would be spent by whichever guard run came first: with several agents
+# in one container (a session and the subagents it starts), one agent could spend another's override, overwrite it
+# with its own, or get a push or commit through on an override it never set. Here an
 # override is bound to a SCOPE (the repository it is meant for, or "global" for guards that are not about one
 # repository), to the AGENT that set it, and EXPIRES; a guard spends it only for the same agent and the same scope.
 #

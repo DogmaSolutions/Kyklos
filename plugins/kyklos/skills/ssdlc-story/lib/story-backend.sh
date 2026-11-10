@@ -23,7 +23,7 @@ STORY_BACKEND_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # [no-silent-default] NO `:-local` fallback: the backend must be resolved from the repo's declared model (the
 # `story` CLI does this before sourcing us) or explicitly exported. An EMPTY backend is a repo whose model was
-# never declared — FAIL HARD rather than silently writing to the local filesystem mirror (the fleet's SoT may be
+# never declared — FAIL HARD rather than silently writing to the local filesystem mirror (the source of truth may be
 # GitLab). The story CLI's resolver already reads .claude/standards.env; this is the enforcement backstop.
 case "${STORY_BACKEND:-}" in
   local)

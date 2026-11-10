@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # kyklos-tool-catalog-surface.sh (Kyklos, SessionStart) — TOOL-FIRST discoverability (Layer 1).
 #
-# PROBLEM (fleet-wide): agents hand-craft what a kyklos/MCP tool already does, and only discover the tool
+# PROBLEM (across projects): agents hand-craft what a kyklos/MCP tool already does, and only discover the tool
 # REACTIVELY when a guard blocks them — because discovering the right tool was never the path of least resistance.
 # This hook makes the right tool the FIRST thing seen: at session start it injects an always-in-context, TASK-
 # ORIENTED capability catalog ("want to do X -> use Y").

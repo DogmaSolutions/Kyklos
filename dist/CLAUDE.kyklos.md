@@ -1,6 +1,6 @@
 <!--
   kyklos — engineering policy (generic, customer-usable baseline).
-  The authoritative source is this file (dist/CLAUDE.kyklos.md). The kyklos plugin (from the dogma-ai
+  The authoritative source is this file (dist/CLAUDE.kyklos.md). The kyklos plugin (from the Kyklos
   marketplace) supplies the hooks + skills that ENFORCE much of it. A deployment loads it as the MANAGED file
   /etc/claude-code/CLAUDE.md (highest precedence, non-overridable), COMPOSED with an organisation layer that
   supplies organisation-specific roles and repositories (see dist/CLAUDE.org.sample.md and

@@ -158,7 +158,7 @@ _enforce_adopted_story() {
       # adopted -> now REQUIRE the spec to be AUTHORED before work (a commit) proceeds. The gap is a story left as the `story new`/adopt SKELETON: block a commit while the linked story body
       # still carries an unfilled `<FILL: ...>` placeholder — the SAME discriminator the story CLI structure check
       # and the close gate use (a legitimately-authored `<word>` never matches `<FILL:`). Scoped to that POSITIVE
-      # signal on purpose: a fleet gate that blocks EVERY commit must not false-block, so an authored spec, an
+      # signal on purpose: a gate that blocks EVERY commit must not false-block, so an authored spec, an
       # unreadable body, or a partial install all FAIL-OPEN (allow) — only a present `<FILL:` blocks.
       command -v backend_body_read >/dev/null 2>&1 || exit 0
       _body="$(backend_body_read . "$num" 2>/dev/null)"; [ -n "$_body" ] || exit 0

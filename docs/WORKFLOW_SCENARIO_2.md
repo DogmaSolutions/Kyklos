@@ -1,6 +1,6 @@
 # Scenario 2: A project with CI, where a person pushes
 
-[← Back to the WORKFLOW](WORKFLOW.md)
+[← Back to the WORKFLOW](WORKFLOW.md) · [README](../README.md)
 
 > Before we explore the workflow and rules of this specific scenario, this is a memento of [the cardinal rules of the Kyklos SSDLC workflow](WORKFLOW.md):
 > - Rule 1: The deliverable is on the remote, and merged
@@ -26,3 +26,7 @@ The diagram below is also available in [Yed GRAPHML format](../assets/workflow/A
 <p align="center">
 <img src="../assets/workflow/AI-Driven_development_013-2-ci-person-push.png" alt="Closing flow: project with CI, a person pushes" width="800"/>
 </p>
+
+## Related pages
+
+The other scenarios: [Scenario 1](WORKFLOW_SCENARIO_1.md) · [Scenario 3](WORKFLOW_SCENARIO_3.md) · [Scenario 4](WORKFLOW_SCENARIO_4.md) · [Scenario 5](WORKFLOW_SCENARIO_5.md). See also [The Proof Table](PROOF.md) and [CI](CI.md).

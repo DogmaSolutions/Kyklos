@@ -1,9 +1,9 @@
 # kyklos
 
-The shared engineering-discipline **Kyklos** every Dogma Solutions project inherits — genericized from
-proven project discipline (mechanisms only; project specifics live in each project's `.claude/standards.env`).
+Engineering discipline for AI coding agents: enforcement hooks and skills that check tests, reviews, branching
+and proof before work counts as done (mechanisms only; project specifics live in each project's `.claude/standards.env`).
 
-> **One owner per concern.** Kyklos owns the corporate-baseline guards; a consuming project deletes its
+> **One owner per concern.** Kyklos owns the baseline guards; a consuming project deletes its
 > duplicate rather than double-blocking. The ownership table and escape paths are in **[`GOVERNANCE.md`](GOVERNANCE.md)**.
 
 > **New here?** Start with the workflow guide, `docs/WORKFLOW.md` at the root of the marketplace repository: how the
@@ -31,7 +31,7 @@ proven project discipline (mechanisms only; project specifics live in each proje
   | `branch-cleanup-guard` | a finished branch is closed (merged and deleted) by the declared close mode |
   | `merge-green-guard` | no merge of a feature or hotfix branch into a trunk unless its pipeline is green, looked up in the project the merged repository's origin belongs to (a companion's nested source project, not the default one); its refusal names that project and the override that is honoured |
   | `mr-hands-off-guard` | a story merge request is armed when created and never merged by hand |
-  | `automerge-coverage-guard` | no auto-merge arming on changed production C# without a valid Test Discipline token, plus the merged-result check (the rule itself lives in `hooks/lib/merged-result.sh`) |
+  | `automerge-coverage-guard` | no auto-merge arming on changed production C# unless the content ledger shows every changed C# line run at that commit (or a valid Test Discipline token), plus the merged-result check (the rule itself lives in `hooks/lib/merged-result.sh`) |
   | `slnx-green-guard` | no push of a branch touching a solution without a recorded green full-solution build (`hooks/lib/record-slnx-green.sh`) |
   | `script-lint-guard` | the script formal check (`hooks/lib/script-lint/`) on the scripts a pushed branch changes |
   | `public-push-artifact-guard` | no AI/agent artifact pushed into a public source repository |

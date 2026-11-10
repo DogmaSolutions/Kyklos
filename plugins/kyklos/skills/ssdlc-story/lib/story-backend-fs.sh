@@ -426,7 +426,7 @@ backend_import_issue() {
 }
 
 # [phase-walk gate] The FS backend keeps no event history, so the jump check cannot apply — treat the walk as
-# satisfied rather than inventing a weaker heuristic (the gitlab backend is where the fleet's SSDLC record lives).
+# satisfied rather than inventing a weaker heuristic (the gitlab backend is where the SSDLC record lives).
 backend_phase_walked() { return 0; }
 # backend_owner_override: a local story has no tracker and no owner who could apply an exception label.
 backend_owner_override() { return 1; }

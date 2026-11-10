@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # standards-env.sh (Kyklos hook lib) — SAFELY load a repo's .claude/standards.env.
 #
-# WHY THIS EXISTS: hooks used to `.`/`source` standards.env to read its knobs. Sourcing runs the file as SHELL
+# WHY THIS EXISTS: hooks must not `.`/`source` standards.env to read its knobs. Sourcing runs the file as SHELL
 # (CWE-829 "Inclusion of Functionality from an Untrusted Control Sphere"), so ANY line that is not a clean
 # KEY=VALUE — an unquoted multi-word value, a stray token, a value with shell metacharacters — is EXECUTED. A single
 # malformed line (e.g. `X=a b c` or a bare word) then (a) breaks the guard under `set -e`, and (b) spews

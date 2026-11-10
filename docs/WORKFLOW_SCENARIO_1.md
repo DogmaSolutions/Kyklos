@@ -1,6 +1,6 @@
 # Scenario 1: A project with CI, where the agent pushes (the closed loop)
 
-[← Back to the WORKFLOW](WORKFLOW.md)  
+[← Back to the WORKFLOW](WORKFLOW.md) · [README](../README.md)  
 
 > Before we explore the workflow and rules of this specific scenario, this is a memento of [the cardinal rules of the Kyklos SSDLC workflow](WORKFLOW.md):  
 > - Rule 1: The deliverable is on the remote, and merged
@@ -27,3 +27,7 @@ The diagram below is also available in [Yed GRAPHML format](../assets/workflow/A
 <p align="center">
 <img src="../assets/workflow/AI-Driven_development_013-1-ci-agent-push.png" alt="Closing flow: project with CI, the agent pushes" width="800"/>
 </p>
+
+## Related pages
+
+The other scenarios: [Scenario 2](WORKFLOW_SCENARIO_2.md) · [Scenario 3](WORKFLOW_SCENARIO_3.md) · [Scenario 4](WORKFLOW_SCENARIO_4.md) · [Scenario 5](WORKFLOW_SCENARIO_5.md). See also [The Proof Table](PROOF.md) and [CI](CI.md).

@@ -19,9 +19,21 @@ Two hard rules define it — they are the acceptance criteria, not decoration:
 
 ## When to use
 
-After you have pushed a branch, opened a merge request, and the `ai-review` job has run and posted findings (see the
-`ai-review` template of the fleet CI templates). Invoke this to triage and fix those findings. If the
-review has not run yet, push + open the MR first — there is nothing to fetch otherwise.
+After you have pushed a branch, opened a merge request, and a CI job named `ai-review` has run on its pipeline and
+produced findings. The loop needs that job in your project's pipeline: any job named `ai-review` that reviews the
+merge request and publishes the artifact `ai-review/findings.json`. The helper below reads exactly that file, with
+this shape:
+
+```json
+{ "status": "ok",
+  "findings": [ { "severity": "blocker|major|minor|nit", "file": "src/a.cs", "line": 12,
+                  "title": "short summary", "detail": "what is wrong and why" } ] }
+```
+
+`status` is `ok` when the review completed; any other value means it did not, and the helper stops rather than read
+that as "no findings". A missing job, a missing file or an unreadable file is refused the same way. Invoke this skill
+to triage and fix those findings. If the review has not run yet, push + open the MR first — there is nothing to fetch
+otherwise.
 
 ## The mechanical helper (deterministic — do NOT reimplement in prose)
 

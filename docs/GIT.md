@@ -35,3 +35,7 @@ Each repository declares how a finished branch closes (its *close mode*):
 Whatever the mode, a story closes only once its change is **merged into the trunk on the remote**, and every commit naming the story is reachable from that trunk; a local merge counts only after
 it has been pushed. Code that coverage measures must reach the trunk through a merge request. See [The Kyklos Workflow](WORKFLOW.md).  
 Every commit follows [Conventional Commits](https://www.conventionalcommits.org/) and carries a reference to its [story](AGILE.md). Repository layouts are described in [Project topologies](TOPOLOGIES.md).
+
+## Related pages
+
+[CI](CI.md), [Project topologies](TOPOLOGIES.md), [The Kyklos workflow](WORKFLOW.md), [Hooks and skills](HOOKS_AND_SKILLS.md), and [the README](../README.md) for the full list.

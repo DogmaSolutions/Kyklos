@@ -25,7 +25,7 @@
 . "$(dirname "${BASH_SOURCE[0]}")/json-answer.sh"   # json_test / json_read: an empty or cut answer is never valid
 . "$(dirname "${BASH_SOURCE[0]}")/ci-access.sh"   # the bridge-first CI seam; the token never leaves its helpers
 
-# The GitLab CI job name the ai-review template (the fleet CI templates' ai-review.yml) defines.
+# The name of the GitLab CI job that runs the AI review.
 AI_REVIEW_JOB_NAME="ai-review"
 
 ai_review_verdict() {

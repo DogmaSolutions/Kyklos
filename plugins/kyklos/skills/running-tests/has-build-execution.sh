@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # has-build-execution.sh — the mechanical interview trigger for the running-tests BUILD_EXECUTION knob.
-# Mirrors has-test-discipline-config.sh, but gates a SINGLE knob that has NO fleet default: BUILD_EXECUTION.
+# Mirrors has-test-discipline-config.sh, but gates a SINGLE knob that has NO default: BUILD_EXECUTION.
 #
 # BUILD_EXECUTION declares HOW this project builds/tests:
 #   bridge = every build/test runs on the real host via the KyklosBridge (a local `dotnet build`/`test` is

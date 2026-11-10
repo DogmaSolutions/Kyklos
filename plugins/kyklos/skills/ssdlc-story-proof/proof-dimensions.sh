@@ -26,7 +26,7 @@ PROOF_PROFILE_SCRIPT="${PROOF_PROFILE_SCRIPT:-$_PROOF_DIM_DIR/story-type-profile
 # shellcheck source=../../hooks/lib/control-switch.sh
 . "$_PROOF_DIM_DIR/../../hooks/lib/control-switch.sh" 2>/dev/null || true   # kyklos_control_off: the one control-switch reader
 
-# Operative-proof gate — a story whose change touches a fleet CONTROL surface (Kyklos
+# Operative-proof gate — a story whose change touches a CONTROL surface (Kyklos
 # hooks, ssdlc skills, CI rules) must cite an END-TO-END RUN in its Proof: an own-CI suite tally
 # ("<suite>: N passed, 0 failed") or a pipeline reference ("pipeline <id>" / a /-/pipelines/<id> URL). "Unit
 # tests exist" is necessary but not sufficient for a control — a control can ship green
@@ -61,7 +61,7 @@ proof_operative_finding() {  # PROOF_TEXT PROJECT_DIR [STORY_ID] -> print a BLOC
   fi
   _proof_control_changed "$proj" || return 1
   printf '%s' "$proof" | grep -cE '[0-9]+ passed[,· ]+ *0 failed|pipeline ?#?[0-9]{2,}|/-/pipelines/[0-9]+' >/dev/null && return 1
-  printf 'this story changes a fleet CONTROL surface (Kyklos hooks / ssdlc skills / CI rules) but its Proof cites NO end-to-end run — cite the own-CI suite tally ("<suite>: N passed, 0 failed") or the pipeline ("pipeline <id>") that exercised the control in the REAL path\n'
+  printf 'this story changes a CONTROL surface (Kyklos hooks / ssdlc skills / CI rules) but its Proof cites NO end-to-end run — cite the own-CI suite tally ("<suite>: N passed, 0 failed") or the pipeline ("pipeline <id>") that exercised the control in the REAL path\n'
   return 0
 }
 
@@ -459,9 +459,9 @@ proof_nondup_link_problem() {
 # the actual changed doc file(s) in the source repo (a markdown link, a GitLab /-/blob//uploads/ reference, or an
 # http(s) URL) — asserting the docs changed without a link the reader can open is refused. (proof_metrics_set_problem
 # already requires a non-empty Metrics cell; this additionally requires it to be a LINK.)
-# [RiskMitigation RA-01] CI-integrity: this fleet gate is DEFAULT-ON (explicit PROOF_METRICS_GATE=off to opt a repo
+# [RiskMitigation RA-01] CI-integrity: this gate is DEFAULT-ON (explicit PROOF_METRICS_GATE=off to opt a repo
 # out) and a pure, unit-tested text predicate — it can only refuse a PROVEN Documentation, never mutate state or
-# block a repo that opted out, so it cannot wrongly wedge the fleet.
+# block a repo that opted out, so it cannot wrongly wedge other projects.
 proof_doc_link_problem() {
   proof_metrics_has_link "$1" && return 0
   printf 'Documentation PROVEN requires the Metrics cell to LINK the changed documentation file(s) in the source repo (e.g. "[docs/topic.md](https://.../-/blob/<sha>/docs/topic.md)") — cite the actual changed doc file(s) so the reader can open them, not just assert the docs were updated (PROOF_METRICS_GATE is on)'
@@ -538,8 +538,8 @@ proof_source_root() {
 # proof_td_crap_applicable <src-root> -> rc 0 iff CRAP applies. Explicit env wins BOTH ways
 # (`PROOF_TD_CRAP_APPLICABLE=off|0|false|no` = the greppable opt-out; an explicit on-value forces it); UNSET
 # AUTO-DETECTS: a source root that POSITIVELY contains .NET project/solution files is CRAP-capable (cobertura
-# complexity exists for .NET) — the flag used to be opt-IN, so a .NET repo that never set it silently skipped
-# CRAP (the opt-in-inert class; a companion story once closed CRAP-less exactly this way). An unknown/empty
+# complexity exists for .NET), because an opt-IN flag would let a .NET repo that never set it silently skip
+# CRAP. An unknown/empty
 # root with the flag unset stays NOT applicable (a context that cannot see the stack must never false-block).
 proof_td_crap_applicable() {
   local root="${1:-}"
@@ -649,6 +649,19 @@ proof_section_ids() {
   local body="$1" prefix="$2"; shift 2
   local pat; pat="$(printf '%s|' "$@" | sed 's/|$//')"
   [ -n "$pat" ] || return 0
+  # A fail-open or fail-hard item is the upper-case marker anywhere, or, in any letter case, the label that opens a line
+  # after an optional bullet and bold; lower-case prose declares nothing. The bridge's readers share the same rule.
+  if [ "$prefix" = "## Fail-open" ]; then
+    local failtext; failtext="$(proof_section_text "$body" "$prefix")"
+    {
+      # Each marker on its own line first, so two markers that share one separating character are both seen.
+      printf '%s\n' "$failtext" | sed -E 's/FAIL-(OPEN|HARD)/\n&\n/g' | { grep -E '^FAIL-(OPEN|HARD)$' || true; }
+      printf '%s\n' "$failtext" \
+        | { grep -iE '^[[:space:]]*([-*+][[:space:]]+)?(\*\*|__)?[[:space:]]*fail-(open|hard)([^A-Za-z0-9_-]|$)' || true; } \
+        | sed -E 's/^[[:space:]]*([-*+][[:space:]]+)?(\*\*|__)?[[:space:]]*//' | cut -c1-9 | tr '[:lower:]' '[:upper:]'
+    } | sort -u
+    return 0
+  fi
   proof_section_text "$body" "$prefix" | grep -oiE "($pat)" | tr '[:lower:]' '[:upper:]' | sort -u
 }
 

@@ -92,7 +92,7 @@ case "$_tool" in
     _phase="Testing"
     # A bridge call carries no git cwd. Without a `tree` the run measured the session's own solution root, so the
     # event repo is the active project. With a `tree` it measured that repository: a relative tree lies inside the
-    # solution root (the same project); a host path (R:\<Repo>\sub) is the repository mounted beside the workspace
+    # solution root (the same project); a host path (C:\<Repo>\sub) is the repository mounted beside the workspace
     # under the same folder name (/mnt/<Repo>), and that repository's own story settings decide the project. A tree
     # that is not visible here cannot be attributed, so nothing is advanced - never the session's project instead.
     _cwd="${CLAUDE_PROJECT_DIR:-$(pwd)}"

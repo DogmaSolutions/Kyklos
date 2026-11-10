@@ -46,7 +46,7 @@ cmd_drop_comments() {
 
 # Drop quoted text the way the shell reads it: '...', "...", $'...', and everything nested inside a double-quoted run
 # (a $(...) with quotes of its own), plus comments; join backslash-newline continuations. The rules live in
-# cmd-strip-quotes.awk (see its header); two flat regexes used to pair the wrong quote characters and leave fake
+# cmd-strip-quotes.awk (see its header); flat regexes would pair the wrong quote characters and leave fake
 # command words behind. Optional $1 = the awk mode (strip | payloads | both).
 _cmd_strip_quotes() {
     awk -v mode="${1:-strip}" -f "$_CMD_STRIP_DIR/cmd-strip-quotes.awk"
@@ -57,7 +57,7 @@ _cmd_strip_quotes() {
 # command position (start of line / after ; & |) so the real command name lands where the matchers look.
 # A value is read as one shell word: an escaped blank (`A=a\ b`) stays inside it, and a value that opens a command
 # substitution (`r=$(git push 2>&1)`, ``r=`git push` ``) is never dropped, because the command it runs starts inside
-# it; dropping `r=$(git ` as one word used to remove the git that the matchers look for.
+# it; dropping `r=$(git ` as one word would remove the git that the matchers look for.
 # [CySec] [RiskMitigation RA-01] CWE-184: an assignment whose value runs a command must not hide that command.
 _cmd_strip_env_prefix() {
     sed -E ':a; s/(^|[;&|][[:space:]]*)([A-Za-z_][A-Za-z0-9_]*=([^[:space:]()`\\]|\\.)*[[:space:]]+)+/\1/; ta'

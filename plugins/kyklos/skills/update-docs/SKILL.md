@@ -73,7 +73,7 @@ Missing-but-required counts as impacted (criterion **EXIST**).
 - **(d) AUDIENCE-PROPER** — write each file for **its** reader. Internal detail belongs in internal docs; a
   consumer-facing file gets only what a consumer needs. This is the failure this dimension exists to catch.
 
-Docs describing a change go in the **same commit** as the change (corporate rule) — never split.
+Docs describing a change go in the **same commit** as the change (policy rule) — never split.
 
 ## Step 3 — run the audience lint (poka-yoke)
 

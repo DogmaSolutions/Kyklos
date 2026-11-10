@@ -6,7 +6,7 @@
 # WHY: these mistakes keep recurring and most of these scripts cannot be tested before a real host launch; the CI
 # job script-lint catches them too, but only after a push and a pipeline. This guard stops them at the source.
 #
-# The checker is a byte-identical copy of the fleet templates' scripts/Invoke-ScriptLint.ps1 (+ lib/); the CI job
+# The checker is a byte-identical copy of the CI script-lint checker, scripts/Invoke-ScriptLint.ps1 (+ lib/); the CI job
 # script-lint-copy fails if the two ever differ, so there is one implementation.
 #
 # Scope: the scripts added, copied, modified or renamed between the merge base with the remote default branch and

@@ -9,8 +9,8 @@
 #   (3) NO AI ATTRIBUTION — a Co-Authored-By/Claude-Session/"Generated with Claude" trailer or an AI `--author`
 # is blocked (Tier-0) — no override; the fix is to remove the AI line.
 #
-# Mirrors the fleet CI templates' Conventional Commits rules EXACTLY (same regex), so the local block and the
-# CI gate agree. Fleet-general: every Conventional-Commits repo benefits.
+# Mirrors the CI Conventional Commits rules EXACTLY (same regex), so the local block and the
+# CI gate agree. General: every Conventional-Commits repo benefits.
 #
 # FAIL-OPEN by design: no `git commit`, no `-m` message (editor-based commit — can't inspect), or an unparseable
 # subject => exit 0 (allow). It only ever blocks a subject it can read AND prove non-conforming.

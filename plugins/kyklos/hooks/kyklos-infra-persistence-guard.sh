@@ -11,7 +11,7 @@
 set -euo pipefail
 
 # Load optional per-project config so the marker dir co-locates with the configured state (same as the other
-# guards); default matches the fleet-wide convention.
+# guards); default matches the usual convention.
 _cfg="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude/standards.env"
 . "$(dirname "${BASH_SOURCE[0]}")/lib/standards-env.sh"; load_standards_env "$_cfg"   # PARSE, never source (CWE-829)
 STATE_DIR="${KYKLOS_STATE_DIR:-/tmp/kyklos-state}"

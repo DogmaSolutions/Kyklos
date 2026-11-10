@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # kyklos-tool-first-guard.sh (Kyklos) — PreToolUse Bash. TOOL-FIRST discipline ("Look Before You Leap").
 #
-# PROBLEM (fleet-wide, confirmed live): an agent DEFAULTS to a hand-crafted approach — here, driving the GitLab
+# PROBLEM (across projects, confirmed live): an agent DEFAULTS to a hand-crafted approach — here, driving the GitLab
 # STORY-issue lifecycle by a raw client to the API (create a story issue, set its status::/type::/ssdlc:phase::
 # labels, close it) — and only switches to the proper `story` tool REACTIVELY, when some downstream guard blocks it. The Tier-1
 # "don't re-invent the wheel — use the standard mechanism" rule exists but was never OPERATIONALIZED, so the wrong

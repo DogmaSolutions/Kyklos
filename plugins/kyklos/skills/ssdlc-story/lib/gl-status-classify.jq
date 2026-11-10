@@ -1,7 +1,7 @@
 # Externalized from backend status-read (was inline multi-line jq = kcov phantom lines). Classify a
 # story issue's status from its labels. The unified status:: lifecycle scope: Parked joins the
 # open-issue states (precedence Parked > In-progress > Blocked > Todo - a parked story must never read as active
-# work), dual-reading the legacy bare `parked` name during the fleet migration window; the older three keep their
+# work), dual-reading the legacy bare `parked` name during the migration window; the older three keep their
 # triple-read (scoped status::*, legacy status:*, oldest S:*). Terminal states (wontfix/duplicate/invalid/archived)
 # belong to CLOSED issues and are classified by the caller's closed-branch, not here. Blocked reads every kind
 # (status::blocked-on-issue|user|external, and any newer status::blocked-on-* word) beside the legacy bare forms.

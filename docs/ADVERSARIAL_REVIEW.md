@@ -46,3 +46,7 @@ to 4 seconds. Verdict: findings
 ```
 
 *Expected to FAIL* means the test reproduces a finding: it fails until the fix is made, and then keeps the fix from regressing (T1 above). *Expected to PASS* means it checks behaviour that must already work.
+
+## Related pages
+
+[The Proof Table](PROOF.md), [The Kyklos workflow](WORKFLOW.md), [Hooks and skills](HOOKS_AND_SKILLS.md), and [the README](../README.md) for the full list.

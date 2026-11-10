@@ -3,7 +3,7 @@
 # (STORY_BACKEND=gitlab), the on-disk Stories/ files are GENERATED PROJECTIONS of the GitLab issues (each carries a
 # "GENERATED MIRROR - DO NOT EDIT" banner). Block a hand Write/Edit of those files so an agent cannot bypass the
 # `story` commands and hand-author a backlog that silently diverges from the source of truth - the exact failure a
-# fleet agent hit (it wrote BACKLOG.md / requirements.md by hand instead of using the SSDLC commands).
+# agent hit (it wrote BACKLOG.md / requirements.md by hand instead of using the SSDLC commands).
 #
 # WHY this catches only the mistake, never the tool: the `story` tool writes these files through Bash redirection
 # (`_gl_write_requirements`, backlog regeneration), NOT through the Claude Write/Edit tool - so it is UNAFFECTED.

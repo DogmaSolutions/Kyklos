@@ -66,7 +66,7 @@ git_cmd_invokes "$CMD_REAL" merge || exit 0
 # FAIL-OPEN gate 1: enforcement is gated by KYKLOS_MERGE_GREEN, DEFAULT ON. It is
 # DELIBERATELY NOT gated on KYKLOS_CI_MONITOR: that knob ALSO opens the no-push feature/hotfix push allowance
 # (kyklos-no-push-guard), so gating merge-green on it would have coupled "enforce green merges" to "let projects
-# push" — defaulting it on fleet-wide would have weakened 'projects never push'. So the enforcement (this guard +
+# push" — defaulting it on everywhere would have weakened 'projects never push'. So the enforcement (this guard +
 # close-on-green) rides its OWN flag, and CI_MONITOR stays the push-context knob (default off). Enforcement still
 # needs the CI vars (gate 2) to have a pipeline to check, so a container with no CI configured fails open anyway.
 # Opt down per repo with KYKLOS_MERGE_GREEN=0.

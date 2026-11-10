@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # kyklos-automerge-coverage-guard.sh (Kyklos) — PreToolUse Bash. Refuses ARMING AUTO-MERGE on a change that touches
-# production C# unless a fresh Test Discipline coverage token covers those files.
+# production C# unless the content ledger shows every changed C# line run by a passing test at the armed commit
+# (ledger_answers_story, the answer the story close reads), or a fresh Test Discipline coverage token covers those files.
 #
 # Why: arming auto-merge lets a change merge itself as soon as CI is green, so it is the last point where the agent
 # still decides. An agent that pushes a refactor with auto-merge armed and lets CI "measure it" has skipped the local
@@ -27,6 +28,7 @@
 # (every recorded file unchanged) and record every one of those files.
 #
 # Default ON. The only off switch: KYKLOS_AUTOMERGE_COVERAGE=off (parsed by kyklos_control_off; audited).
+# The ledger path is default ON too; KYKLOS_AUTOMERGE_LEDGER=off leaves only the token path.
 # One-shot override of the COVERAGE verdict only (never of the merged-result check): a marker set in a separate
 # command, bound to one repository and to the agent that sets it, spent by the first arm it admits, expiring
 # (override-marker.sh), audited:
@@ -497,6 +499,51 @@ fi
 # a production folder or file that merely ends in lowercase "test" (Latest/, Contest.cs) is NOT exempted.
 is_test_code() { printf '%s' "$1" | grep -cE '(^|/)([Tt]ests?|[^/]*[._-][Tt]ests?|[^/]*Tests?)(/|$)|(Tests?|[._-][Tt]ests?)\.cs$' >/dev/null; }
 
+# ledger_answers_story REPO STORY -> rc 0 when the bridge's content ledger (test_facts) says every changed executable C#
+# line of STORY was run by a passing test, for exactly the commit REPO has checked out: the answer's "Story N at <sha>"
+# head is a prefix of REPO's HEAD, and its C# summary reads "gap 0, expired 0". The same answer the story close reads,
+# so a change the close would accept is never refused here for want of the old whole-suite token. Anything else (no
+# bridge, an older bridge without test_facts, a refusal, another head, a GAP or an EXPIRED line, an unreadable answer)
+# answers rc 1 and the token check below decides exactly as before. Default ON; the only off switch:
+# KYKLOS_AUTOMERGE_LEDGER=off. LEDGER_REASON names why the ledger did not settle it, for the refusal text.
+# [CySec] CWE-636: fails closed; the ledger can only admit, never weaken the existing token refusal.
+LEDGER_REASON=""
+ledger_answers_story() {
+    local repo="$1" story="$2" reply text answered summary run exe gap exp rc dirty
+    LEDGER_REASON=""
+    if kyklos_control_off "${KYKLOS_AUTOMERGE_LEDGER:-}"; then LEDGER_REASON="the ledger check is off (KYKLOS_AUTOMERGE_LEDGER=off)"; return 1; fi
+    # The ledger answers from committed content only, while the change set below includes the working tree: an
+    # uncommitted C# edit is never covered by the ledger's answer, so it leaves the decision to the token check.
+    git -C "$repo" status --porcelain --untracked-files=all >/dev/null 2>&1 || { LEDGER_REASON="the work tree's state cannot be read (git status failed)"; return 1; }
+    dirty="$(git -C "$repo" status --porcelain --untracked-files=all -- '*.cs' '*.CS' 2>/dev/null | head -3 | tr '\n' ' ')"
+    if [ -n "$dirty" ]; then LEDGER_REASON="the work tree holds uncommitted C# changes (${dirty% }), which the ledger cannot answer for: commit them"; return 1; fi
+    if ! command -v bridge_mcp_call >/dev/null 2>&1; then
+        [ -f "$_AC_HERE/lib/bridge-mcp.sh" ] && . "$_AC_HERE/lib/bridge-mcp.sh"
+    fi
+    command -v bridge_mcp_call >/dev/null 2>&1 || { LEDGER_REASON="the bridge client is missing"; return 1; }
+    reply="$(bridge_mcp_call test_facts "$(jq -cn --arg s "$story" '{story:$s}')" 120)"; rc=$?
+    [ "$rc" -eq 0 ] && [ -n "$reply" ] || { LEDGER_REASON="the bridge's ledger could not be asked"; return 1; }
+    if bridge_mcp_is_error "$reply"; then LEDGER_REASON="the bridge refused test_facts"; return 1; fi
+    text="$(bridge_mcp_text "$reply")"
+    # The bridge writes "story N at <sha>"; a client may capitalise the first letter. Either spelling is read.
+    answered="$(printf '%s\n' "$text" | sed -n "s/^[Ss]tory ${story} at \([0-9a-f]\{7,40\}\) .*/\1/p" | head -1)"
+    [ -n "$answered" ] || { LEDGER_REASON="the ledger did not answer for story ${story} ($(printf '%s' "$text" | head -1 | cut -c1-160))"; return 1; }
+    case "$(git -C "$repo" rev-parse HEAD 2>/dev/null)" in
+        "$answered"*) : ;;
+        *) LEDGER_REASON="the ledger answered for ${answered}, not for the commit checked out here"; return 1 ;;
+    esac
+    summary="$(printf '%s\n' "$text" | grep -E '^dotnet: run [0-9]+ of [0-9]+ ' | head -1)"
+    [ -n "$summary" ] || { LEDGER_REASON="the ledger answer has no C# summary"; return 1; }
+    run="$(printf '%s' "$summary" | sed -n 's/^dotnet: run \([0-9]*\) of \([0-9]*\) .*/\1/p')"
+    exe="$(printf '%s' "$summary" | sed -n 's/^dotnet: run \([0-9]*\) of \([0-9]*\) .*/\2/p')"
+    gap="$(printf '%s' "$summary" | sed -n 's/.*, gap \([0-9]*\),.*/\1/p')"
+    exp="$(printf '%s' "$summary" | sed -n 's/.*, expired \([0-9]*\),.*/\1/p')"
+    [ -n "$run" ] && [ -n "$exe" ] && [ -n "$gap" ] && [ -n "$exp" ] || { LEDGER_REASON="the ledger's C# summary could not be read ($summary)"; return 1; }
+    if [ "$gap" -eq 0 ] && [ "$exp" -eq 0 ] && [ "$run" -eq "$exe" ]; then return 0; fi
+    LEDGER_REASON="the ledger says ${run} of ${exe} changed C# lines run, ${gap} not run (GAP), ${exp} expired"
+    return 1
+}
+
 # ---- 4. Judge each repository's change set ---------------------------------------------------------------------
 _seen=""
 for _r in "${_repos[@]}"; do
@@ -527,6 +574,9 @@ for _r in "${_repos[@]}"; do
     if [ -z "$_story" ]; then
         block_state "Auto-merge arming BLOCKED: this change touches C# (${_list}) but no story can be derived from the branch or the last commit in '$_r', so no Test Discipline coverage token can match it. Put the work on a feature/story-<N>-... branch (or add 'Refs: #<N>' to the commit), measure coverage locally with the bridge get_coverage (story=<N>), then arm auto-merge. A plain push without auto-merge is still allowed."
     fi
+    # The content ledger first: the answer the story close reads. A change whose every changed C# line a passing test
+    # ran, at exactly this commit, needs no whole-suite token.
+    if ledger_answers_story "$_r" "$_story"; then continue; fi
     # The token's entries are read under the root the token names (proof_tool_token_root, the rule the Stop gate uses):
     # its .base sidecar, else this repository. Entries are then compared with this repository's changed files, so a root
     # that is a subfolder of the repository (a solution below its top) is mapped back; a root outside it matches nothing.
@@ -535,7 +585,7 @@ for _r in "${_repos[@]}"; do
         defer_refusal "$_r" "$_story" "Auto-merge arming BLOCKED: the Test Discipline coverage token for story ${_story} has the right content, but ${PROOF_TOOL_SEAL_REASON}. A plain push without auto-merge is still allowed." && continue
     fi
     if ! proof_tool_verify "$DIM" "$_tr" "$_story"; then
-        defer_refusal "$_r" "$_story" "Auto-merge arming BLOCKED: this change touches C# (${_list}) but there is no valid Test Discipline coverage token for story ${_story} (missing, or a recorded file changed since coverage was measured). Measure coverage locally first: run the bridge get_coverage, or run_tests, on the solution with story=${_story}; on a clean run it emits the token over the changed, covered files (bridge prerequisites: the using-the-bridge skill). Then arm auto-merge. A plain push without auto-merge is still allowed." && continue
+        defer_refusal "$_r" "$_story" "Auto-merge arming BLOCKED: this change touches C# (${_list}) and neither the content ledger nor a token settles it for story ${_story}. Ledger: ${LEDGER_REASON}. The usual way: run the bridge get_coverage WITHOUT story and with a filter over the tests that run the changed lines (runs add up), until test_facts for story ${_story} shows no GAP at this commit; then arm again. The old way still works: a valid Test Discipline token from get_coverage with story=${_story} over the whole suite (missing here, or a recorded file changed since it was measured). A plain push without auto-merge is still allowed." && continue
     fi
     # Each recorded entry, resolved under the token's root (an absolute one as it is), is compared as a path relative to
     # this repository; an entry outside it matches none of this repository's files.

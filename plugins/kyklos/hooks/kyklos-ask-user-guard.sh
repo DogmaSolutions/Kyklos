@@ -3,7 +3,7 @@
 # user by ASKING a question instead of deciding + acting — the Stop-hook continue-guard forbids an unmotivated pause,
 # but an AskUserQuestion bypasses it entirely. The standing directive is "prioritize autonomously, keep rolling", so
 # a question to the user is sanctioned ONLY for a genuine ALWAYS-STOP decision (external/public publish · destructive
-# GitLab admin · a push to a public-bound repo · a NEW fleet-wide blocking gate) or a hard blocker the agent truly
+# GitLab admin · a push to a public-bound repo · a NEW blocking gate that applies to every project) or a hard blocker the agent truly
 # cannot self-resolve. Otherwise this BLOCKS the question and tells the agent to decide + keep working: the USER
 # intervenes proactively, the agent does not defer via questions.
 #
@@ -65,7 +65,7 @@ if printf '%s' "$Q" | grep -cE 'publish|nuget\.org|make .*(public|private)|publi
   exit 0
 fi
 
-reason="you are asking the user, but nothing here reads as a genuine ALWAYS-STOP decision (external/public publish, destructive GitLab admin, a public-bound push, or a NEW fleet-wide blocking gate) or an unresolvable hard blocker. The standing directive is PRIORITIZE AUTONOMOUSLY and KEEP ROLLING: decide it yourself and act — the user intervenes proactively, you do NOT defer via questions. If it TRULY is an always-stop decision or a blocker you cannot self-resolve, run: bash ${OVERRIDE_MARKER_CLI} set ask-user-ok <your-working-folder> in a SEPARATE prior step, then re-ask."
+reason="you are asking the user, but nothing here reads as a genuine ALWAYS-STOP decision (external/public publish, destructive GitLab admin, a public-bound push, or a NEW blocking gate that applies to every project) or an unresolvable hard blocker. The standing directive is PRIORITIZE AUTONOMOUSLY and KEEP ROLLING: decide it yourself and act — the user intervenes proactively, you do NOT defer via questions. If it TRULY is an always-stop decision or a blocker you cannot self-resolve, run: bash ${OVERRIDE_MARKER_CLI} set ask-user-ok <your-working-folder> in a SEPARATE prior step, then re-ask."
 # 3-step JSON escape (backslash, quote, flatten newlines) — same as the sibling guards.
 reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
 ask_block "$reason"

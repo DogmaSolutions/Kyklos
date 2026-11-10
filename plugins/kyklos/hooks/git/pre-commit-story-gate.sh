@@ -4,7 +4,7 @@
 # subagent, a tool that shells git, or a human at the terminal). It is the PERSIST waist that complements the bridge
 # build/test (validate) waist: even if code were somehow produced un-gated, it cannot be COMMITTED without a ready
 # in-progress story. This is a HARD block (exit non-zero aborts the commit) — user-authorised, so it is not an
-# unsanctioned new fleet gate.
+# unsanctioned new gate.
 #
 # READINESS = the SAME oracle every other layer uses (R4 SSoT, no drift): `story structure` (no id -> the single
 # in-progress story) exits 0 iff there is exactly one, fully-authored, conforming in-progress story. This hook NEVER

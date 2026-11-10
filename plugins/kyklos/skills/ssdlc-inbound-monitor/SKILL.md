@@ -5,7 +5,7 @@ description: Keep the agent-to-agent coordination conversation alive. Use when i
 
 # ssdlc-inbound-monitor — keep the coordination conversation alive
 
-Agents coordinate through GitLab Issues with no human relay (see the fleet's coordination model). The risk is a
+Agents coordinate through GitLab Issues with no human relay (see the coordination model). The risk is a
 **stalled conversation**: another agent posts a reply on an Issue routed to you, but you have gone idle and nobody
 tells you to look. This skill closes that gap. It has two mechanical parts — the gate runs automatically; the
 monitor is the one thing you arm.

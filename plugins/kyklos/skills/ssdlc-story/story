@@ -32,7 +32,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"   # BASH_SOURCE: also r
 . "$HERE/../../hooks/lib/control-switch.sh" 2>/dev/null || true   # kyklos_control_off: the one control-switch reader
 # [no-fail-open / no-silent-default] Resolve the story backend + GitLab knobs AND the workspace root from the
 # repo's OWN declared model, so a subshell that did NOT inherit the container env still targets the true source of
-# truth — never a silent `local` write to a mirror the fleet does not read (the exact incident this replaces was a
+# truth — never a silent `local` write to a mirror nobody reads (the exact incident this replaces was a
 # manual `story` call with CLAUDE_PROJECT_DIR unset writing to the FS mirror while the repo declared gitlab). Reuse
 # the guards' ONE resolver (repo-role.sh: _rr_getkey PARSE-never-source + the git-toplevel walk + companion
 # inner-source detection) rather than a parallel config parser. Precedence: an already-EXPORTED value (or an
@@ -106,8 +106,8 @@ if command -v _rr_getkey >/dev/null 2>&1; then
 fi
 
 # Canary redirect — an OPT-IN safe playground so a hand/demo run can NEVER mint junk issues in
-# the REAL production tracker (whose iid counter then drifts permanently — a past incident that seeded
-# 4-digit story numbers). When STORY_CANARY=1 (from --canary above or the env), OVERRIDE the resolved
+# the REAL production tracker (whose iid counter then drifts permanently).
+# When STORY_CANARY=1 (from --canary above or the env), OVERRIDE the resolved
 # STORY_GITLAB_PROJECT with the canary project id BEFORE the backend is sourced, so _GL_PID picks it up unchanged
 # (DRY: reuse the existing resolution, no parallel target path). The id is CONFIG (STORY_CANARY_PROJECT), never a
 # literal in a write path, and it has NO default (there is no built-in project to fall back to).
@@ -394,7 +394,7 @@ cmd_check() {
   # actively-worked slot is FREE — surface it loudly so the agent starts the NEXT story rather than idle-waiting on CI
   # (the reported one-story-slot gap). Reported FIRST (independent of the mirror-sync reachability gate below, so it
   # shows even when the sync status cannot be judged). REPORT-only: it never changes check's exit status (a hard block
-  # would be a new fleet-wide gate = always-stop) — it prints the standing permission on stderr. Default-on; silenced
+  # would be a new gate for every project = always-stop) — it prints the standing permission on stderr. Default-on; silenced
   # with KYKLOS_AWAITING_CI_SLOT_FREE=off (the same one control as the resolver). Fail-soft: an unreadable phase just
   # yields no report.
   if [ "${STORY_BACKEND:-local}" = gitlab ]; then
@@ -419,7 +419,7 @@ cmd_check() {
   fi
   # Positive single-status invariant (CE has no native scope mutex): REPORT — never block — any
   # open story carrying >=2 status labels so it can be healed via the tool. Report-only: it NEVER changes check's exit
-  # status (a hard block would be a new fleet-wide gate = always-stop); it only surfaces the drift loudly on stderr.
+  # status (a hard block would be a new gate for every project = always-stop); it only surfaces the drift loudly on stderr.
   if [ "${STORY_BACKEND:-local}" = gitlab ] && command -v backend_status_conflicts >/dev/null 2>&1; then
     local _conf; _conf="$(backend_status_conflicts "$dir" 2>/dev/null || true)"
     if [ -n "$_conf" ]; then
@@ -468,15 +468,15 @@ cmd_new() {
     die "new: the slug '$slug' is not a kebab-case slug (lowercase letters/digits joined by single dashes, at most $STORY_SLUG_MAX_LENGTH characters). The slug names the story folder; a human title goes in --title. Use: $PROG new $_suggest --title \"$slug\" --type <t> --epic <E0N>"
   fi
   # On a REAL gitlab tracker (not the canary/stub, no explicit override) refuse an obviously-throwaway
-  # slug, so a hand/demo fixture cannot be minted in production even without STORY_TEST/--canary (the class that
-  # polluted the production tracker in a past incident: `x`/`alpha`/`grouped`/…). A single character has ZERO legit story use; the
-  # named demo fixtures are the exact junk observed. EXEMPT: the FS backend (--dir; harmless local backlog) and the
+  # slug, so a hand/demo fixture cannot be minted in production even without STORY_TEST/--canary (`x`/`alpha`/`grouped`/…).
+  # A single character has ZERO legit story use; the
+  # named demo fixtures are the usual junk. EXEMPT: the FS backend (--dir; harmless local backlog) and the
   # canary/stub (that is where you deliberately TEST the tool). Override on production with STORY_ALLOW_JUNK_SLUG=1.
   if [ "${STORY_BACKEND:-local}" = gitlab ] && [ -z "${STORY_GL_STUB_DIR:-}" ] && [ "${STORY_CANARY:-}" != 1 ] && [ "${STORY_ALLOW_JUNK_SLUG:-}" != 1 ]; then
     case "$slug" in
       ?) die "new: refusing a single-character slug '$slug' on a REAL project — a throwaway/demo fixture, not a real story name. Use a descriptive slug, or test on the canary (story --canary new …). [poka-yoke]" ;;
       alpha|beta|gamma|delta|foo|bar|baz|qux|quux|grouped|orphan|e1done|wip|tmp|temp|scratch|test|demo)
-        die "new: refusing the demo-fixture slug '$slug' on a REAL project — this is exactly the throwaway class that polluted the production tracker in a past incident. Test on the canary (story --canary new $slug …) or a stub; to create it on production anyway, set STORY_ALLOW_JUNK_SLUG=1. [poka-yoke]" ;;
+        die "new: refusing the demo-fixture slug '$slug' on a REAL project — a throwaway name that stays in the tracker for good. Test on the canary (story --canary new $slug …) or a stub; to create it on production anyway, set STORY_ALLOW_JUNK_SLUG=1. [poka-yoke]" ;;
     esac
   fi
   while [ "$#" -gt 0 ]; do
@@ -515,7 +515,7 @@ cmd_new() {
   esac
   [ -n "$severity" ] && [ "${STORY_BACKEND:-local}" != gitlab ] && printf 'story: new: the local backlog has no labels; the severity %s is not recorded.\n' "$severity" >&2
   # [Poka-Yoke] The epic MUST be a conscious choice, never a silent omission: a story created without deciding its
-  # epic gets orphaned (no milestone), which is exactly the un-enforced drift the fleet accumulated. Require an
+  # epic gets orphaned (no milestone), which is exactly the un-enforced drift accumulated. Require an
   # explicit --epic <E0N> or --no-epic. An epic id is E<digits>; '-' means deliberately ungrouped.
   [ -n "$epic" ] || die "new: choose an epic with --epic <E0N> (e.g. --epic E<nn>), or --no-epic to DELIBERATELY leave it ungrouped. A story must never be silently orphaned from an epic."
   case "$epic" in E[0-9]*|-) : ;; *) die "new: --epic must be an epic id like E<nn> (or --no-epic); got: $epic" ;; esac
@@ -975,7 +975,7 @@ Author each dimension in the story body. $(_done_gate_exception)"
     [ -n "$_fcp" ] && die "close: refusing — $_fcp"
   fi
   # [Remote Truth] The deliverable a close cites (the Branch field: commits, branches, merge requests) must be on the
-  # REMOTE, not only in a local checkout - a story once closed PROVEN on commits that were never pushed. The cited
+  # REMOTE, not only in a local checkout - a close must never stand on commits that were never pushed. The cited
   # value is the one this Done transition sets (branch=...) or else the stored field. DEFAULT-ON, fail-closed; its
   # only exception is the shared one (the owner's label for a tracker story, --no-proof-gate for a local story).
   if [ "$no_proof" -eq 0 ] && command -v story_remote_truth_problem >/dev/null 2>&1; then
@@ -993,7 +993,7 @@ Author each dimension in the story body. $(_done_gate_exception)"
     _trp="$(story_trunk_reach_problem "$(dirname "$dir")" "$handle")"
     [ -n "$_trp" ] && die "close: refusing — $_trp. $(_done_gate_exception)"
   fi
-  # Operative-proof gate — a story whose change touches a fleet CONTROL surface must cite an
+  # Operative-proof gate — a story whose change touches a CONTROL surface must cite an
   # end-to-end run (suite tally / pipeline id) in its Proof. DEFAULT-ON via the shared parser; fail-open when no
   # control surface changed or the diff is unreadable. This is a PROOF-CONTENT check, so it sits behind the same
   # --no-proof-gate migrate/grandfather escape as the proof gate itself (that escape already permits closing with
@@ -1030,8 +1030,7 @@ _autoclose_parents() {
     for c in $kids; do
       # The child we JUST closed at this level ($handle) is KNOWN done — trust that over a possibly-STALE
       # backend_is_done read: the gitlab backend caches an issue's JSON per-process, so a child read (as opened)
-      # earlier in the same command still reads opened after we closed it, which wrongly kept the parent OPEN (the
-      # whole cascade stalled on the just-closed child). Trust an in-process close.
+      # earlier in the same command still reads opened after we closed it, which would keep the parent OPEN. Trust an in-process close.
       if [ "$c" = "$handle" ] || backend_is_done "$dir" "$c" 2>/dev/null; then :; else
         all_done=0; cs_id="$(backend_id_from_handle "$dir" "$c" 2>/dev/null || printf '%s' "$c")"
         open_children="${open_children:+$open_children }$cs_id"
@@ -1790,7 +1789,7 @@ migrate_grandfather_proof() {
 # cmd_migrate — plan (default) or execute (--apply) a migration of the filesystem story corpus into the
 # GitLab-issues backend, establishing the id==iid clean checkpoint. DRY-RUN BY DEFAULT: it only reads the
 # source Stories/ (never mutates it) and prints the plan — the old-id -> new-issue# map, per-story labels/
-# epic/proof, the pruned set (whose lessons must be harvested FIRST), and every cross-reference that a
+# epic/proof, the pruned set (whose lessons must be collected FIRST), and every cross-reference that a
 # renumber would need to rewrite (a reference to a PRUNED story is flagged DANGLING). It writes NOTHING
 # without --apply. --apply requires the gitlab backend AND an EMPTY target project (backend_max_num==0): a
 # fresh project uploaded ascending is the ONLY way GitLab's auto-assigned iid can equal the story number, so
@@ -1877,7 +1876,7 @@ cmd_migrate() {
   done
 
   if [ "${#prune[@]}" -ge 1 ]; then
-    printf '\nPruned (HARVEST each lesson to memory/docs FIRST): %s\n' "$(printf 'STORY-%s ' "${prune[@]}")"
+    printf '\nPruned (COLLECT each lesson to memory/docs FIRST): %s\n' "$(printf 'STORY-%s ' "${prune[@]}")"
   fi
   if [ "${#dangling[@]}" -ge 1 ]; then
     printf '\nDANGLING cross-references (target pruned/absent — RESOLVE before apply):\n'
@@ -2152,12 +2151,11 @@ cmd_requirements() {
   # runs only on the GitLab write, and a later mirror re-sync re-introduced it — the leak).
   command -v _story_strip_title_h1 >/dev/null 2>&1 && header="$(_story_strip_title_h1 "$header")"
   # PRESERVE the `## Original request (verbatim)` provenance section across the spec-replace — adopt
-  # wrote it to keep a user-created issue's original words, and this spec-replace used to WIPE it (the mangling).
+  # wrote it to keep a user-created issue's original words, and a spec-replace must keep it.
   original=""
   command -v _story_extract_original_request >/dev/null 2>&1 && original="$(_story_extract_original_request "$cur")"
   # IDEMPOTENCE on the provenance section: when a canonical copy exists in the CURRENT body, an
-  # incoming copy in the spec FILE is DROPPED (the adoption-written text wins — a transcribed copy is the mangling
-  # risk); a differing incoming copy is surfaced on stderr so a deliberate rewrite is never silent. When NO
+  # incoming copy in the spec FILE is DROPPED (the adoption-written text wins — a transcribed copy can differ); a differing incoming copy is surfaced on stderr so a deliberate rewrite is never silent. When NO
   # canonical exists, the incoming copy is kept (it becomes the canonical).
   if command -v _story_strip_original_request >/dev/null 2>&1; then
     local _spec_orig; _spec_orig="$(_story_extract_original_request "$spec" 2>/dev/null || true)"
@@ -2312,6 +2310,33 @@ cmd_attach() {
   backend_attach "$file" || exit 1
 }
 
+# Keeps the cobertura root attributes and sources, and only the classes whose file is one of the changed scripts (names
+# on stdin, repository-relative); a package left with no class is dropped. A changed script no class lists stays absent.
+_STORY_COVERAGE_REDUCER='
+import sys, xml.etree.ElementTree as ET
+wanted = [l.strip().replace("\\", "/") for l in sys.stdin if l.strip()]
+tree = ET.parse(sys.argv[1]); root = tree.getroot()
+def hit(name):
+    name = name.replace("\\", "/")
+    return any(name == w or name.endswith("/" + w) or w.endswith("/" + name) for w in wanted)
+for packages in root.iter("packages"):
+    for package in list(packages):
+        classes = package.find("classes")
+        if classes is not None:
+            for cls in list(classes):
+                if not hit(cls.get("filename", "")):
+                    classes.remove(cls)
+        if classes is None or len(classes) == 0:
+            packages.remove(package)
+sys.stdout.write(ET.tostring(root, encoding="unicode"))
+'
+
+# _story_coverage_request <id> <report file> <tree> -> the coverage_receipt request body (JSON).
+_story_coverage_request() {
+  jq -cn --arg s "$1" --arg p "$STORY_GITLAB_PROJECT" --rawfile c "$2" --arg t "$3" \
+    '{story:$s, project:$p, cobertura:$c} + (if $t == "" then {} else {tree:$t} end)'
+}
+
 # cmd_attach_coverage <id> <bashcov report or folder> [--tree <host tree>] - attach a SHELL coverage receipt to story <id>:
 # only the bashcov cobertura report is sent to the bridge (coverage_receipt). The bridge reads the story's change and
 # the text of its changed shell scripts from its OWN tree (--tree, default its solution root), builds the receipt with
@@ -2336,8 +2361,26 @@ cmd_attach_coverage() {
   [ -n "${report:-}" ] && [ -s "$report" ] || die "attach-coverage: no bashcov cobertura report (an .xml holding <coverage>) found at '$src'"
   require_lib "$HERE/../../hooks/lib/proof-tool-gate.sh" proof_receipt_call \
     || die "attach-coverage: cannot load hooks/lib/proof-tool-gate.sh completely" 1
-  args="$(jq -cn --arg s "$id" --arg p "$STORY_GITLAB_PROJECT" --rawfile c "$report" --arg t "$tree" \
-      '{story:$s, project:$p, cobertura:$c} + (if $t == "" then {} else {tree:$t} end)')"
+  local limit="${KYKLOS_BRIDGE_MAX_REQUEST_BYTES:-2097152}" reduced=""
+  args="$(_story_coverage_request "$id" "$report" "$tree")"
+  # A report too large for one request (a repository with many scripts) is cut down to the classes of the story's changed
+  # shell scripts: the bridge judges only those, and a changed script no class lists still counts as not run, so the
+  # reduction cannot make coverage look better. The change set is the one the coverage token records.
+  if [ "$(printf '%s' "$args" | wc -c | tr -d ' ')" -gt "$limit" ]; then
+    local repo changed files_json small
+    repo="$(git rev-parse --show-toplevel 2>/dev/null)" || die "attach-coverage: the report exceeds $limit bytes and the story's changed scripts cannot be read (not in a git work tree)"
+    changed="$(proof_tool_changed_files_for "$repo" "$id")" || die "attach-coverage: the report exceeds $limit bytes and the story's changed files cannot be determined"
+    changed="$(printf '%s\n' "$changed" | grep -iE '\.(sh|bash)$' || true)"
+    [ -n "$changed" ] || die "attach-coverage: the report exceeds $limit bytes and the story changes no shell script to reduce it to"
+    small="$(mktemp)" || die "attach-coverage: no temporary file"
+    if ! printf '%s\n' "$changed" | python3 -I -c "$_STORY_COVERAGE_REDUCER" "$report" > "$small"; then
+      rm -f "$small"; die "attach-coverage: the report could not be reduced (not valid cobertura XML)"
+    fi
+    args="$(_story_coverage_request "$id" "$small" "$tree")"
+    rm -f "$small"
+    reduced="$(printf '%s\n' "$changed" | paste -sd, -)"
+    printf 'attach-coverage: the report was over %s bytes; sent only the classes of the changed scripts: %s\n' "$limit" "$reduced" >&2
+  fi
   # The request's size goes with every refusal: the bridge reads requests up to a set limit (KYKLOS_BRIDGE_MAX_REQUEST_BYTES).
   local sent; sent="$(printf '%s' "$args" | wc -c | tr -d ' ')"
   answer="$(proof_receipt_call coverage_receipt "$args")" || die "attach-coverage: $answer (request: $sent bytes)"
@@ -2518,7 +2561,7 @@ Usage:
   $PROG new <kebab-slug> --type <t> --kind <k> --severity <critical|high|medium|low> (--epic <E0N> | --no-epic) [--title "<title>"] [--parent <N>] [--dir <StoriesDir>]
                                                         (gitlab: --no-epic is refused; a story needs an epic with a milestone;
                                                          --severity is required there and becomes the severity:: label)
-  $PROG next                                   (what to work on next in this project, in the corporate policy's order: the
+  $PROG next                                   (what to work on next in this project, in the engineering policy's order: the
                                                         bridge's next_work verb decides; this only asks it and prints the answer)
   $PROG adopt <N> --type <t> --epic <E0N> [--kind <k>] [--severity <critical|high|medium|low>] [--work <branch|commit|!MR>] [--dir <StoriesDir>]   (gitlab: bring a USER-created issue #N into the lifecycle;
                                                         --work: its own work (branch story-<N>, or commits with Refs: #<N>) already

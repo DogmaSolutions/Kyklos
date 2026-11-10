@@ -940,9 +940,9 @@ EOF
 # _story_metadata_header <body-text> -> the leading tool-owned METADATA-BULLET block only: the contiguous run of
 # `- **Key:** value` bullet lines and interleaving blank lines at the START of the body, stopping at the first line
 # that is neither a metadata bullet nor blank. This is what `cmd_requirements` preserves across a re-author.
-# The OLD rule ("everything before the first `## ` heading") wrongly swept up an ADOPTED issue's free-form prose
-# (which has no `## ` heading) as "header" and re-appended it ahead of the new spec — duplicating the original body
-# and mangling the issue (it mangled and ). Anchoring to the `- **Key:** value` shape stops that.
+# A rule such as "everything before the first `## ` heading" would sweep up an ADOPTED issue's free-form prose (which
+# has no `## ` heading) as "header" and re-append it ahead of the new spec, duplicating the original body. Anchoring to
+# the `- **Key:** value` shape prevents that.
 _story_metadata_header() {
   printf '%s\n' "$1" | awk -f "$_SL_DIR/sl-extract-header.awk"
 }
@@ -950,13 +950,12 @@ _story_metadata_header() {
 # _story_adopt_body <type> <epic> <title> <original-desc> -> the body `story adopt` writes for a NEWLY-adopted issue:
 # the canonical metadata bullet block, then — when the original description is non-empty — a `## Original request
 # (verbatim)` section quoting the original as a markdown blockquote (`> ` on every line, blanks included, so it stays
-# one contiguous quote). Preserves the user's original request verbatim + clearly cited, replacing the old
-# bare `---` + raw prose (which fed the body mangling). Pure + unit-tested (no API).
+# one contiguous quote). Preserves the user's original request verbatim + clearly cited. Pure + unit-tested (no API).
 # _story_extract_original_request <body> -> the `## Original request (verbatim)` section (heading +
 # its content up to the NEXT `## ` heading or EOF), or empty if absent. This section is PROVENANCE that `story adopt`
 # writes to preserve a user-created issue's original words; it is NOT editable spec, so `cmd_requirements` (which
-# replaces everything from the first `## `) must carry it across a spec re-author instead of wiping it (the 
-# mangling: the user's original request was destroyed by a `requirements --file` that dropped this section).
+# replaces everything from the first `## `) must carry it across a spec re-author instead of wiping it, or a
+# `requirements --file` that drops this section would destroy the user's original request.
 _story_extract_original_request() {
   printf '%s\n' "$1" | awk -f "$_SL_DIR/sl-extract-original-request.awk"
 }
@@ -981,10 +980,8 @@ _story_adopt_body() {
   local type="$1" epic="$2" title="$3" orig="$4" meta quoted skel
   meta="$(printf -- '- **Status:** In-progress\n- **Story-Type:** %s\n- **Epic:** %s\n- **Branch:** -\n- **Summary:** %s' "$type" "$epic" "$title")"
   # SCAFFOLD the SSDLC section skeleton on ADOPT — the SAME one `story new` emits (story_emit_spec_skeleton),
-  # plus a Risk-assessment section — so an adopted user-issue is STRUCTURALLY COMPLETE by construction. Root cause of
-  # "adopt then structure fails": adopt used to stamp metadata + the verbatim request and stop, leaving all 7 required
-  # SSDLC sections MISSING, so every adoption was born structure-invalid and needed manual section-authoring that kept
-  # getting skipped/botched. Now the sections can never be MISSING; the agent only fills the <FILL:> placeholders
+  # plus a Risk-assessment section — so an adopted user-issue is STRUCTURALLY COMPLETE by construction: the sections can never be
+  # MISSING; the agent only fills the <FILL:> placeholders
   # (genuine authoring), and `story structure` flags unfilled placeholders, not absent sections.
   skel="$(story_emit_spec_skeleton "$type"; printf '\n## Risk assessment\n- <FILL: RA-## register per the ssdlc-risk-assessment dimension, or NOT_PERTINENT with a stated reason (e.g. a docs/test story)>\n')"
   if [ -n "$(printf '%s' "$orig" | tr -d '[:space:]')" ]; then

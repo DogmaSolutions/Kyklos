@@ -314,7 +314,7 @@ repo_workflow() {
 #     contradict — this is "not applicable", not a swallowed failure.
 #   FAIL-HARD when the topology IS PriSouPubArt but KYKLOS_ARTIFACT_PROJECT is UNSET — the routing control CANNOT
 #     be enforced without knowing the artifact, so the story/issue could silently leak into the public facade. That
-#     is a fail-open we REFUSE (project directive: no fail-open / silent fails) — surface it and block.
+#     is a fail-open we REFUSE — surface it and block.
 #   FAIL-HARD when STORY_GITLAB_PROJECT or KYKLOS_ISSUES_PROJECT equals the artifact project — a hand-set knob
 #     cannot silently mis-route a story/issue into the public facade.
 routing_check() {

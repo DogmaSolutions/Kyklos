@@ -11,7 +11,7 @@ versions, and a session whose history may carry **stale assumptions** from a pre
 or inherited mechanics — the tool you "remember", the path you "know", the gate that "used to" behave a certain
 way may all have changed. Re-orient from scratch **before** doing any work, in this order:
 
-1. **Re-read the governing instructions.** Read the corporate and project `CLAUDE.md` again (the Kyklos
+1. **Re-read the governing instructions.** Read the managed and project `CLAUDE.md` again (the Kyklos
    requires a recent read before it will let you act anyway). Treat them as the current source of truth and let
    them override anything you think you remember.
 
@@ -28,7 +28,7 @@ way may all have changed. Re-orient from scratch **before** doing any work, in t
    one sanctioned way to enumerate open work — and identify the next item. Do not hand-assemble the query; the
    mandated loader exists precisely so a scope can't be silently missed.
 
-5. **Resume.** Ask the bridge which item comes next (its `next_work` tool, with the project; the corporate policy's
+5. **Resume.** Ask the bridge which item comes next (its `next_work` tool, with the project; the engineering policy's
    "Choosing the next work" rule is the order it applies) and take that item, honouring every gate — branch
    discipline, SSDLC phases, proofs — as freshly re-read, not as remembered.
 

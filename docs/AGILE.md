@@ -38,3 +38,7 @@ Requirements → Design → Implementation → Testing → Deployment → Review
   closed. On [GitLab](https://about.gitlab.com/) every story must belong to an epic; with the file storage, leaving a story ungrouped must be an explicit choice, never an accident.
 
 For more details, see the [complete workflow](WORKFLOW.md).
+
+## Related pages
+
+[The Kyklos workflow](WORKFLOW.md), [Storages](STORAGES.md), [The Proof Table](PROOF.md), and [the README](../README.md) for the full list.

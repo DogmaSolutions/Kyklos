@@ -75,3 +75,7 @@ my-plugin/                        private source repository (GitFlow)
         ▼  published by CI only
 my-plugin-public/                 public repository: built artifacts only, never cloned, no stories filed against it
 ```
+
+## Related pages
+
+[Git: branching and authorisation](GIT.md), [Storages](STORAGES.md), [Installing and configuring Kyklos](INSTALL_AND_CONFIG.md), and [the README](../README.md) for the full list.

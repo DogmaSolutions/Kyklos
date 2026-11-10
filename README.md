@@ -26,7 +26,7 @@ The Agile SSDLC is the result of a growing understanding within the security and
 
 The primary purpose of **Kyklos** is to make the agent stick to the steps and practices that allow the team to fully and easily adopt the Agile SSDLC workflow.
 
-## The principles
+## ✅ The principles
 
 1. **Proven, not asserted.** The agent never marks its own homework. Test coverage, duplication scans, documentation checks and reviews produce signed tokens and attached reports (see the [Proof Table](docs/PROOF.md)). A claim without its
    token is refused.
@@ -40,7 +40,7 @@ The primary purpose of **Kyklos** is to make the agent stick to the steps and pr
 7. **The human decides what matters.** Kyklos keeps a short, explicit list of actions that always stop for a person: publishing outward, deleting shared things, introducing a new blocking gate.
    Everything else, the agent drives on its own, within the rules.
 
-## Who it is for
+## 🎯 Who it is for
 
 - **Tech leads and developers** who want AI agents in their teams without lowering the bar, and who need evidence they can audit rather than a promise.
 - **Organisations under secure-development expectations** ([IEC 62443-4-1](https://www.isa.org/standards-and-publications/isa-standards/isa-iec-62443-series-of-standards) practice, [NIS2](https://eur-lex.europa.eu/eli/dir/2022/2555/oj)-style risk management), where "how do you know?" needs an answer on record (see the [Knowledge base](docs/KB.md) for the standards Kyklos refers to).
@@ -48,24 +48,19 @@ The primary purpose of **Kyklos** is to make the agent stick to the steps and pr
 
 Kyklos does not make the agent smarter. It makes the agent's work **verifiable**, **deterministic**, and it makes skipping the process harder than following it.
 
-## Current scope
-
-Kyklos is young, and today it targets one stack:
-
-- **AI agent:** [Claude Code](https://code.claude.com/docs).
-- **Host operating system:** Windows, with [Docker Desktop](https://www.docker.com/products/docker-desktop/).
-- **Issue tracker and CI:** [GitLab](https://about.gitlab.com/).
-
-Support for other agents, operating systems and CI systems is planned. The components are distributed through the Kyklos marketplace, published in the [Kyklos GitHub repository](https://github.com/DogmaSolutions/Kyklos).
-
-## Helping satisfy legal requirements, new-generation legal frameworks and standards
+## 📜 Helping satisfy legal requirements, new-generation legal frameworks and standards
 
 Many countries are introducing laws that require software makers to follow best practices in quality assurance, cybersecurity and cyber resilience.
-A secure development lifecycle is the first step towards meeting them, and the backbone that keeps a team compliant over time.
+A secure development lifecycle is the first step towards meeting them, and the foundation that keeps a team compliant over time.
 
 For example, the EU requires the adoption of these practices, to varying degrees, through the [**Cyber
-Resilience Act**](https://eur-lex.europa.eu/eli/reg/2024/2847/oj) (EU Regulation 2024/2847), the **NIS2** (EU Directive 2022/2555) and the [**Machinery Regulation**](https://eur-lex.europa.eu/eli/reg/2023/1230/oj) (EU 2023/1230).  
-The [Knowledge base](docs/KB.md) links the original texts.
+Resilience Act**](https://eur-lex.europa.eu/eli/reg/2024/2847/oj) (EU Regulation 2024/2847), the **NIS2** (EU Directive 2022/2555) and the [**Machinery Regulation**](https://eur-lex.europa.eu/eli/reg/2023/1230/oj) (EU 2023/1230). The [Knowledge base](docs/KB.md) links the original texts.
+
+<p align="center">
+<img src="assets/workflow/AI-Driven_development_000.png" alt="Overview of the AI-driven development workflow" width="900"/>
+</p>
+
+
 
 Other jurisdictions are moving in the same direction:
 
@@ -76,20 +71,14 @@ Other jurisdictions are moving in the same direction:
 
 This list is indicative and is not legal advice.
 
-<p align="center">
-<img src="assets/workflow/AI-Driven_development_000.png" alt="Overview of the AI-driven development workflow" width="900"/>
-</p>
-
 ---
 
-## Table of contents
+## 📃 Table of contents
 
 The following sections illustrate how *Kyklos* works and how it helps to keep the behaviour of the AI agent "on track" with an *Agile SSDLC* workflow.
 
-To get started, follow [Installing and configuring Kyklos on Windows](docs/INSTALL_AND_CONFIG.md): a roadmap from zero to a working agent on a "Hello World" .NET project in GitLab.
-
 1. [Stories, Epics, and how the agent works with them](docs/AGILE.md)
-2. [The complete Kyklos (Agile SSDLC-based) workflow](docs/WORKFLOW.md)
+2. [The complete Kyklos (Agile SSDLC-based) workflow](docs/WORKFLOW.md), with its five scenarios: [CI, the agent pushes](docs/WORKFLOW_SCENARIO_1.md) · [CI, a person pushes](docs/WORKFLOW_SCENARIO_2.md) · [no CI pipeline](docs/WORKFLOW_SCENARIO_3.md) · [companion, source pushed by a person](docs/WORKFLOW_SCENARIO_4.md) · [no testable code](docs/WORKFLOW_SCENARIO_5.md)
 3. [The three Kyklos components](docs/COMPONENTS.md)
 4. [How the process is enforced: hooks and skills](docs/HOOKS_AND_SKILLS.md)
 5. [Where stories and epics live: storages](docs/STORAGES.md)
@@ -100,4 +89,16 @@ To get started, follow [Installing and configuring Kyklos on Windows](docs/INSTA
 10. [The Proof Table](docs/PROOF.md)
 11. [Adversarial reviews](docs/ADVERSARIAL_REVIEW.md)
 12. [The Infrastructure session: one privileged agent across projects](docs/INFRASTRUCTURE_SESSION.md)
-13. [Knowledge base](docs/KB.md)
+13. [Similar projects, and how Kyklos compares](docs/SIMILAR_PROJECTS.md)
+14. [Manually install and configure Kyklos on Windows](docs/INSTALL_AND_CONFIG.md)
+15. [Installing Kyklos with an agent: step-by-step instructions an agent can follow](docs/AGENT_INSTALL.md)
+16. [Knowledge base](docs/KB.md)
+
+
+## 🚀 Get Started
+
+To get started, follow [Installing and configuring Kyklos on Windows](docs/INSTALL_AND_CONFIG.md): a roadmap from zero to a working agent on a "Hello World" .NET project in GitLab.
+
+Which platforms and features are supported today (Windows, Linux, macOS) is in [Current scope](docs/INSTALL_AND_CONFIG.md#current-scope). The three parts you install, the [Launcher, the Bridge and the Plugin](docs/COMPONENTS.md), keep [secrets](docs/SECRETS.md) out of the agent's hands and enforce the [workflow](docs/WORKFLOW.md) through [proofs](docs/PROOF.md) and [adversarial reviews](docs/ADVERSARIAL_REVIEW.md).
+
+To let an agent do the installation for you, point it (running on the host, not in a container) at [docs/AGENT_INSTALL.md](docs/AGENT_INSTALL.md): numbered steps with a check after each one, which stop and ask you wherever only a person can act (tokens, secrets, logins, approvals).

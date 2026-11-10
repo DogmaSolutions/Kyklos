@@ -145,7 +145,7 @@ _proof_tool_legacy_token_file() { printf '%s/%s.token' "$(_proof_tool_dir)" "$(_
 # `<nested>/Repo/README.md`, a path that does not exist, and the token would FALSE-BLOCK the close. Anchoring on
 # the DECLARED project root (CLAUDE_PROJECT_DIR) before falling back to the ambient git toplevel keeps the same
 # token verifying from BOTH the project root and any nested subdir. Recording RELATIVE paths is what makes a token
-# PORTABLE across the host/container boundary (the host emitter sees R:\..., the container gate sees /workspace/... —
+# PORTABLE across the host/container boundary (the host emitter sees C:\..., the container gate sees /workspace/... —
 # an absolute recorded path can only ever verify on the side that wrote it); this change only fixes WHICH root those
 # relative paths resolve against, leaving the portable-relative design intact.
 # The root is returned in the canonical path form (_proof_tool_canon_path), so emit and verify join the same string.
@@ -156,7 +156,7 @@ _proof_tool_root() {
 }
 
 # _proof_tool_canon_path PATH -> PATH in the ONE form every token path takes, at mint and at verify alike: '/'
-# separators (a Windows host hands the CLI R:\... roots) and no trailing '/'. A root of exactly '/' stays '/'.
+# separators (a Windows host hands the CLI C:\... roots) and no trailing '/'. A root of exactly '/' stays '/'.
 _proof_tool_canon_path() {
     local p; _proof_tool_canon_path_v p "$1"
     printf '%s' "$p"
@@ -1584,7 +1584,7 @@ proof_tool_applies() {
 # non-zero when none can be resolved. Candidates, in order of authority:
 #   1. KYKLOS_CHANGE_BASE_REF (an explicit ref; if set it is the ONLY candidate, so a typo fails instead of guessing);
 #   2. the merge request's target branch in CI (CI_MERGE_REQUEST_TARGET_BRANCH_NAME, as origin/<name> or <name>);
-#   3. the fleet trunks origin/develop, origin/main, origin/master, each preceded by its local branch when that one
+#   3. the usual trunks origin/develop, origin/main, origin/master, each preceded by its local branch when that one
 #      is strictly ahead of it (_proof_tool_trunk_candidates).
 # Among the candidates that exist, the NEAREST merge-base wins (fewest commits between it and HEAD): a GitFlow feature
 # branch forked from develop is judged against develop, a hotfix against main. A merge of the trunk INTO the branch
@@ -1708,7 +1708,7 @@ _proof_tool_code_changed() {
 }
 
 # _proof_tool_source_changed PROJECT_DIR -> exit 0 iff the change window (proof_tool_changed_files) touches a
-# SOURCE file in any of the fleet's languages (dedup applies to constants/logic in C#, PowerShell, shell, Python,
+# SOURCE file in any of the supported languages (dedup applies to constants/logic in C#, PowerShell, shell, Python,
 # TS/JS, Go, Java, Ruby — not just *.cs). Same fail-open contract as _proof_tool_code_changed: no git / not a work
 # tree / no source touched -> non-zero ("cannot tell -> do not block"), so a docs-only story is never gated here.
 _proof_tool_source_changed() {
@@ -1717,7 +1717,7 @@ _proof_tool_source_changed() {
     [ -n "$changed" ]
 }
 
-# proof_tool_changed_source_files PROJECT_DIR -> print the SOURCE files (any fleet language) among
+# proof_tool_changed_source_files PROJECT_DIR -> print the SOURCE files (any supported language) among
 # proof_tool_changed_files, one per line; empty output when the change touches no source. Non-zero only when the
 # change window cannot be known (no git / not a work tree). The one definition of "a source file" for every caller.
 proof_tool_changed_source_files() {
@@ -1729,7 +1729,7 @@ proof_tool_changed_source_files() {
 # _proof_tool_diff_attributable SRC_ROOT STORY_ID -> exit 0 iff the LIVE source diff of SRC_ROOT can honestly be
 # attributed to story STORY_ID -- i.e. there are UNCOMMITTED source changes in the working tree (an active close in
 # progress), OR the HEAD commit that produced the HEAD~1..HEAD diff REFERENCES this story (`#<id>` / `STORY-<id>`,
-# e.g. the fleet-wide `Refs: #<id>` trailer). Otherwise the diff is some OTHER story's last commit (or the story's
+# e.g. the `Refs: #<id>` trailer). Otherwise the diff is some OTHER story's last commit (or the story's
 # real deliverable lives in a DIFFERENT repo than SRC_ROOT), and re-grading it against that diff is meaningless.
 #
 # WHY: the diff-dependent tool-gate (proof_tool_gate_finding) and its mirror

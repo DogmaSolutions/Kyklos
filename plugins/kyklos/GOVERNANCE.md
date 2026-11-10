@@ -1,4 +1,4 @@
-# Governance ownership — one owner per corporate-baseline concern
+# Governance ownership — one owner per baseline concern
 
 A consuming project and the `kyklos` plugin can each ship a guard for the same concern (GitFlow
 branch names, session continuation, standard config, test quality, zero-failures, merge-on-green). When
@@ -6,12 +6,12 @@ both fire they **double-block**, and it becomes ambiguous which layer's rule and
 
 This document is the single source of truth for **which layer owns each concern**. The rule is simple:
 
-> **Kyklos OWNS every corporate-baseline concern below. A consuming project MUST NOT ship its own guard
+> **Kyklos OWNS every baseline concern below. A consuming project MUST NOT ship its own guard
 > for an owned concern — it deletes the duplicate and relies on Kyklos.** A project keeps only guards for
 > concerns Kyklos does not cover (its own domain-specific discipline).
 
 The plugin is baked into the container image and is the same for every project, so making Kyklos the
-single owner means one canonical rule, one escape path, and one state directory fleet-wide.
+single owner means one canonical rule, one escape path, and one state directory across all projects.
 
 ## Owned concerns (Kyklos is canonical — drop the project duplicate)
 
@@ -23,7 +23,7 @@ single owner means one canonical rule, one escape path, and one state directory 
 | Test quality (no regression-hiding tests) | `kyklos-test-quality-guard.sh` | its own test-quality guard |
 | Zero pre-existing failures | `kyklos-zero-failures-gate.sh` | its own zero-failures gate |
 | Merge-on-green | `kyklos-merge-green-guard.sh` | its own merge-green gate |
-| Measure before auto-merge (changed C# needs a Test Discipline token to arm auto-merge; one-shot, repository-bound, audited override `automerge-coverage-ok` for a change to the token builder itself, or one no proportionate token can measure yet) | `kyklos-automerge-coverage-guard.sh` | its own "measure before you let it merge" rule |
+| Measure before auto-merge (changed C# needs the content ledger's answer with no GAP and no EXPIRED line at the armed commit, or a Test Discipline token, to arm auto-merge; one-shot, repository-bound, audited override `automerge-coverage-ok` for a change to the token builder itself, or one no proportionate token can measure yet) | `kyklos-automerge-coverage-guard.sh` | its own "measure before you let it merge" rule |
 | Hands off (a story merge request is armed in the push that creates it; a hand merge of an armed, merged or closed request is explained, not attempted; in a repository with no CI pipeline the request is created unarmed and merged through the API once mergeable, still under the merged-result check; opt-out `KYKLOS_MR_AUTOMERGE=off`, audited) | `kyklos-mr-hands-off-guard.sh` (+ the hand-merge checks in `kyklos-automerge-coverage-guard.sh` and `kyklos-merge-green-guard.sh`) | its own "the merge request merges itself" rule |
 | Merged result (before auto-merge is armed or a merge request is merged through the API, the branch must contain its target's current head, or the target's new commits must touch none of its files and no build-wide file) | `kyklos-automerge-coverage-guard.sh` | its own "test what lands" rule |
 | Safe remove (an `rm`/`rmdir` on a critical path - root, a root child, home, the working directory or a parent, a glob or trailing slash under a variable, a substitution-only recursive target - is refused at once with the safe form, never left to stall on Claude Code's built-in approval prompt; nested and `bash -c` forms included; opt-out `KYKLOS_RM_CRITICAL_PATH_GUARD=off`, audited) | `kyklos-rm-critical-path-guard.sh` (+ `lib/rm-critical-path.sh`) | its own "careful with rm -rf" rule |
@@ -153,7 +153,7 @@ single owner means one canonical rule, one escape path, and one state directory 
 ## What stays project-side
 
 A project keeps guards for concerns Kyklos does **not** own — its own domain discipline (e.g. GUI-test
-completeness, a poll-rate limiter, a DB-mutation guard). Generic discipline that *should* be fleet-wide
+completeness, a poll-rate limiter, a DB-mutation guard). Generic discipline that *should* apply to every project
 (e.g. no-parallel-tests, process-cleanup-after-test) is migrated **into** Kyklos (bound to the
 `mcp__KyklosBridge__(run_tests|build)` matcher) so every project inherits it; the project then deletes its copy.
 Until such a guard is lifted, the project may keep it — the rule above forbids duplicating an **owned** concern,

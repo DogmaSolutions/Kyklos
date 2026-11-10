@@ -7,7 +7,7 @@
 #
 # WHAT IT BLOCKS: a Bash command that closes ANY GitLab ISSUE by the raw API/CLI, unless the issue is a CONFORMING,
 # PROVEN story (the required SSDLC sections in its body AND the CANONICAL Proof note — the
-# `<!-- dogma:story-proof -->`-marked note the ssdlc-story-proof gate reads, with NO UNPROVEN verdict; a bare table in a
+# `<!-- kyklos:story-proof -->`-marked note the ssdlc-story-proof gate reads, with NO UNPROVEN verdict; a bare table in a
 # sibling note does not count), or it carries a non-development disposition/coordination label (the list is in the
 # code below). The sanctioned path — `story close <id>` — runs the proof gate + renders the table itself, so it is
 # NEVER blocked here.
@@ -161,7 +161,7 @@ else
 fi
 
 # PROOF: the CANONICAL Proof note. The ssdlc-story-proof gate reads ONLY a note whose body STARTS WITH the marker
-# '<!-- dogma:story-proof -->' (what `story proof` writes + `backend_proof_read` reads) — a bare `| Quality Dimension |`
+# '<!-- kyklos:story-proof -->' (or the earlier '<!-- dogma:story-proof -->' of an older note; what `story proof` writes + `backend_proof_read` reads) — a bare `| Quality Dimension |`
 # table in a sibling note does NOT count for the gate. Match EXACTLY that so this guard and the Stop-hook proof gate
 # agree: if the last marked note exists AND has no UNPROVEN verdict, the close is legitimate.
 # Every note (the bridge verb pages itself; the direct path reads every page through the shared reader): a proof note
@@ -172,10 +172,11 @@ else
   . "$(dirname "${BASH_SOURCE[0]}")/lib/gitlab-paged.sh"   # gitlab_paged_walk: the one rule for reading a whole list
   NOTES="$(gitlab_paged_walk _scg_page_get '/notes?sort=desc' 2>/dev/null)" || NOTES='[]'
 fi
-MARKER='<!-- dogma:story-proof -->'
+MARKER='<!-- kyklos:story-proof -->'
+FORMER_MARKER='<!-- dogma:story-proof -->'
 HAS_PROOF=0; HAS_UNPROVEN=0
-if printf '%s' "$NOTES" | json_test '.[]?.body // "" | select(startswith($m))' --arg m "$MARKER"; then HAS_PROOF=1; fi
-if [ "$HAS_PROOF" = 1 ] && printf '%s' "$NOTES" | jq -r --arg m "$MARKER" '[.[]? | select((.body//"")|startswith($m))] | sort_by(.created_at) | (last // {}) | .body // ""' 2>/dev/null | grep -ciE 'UNPROVEN' >/dev/null; then HAS_UNPROVEN=1; fi
+if printf '%s' "$NOTES" | json_test '.[]?.body // "" | select(startswith($m) or startswith($f))' --arg m "$MARKER" --arg f "$FORMER_MARKER"; then HAS_PROOF=1; fi
+if [ "$HAS_PROOF" = 1 ] && printf '%s' "$NOTES" | jq -r --arg m "$MARKER" --arg f "$FORMER_MARKER" '[.[]? | select((.body//"")|startswith($m) or startswith($f))] | sort_by(.created_at) | (last // {}) | .body // ""' 2>/dev/null | grep -ciE 'UNPROVEN' >/dev/null; then HAS_UNPROVEN=1; fi
 
 # CONFORMING + PROVEN story -> allow. BOTH the 7 structural items AND a clean canonical Proof note are required.
 if [ -z "$_broken" ] && [ -z "$_miss" ] && [ "$HAS_PROOF" = 1 ] && [ "$HAS_UNPROVEN" = 0 ]; then exit 0; fi
@@ -184,7 +185,7 @@ if [ -z "$_broken" ] && [ -z "$_miss" ] && [ "$HAS_PROOF" = 1 ] && [ "$HAS_UNPRO
 _parts="$_broken"
 [ -n "$_miss" ] && _parts="missing required SSDLC section(s): ${_miss}"
 if [ "$HAS_UNPROVEN" = 1 ]; then _parts="${_parts}${_parts:+ ; }the Proof note has an UNPROVEN Quality Dimension"
-elif [ "$HAS_PROOF" = 0 ]; then _parts="${_parts}${_parts:+ ; }no canonical Proof note (a note starting with the dogma:story-proof marker)"; fi
+elif [ "$HAS_PROOF" = 0 ]; then _parts="${_parts}${_parts:+ ; }no canonical Proof note (a note starting with the kyklos:story-proof marker)"; fi
 why="you are closing issue #$IID (project $PROJECT) as done, but it is NOT a conforming, proven SSDLC story (${_parts}). EVERY dev-work close must be a structured + proven story. RESTRUCTURE it (add the sections \`story structure $IID\` lists, fill every row \`story proof $IID\` generates, render the Proof table) and close via \`story close $IID\`; OR - if this is genuinely NOT development work - close it with its reason through the tool (\`story set $IID status=wontfix|duplicate|invalid\`), or, for a coordination issue, through \`agent-msg close\`; OR for a deliberate override ask the USER to apply the \`$_PO_LABEL\` label to the issue (there is no agent-touchable bypass - a close cannot be self-authorized)."
 why="${why//\\/\\\\}"; why="${why//\"/\\\"}"; why="$(printf '%s' "$why" | tr '\n' ' ')"
 printf '{"decision":"block","reason":"BLOCKED (story-close-guard): %s"}' "$why"

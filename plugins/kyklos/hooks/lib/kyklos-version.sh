@@ -12,7 +12,7 @@
 if [ -z "${_KYKLOS_VERSION_LIB_LOADED:-}" ]; then
 _KYKLOS_VERSION_LIB_LOADED=1
 
-# The scoped-label namespace (matches the fleet `<ns>::<value>` convention, e.g. ssdlc:phase::Design). A version
+# The scoped-label namespace (matches the usual `<ns>::<value>` convention, e.g. ssdlc:phase::Design). A version
 # label is NOT mutually exclusive, so it is added, never mutex-swapped.
 KYKLOS_VERSION_LABEL_NS='kyklos:version'
 

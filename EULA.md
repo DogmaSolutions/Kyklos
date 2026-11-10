@@ -1,7 +1,7 @@
 # End User Licence Agreement (EULA)
 
 This agreement integrates the MIT licence in [`LICENSE`](./LICENSE) for Kyklos: the kyklos plugin, the
-plugin marketplace content, the KyklosBridge and their documentation, in source or binary form (the "Software").
+plugin marketplace content, the KyklosBridge, the KyklosLauncher and their documentation, in source or binary form (the "Software").
 Its wording was set by Dogma Solutions srl on legal advice.
 
 ## 1. As is, no liability

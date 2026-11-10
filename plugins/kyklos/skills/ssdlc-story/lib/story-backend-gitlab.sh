@@ -24,7 +24,7 @@ BACKEND_GL_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 require_lib "$BACKEND_GL_HERE/story-lib.sh" || STORY_LIB_LOAD_FAILED="${STORY_LIB_LOAD_FAILED:+$STORY_LIB_LOAD_FAILED, }story-lib.sh"
 # The routing cross-check lives in the SINGLE resolver (hooks/lib/repo-role.sh); source it so
 # backend_new can refuse creating a story in the PUBLIC ARTIFACT project. It ships in this SAME plugin, so its
-# absence is a broken install — NOT a normal condition. [no-fail-open, project directive] We do NOT silently skip:
+# absence is a broken install — NOT a normal condition. [no-fail-open] We do NOT silently skip:
 # a load FAILURE is surfaced here, and an ABSENT resolver is a HARD failure at create time in backend_new (below).
 _RR_LIB="$BACKEND_GL_HERE/../../../hooks/lib/repo-role.sh"
 # shellcheck source=/dev/null
@@ -220,10 +220,9 @@ gl_api() {
         printf '{}'
         return 0
     fi
-    # [no-fail-open] NEVER mask a transport/HTTP failure as a normal-looking body. The old form
-    # (`curl ... || printf '{}'`) returned 0 even when curl FAILED, and a 401/404 (which curl -s treats as success)
-    # became an error body indistinguishable from real data — so a whole class of callers silently degraded. Now:
-    # surface the real condition on stderr AND return non-zero, so callers (and the user) SEE the failure. The body
+    # [no-fail-open] NEVER mask a transport/HTTP failure as a normal-looking body: `curl ... || printf '{}'` returns 0 even
+    # when curl FAILED, and a 401/404 (which curl -s treats as success) becomes an error body indistinguishable from real
+    # data. So: surface the real condition on stderr AND return non-zero, so callers (and the user) SEE the failure. The body
     # is still emitted so a caller that inspects it can diagnose; the non-zero rc is the signal.
     [ -n "$_GL_API" ] || { gitlab_api_base STORY_GITLAB_API >/dev/null; printf '{}'; return 1; }
     [ -n "$_GL_PID" ] || { echo "[story] gl_api: STORY_GITLAB_PROJECT unset — no target project for $method $path" >&2; printf '{}'; return 1; }
@@ -293,7 +292,7 @@ _gl_page_get() { gl_api GET "$1"; }
 _gl_issue() {
     local iid="$1" f="$_GL_CACHE/issue-$1.json" _body
     if [ ! -s "$f" ]; then
-        # [no-fail-open] Do NOT cache a FAILED fetch as a phantom empty issue — that silently turned an API outage into
+        # [no-fail-open] Do NOT cache a FAILED fetch as a phantom empty issue — that would silently turn an API outage into
         # a story reported as "Todo" and a real issue reported as "not found". Only cache a response that is genuinely
         # an issue (numeric .iid); otherwise surface it and return non-zero so callers can distinguish outage from data.
         local _rc=0
@@ -411,7 +410,7 @@ _gl_warn_lost_claim() {
 }
 
 # The story STATUS namespace is a strict MUTEX — a story carries exactly ONE status. Three naming
-# schemes have existed across the fleet's history and any may still be present mid-migration: the new canonical
+# schemes have existed over time and any may still be present mid-migration: the new canonical
 # GitLab-SCOPED `status::*` (double-colon; on Premium GitLab enforces the mutex natively, on CE our Kyklos does),
 # the legacy single-colon `status:*`, and the oldest `S:*`. A status WRITE always ADDS exactly one canonical
 # `status::<x>` and REMOVES every OTHER status label across ALL three schemes, so a re-labelled or web-UI-dirtied
@@ -420,10 +419,10 @@ _GL_STATUS_TODO_LABELS="status::todo,status:todo,S:todo"
 _GL_STATUS_DOING_LABELS="status::doing,status:doing,S:doing"
 # Blocked: the kinds (status::blocked-on-issue|user|external, which the bridge writes) and the legacy bare forms.
 _GL_STATUS_BLOCKED_LABELS="status::blocked-on-issue,status::blocked-on-user,status::blocked-on-external,status::blocked,status:blocked,S:blocked"
-# The UNIFIED lifecycle scope (user directive): parked (open, deferred) and the closed-issue
+# The UNIFIED lifecycle scope: parked (open, deferred) and the closed-issue
 # terminal reasons (wontfix/duplicate/invalid/archived) are STATUS values on the SAME single dimension as
 # todo/doing/blocked - one label answers "what should an observer do with this issue". Each dual-reads its legacy
-# bare-name form during the fleet migration window (the alias machinery below migrates + retires the bare names).
+# bare-name form during the migration window (the alias machinery below migrates + retires the bare names).
 _GL_STATUS_PARKED_LABELS="status::parked,parked"
 _GL_STATUS_WONTFIX_LABELS="status::wontfix,wontfix"
 _GL_STATUS_DUPLICATE_LABELS="status::duplicate,duplicate"
@@ -474,7 +473,7 @@ _gl_status() {
     # Match the status label as an EXACT array element — a substring test (`case *status:doing*`) would misclassify
     # a custom label like `x-status:doing-ish`. jq `index` tests exact membership. TRIPLE-READ the SCOPED
     # `status::*` names (the new canonical, GitLab-scoped so Premium enforces the mutex natively) AND the legacy
-    # single-colon `status:*` AND the older `S:*`, during the fleet rename window, so an issue labelled by any of the
+    # single-colon `status:*` AND the older `S:*`, during the rename window, so an issue labelled by any of the
     # three schemes — incl. one written by a not-yet-migrated container — is still classified correctly. Order the
     # scoped name FIRST (it is the target scheme). Surface an ambiguous multi-status LOUDLY on
     # stderr instead of silently first-match-winning (CE has no native scope mutex; the GitLab web UI can add a 2nd).
@@ -493,7 +492,7 @@ _gl_status() {
 # GitLab web UI, which no local guard can intercept on CE. On Premium the scope mutex makes this the redundant
 # second layer; on CE it IS the enforcement, surfaced LOUDLY for healing instead of silently first-match-hidden.
 # Prints one TAB-separated `iid<TAB>n<TAB>status-labels` line per offender; rc 0 always (report-only; a hard block
-# would be a NEW fleet-wide gate = always-stop). Stub-aware via _gl_paged.
+# would be a NEW gate for every project = always-stop). Stub-aware via _gl_paged.
 backend_status_conflicts() {
     # jq externalized to gl-status-conflicts.jq (an inline multi-line jq string reads as kcov phantom
     # "uncovered" lines though it is exercised; the file is measured honestly). Behaviour unchanged.
@@ -778,7 +777,7 @@ backend_new() {
     local id="$2" title="$3" type="$4" epic="$5" kind="${6:-development}" severity="${7:-}" desc labels args mid iid prevmax tol
     # Routing, enforced at CREATION: refuse to create a story if STORY_GITLAB_PROJECT is the declared
     # public artifact project (an agent can't route around the topology by hand-setting the knob).
-    # [no-fail-open, project directive] The resolver ships in this plugin: if routing_check is UNAVAILABLE, that is a
+    # [no-fail-open] The resolver ships in this plugin: if routing_check is UNAVAILABLE, that is a
     # broken install — HARD-FAIL rather than silently create the story with the routing control skipped.
     command -v routing_check >/dev/null 2>&1 || { printf 'story: gitlab backend_new: FATAL — routing resolver unavailable; refusing to create a story without the routing check (routing_check in hooks/lib/repo-role.sh; fix the install).\n' >&2; return 1; }
     routing_check "$1" || { printf 'story: gitlab backend_new: routing refused — will NOT create a story in the public artifact project (stories belong in the private source).\n' >&2; return 1; }
@@ -808,9 +807,9 @@ backend_new() {
     # iid far above the real max and SILENTLY mint a 4-digit story number. rc!=0/non-numeric
     # (API error, or genuinely empty project) => prevmax=0 => the jump check below is skipped (fail-OPEN: the guard
     # is a safety net, it must never block a legitimate create on an unreadable baseline).
-    # [no-fail-open] Distinguish a baseline READ-FAILURE from a genuinely-empty project. The old form masked an
-    # API/token error to prevmax=0, which SILENTLY disabled the relative jump check (only the absolute ceiling
-    # remained), so a drifted iid below the ceiling atop an unknown baseline was minted with no loud error. Capture
+    # [no-fail-open] Distinguish a baseline READ-FAILURE from a genuinely-empty project. Masking an API/token error as
+    # prevmax=0 would SILENTLY disable the relative jump check (only the absolute ceiling would remain), so a drifted iid
+    # below the ceiling atop an unknown baseline would be minted with no loud error. Capture
     # whether the issues-list read SUCCEEDED (a JSON ARRAY — the SAME signal backend_reachable uses; an error returns
     # a non-array `{}`) SEPARATELY from the numeric max, so an UNREADABLE baseline is refused below, not trusted as 0.
     _pm_raw="$(_gl_paged "issues?scope=all")"
@@ -921,7 +920,7 @@ _gl_archive_foreign_folders() {
 # backend_id_from_handle <dir> <handle=iid> -> the canonical on-disk story folder id (the gitlab handle IS the
 # iid). Two invariants keep the folder name STABLE across the FS era and the gitlab backend, so materialize +
 # BACKLOG links target the SAME folder instead of minting a duplicate:
-#   1. Zero-PAD the number to 3 digits (STORY-<NNN>), matching the FS backend's `printf %03d` + the fleet convention.
+#   1. Zero-PAD the number to 3 digits (STORY-<NNN>), matching the FS backend's `printf %03d` + the usual convention.
 #   2. REUSE an existing on-disk folder for this number (any slug) if one is present — the FS era chose curated
 #      slugs the issue title can't reproduce; honour them rather than create STORY-<NNN>-<40-char-title> alongside.
 # Only when NO folder exists yet does it mint STORY-<NNN>-<slug-from-title> (folder-naming parity).
@@ -1443,15 +1442,17 @@ backend_set_title()   { _gl_write PUT "issues/$2" "title=$3"; }   # <dir> <handl
 
 # The proof lives as a NOTE on the issue, prefixed with a hidden MARKER so it can be found + replaced (idempotent)
 # and read back verbatim — the story-proof gate reads it to enforce "Done => a proof with no UNPROVEN row".
-_GL_PROOF_MARKER='<!-- dogma:story-proof -->'
+_GL_PROOF_MARKER='<!-- kyklos:story-proof -->'
+# Notes written under the earlier marker name stay readable and are replaced like current ones; nothing writes it.
+_GL_PROOF_MARKER_FORMER='<!-- dogma:story-proof -->'
 backend_proof_write() {   # <dir> <iid> <table> — replace our own prior proof note (never stack), then post the new one.
     local iid="$2" nid resp
     # Paginate: an issue with >100 notes would hide our prior proof note on page 2 → duplicates stack on write.
-    for nid in $(_gl_paged "issues/$iid/notes" | jq -r --arg m "$_GL_PROOF_MARKER" '.[]? | select((.body//"")|startswith($m)) | .id' 2>/dev/null); do
+    for nid in $(_gl_paged "issues/$iid/notes" | jq -r --arg m "$_GL_PROOF_MARKER" --arg f "$_GL_PROOF_MARKER_FORMER" '.[]? | select((.body//"")|startswith($m) or startswith($f)) | .id' 2>/dev/null); do
         gl_api DELETE "issues/$iid/notes/$nid" >/dev/null
     done
-    # [no-fail-open, project directive] gl_api masks HTTP/token errors (a 401 curls fine and returns an error body),
-    # so a POST can "succeed" WITHOUT creating the note (this silently dropped a proof once). VERIFY the write: the
+    # [no-fail-open] gl_api masks HTTP/token errors (a 401 curls fine and returns an error body),
+    # so a POST can "succeed" WITHOUT creating the note. VERIFY the write: the
     # response must carry a numeric note id, else FAIL LOUD so the proof is never believed-saved when it wasn't.
     resp="$(gl_api POST "issues/$iid/notes" "body=$(printf '%s\n%s' "$_GL_PROOF_MARKER" "$3")")"
     printf '%s' "$resp" | json_test '(.id // empty) | numbers' || {
@@ -1476,8 +1477,8 @@ backend_proof_read() {    # <dir> <iid> — the proof table text (marker strippe
     # regardless of the notes-fetch order. (A bare `last` read whichever the API happened to return last — newest-first
     # fetches then returned the OLDEST proof, so an updated proof silently did not take effect.)
     _gl_paged "issues/$2/notes" \
-      | jq -r --arg m "$_GL_PROOF_MARKER" '[.[]? | select((.body//"")|startswith($m))] | sort_by(.created_at) | (last // {}) | .body // ""' 2>/dev/null \
-      | awk -v m="$_GL_PROOF_MARKER" 'NR==1 && $0==m {next} {print}'
+      | jq -r --arg m "$_GL_PROOF_MARKER" --arg f "$_GL_PROOF_MARKER_FORMER" '[.[]? | select((.body//"")|startswith($m) or startswith($f))] | sort_by(.created_at) | (last // {}) | .body // ""' 2>/dev/null \
+      | awk -v m="$_GL_PROOF_MARKER" -v f="$_GL_PROOF_MARKER_FORMER" 'NR==1 && ($0==m || $0==f) {next} {print}'
 }
 backend_done_handles() {  # <dir> — the iids of the DONE (closed + completed) stories, ascending. Used by the proof gate.
     # EXCLUDE a story closed as a non-development disposition (wontfix/duplicate/invalid): it was DROPPED,
@@ -1499,10 +1500,11 @@ backend_done_handles() {  # <dir> — the iids of the DONE (closed + completed) 
 # The GitLab-native store for the per-story Risk Assessment register: its OWN marker-prefixed NOTE, mirroring the
 # proof note (a description-section round-trip would fight the Status-bullet sync + metadata-bullet parser). The
 # story-proof gate reads it via backend_ra_read so the RA self-waiver / empty-register checks run on gitlab too.
-_GL_RA_MARKER='<!-- dogma:risk-assessment -->'
+_GL_RA_MARKER='<!-- kyklos:risk-assessment -->'
+_GL_RA_MARKER_FORMER='<!-- dogma:risk-assessment -->'
 backend_ra_write() {   # <dir> <iid> <text> — replace our own prior RA note (never stack), then post the new one.
     local iid="$2" nid resp
-    for nid in $(_gl_paged "issues/$iid/notes" | jq -r --arg m "$_GL_RA_MARKER" '.[]? | select((.body//"")|startswith($m)) | .id' 2>/dev/null); do
+    for nid in $(_gl_paged "issues/$iid/notes" | jq -r --arg m "$_GL_RA_MARKER" --arg f "$_GL_RA_MARKER_FORMER" '.[]? | select((.body//"")|startswith($m) or startswith($f)) | .id' 2>/dev/null); do
         gl_api DELETE "issues/$iid/notes/$nid" >/dev/null
     done
     # VERIFY the write carried a numeric note id (gl_api masks HTTP/token errors) — never believe an unsaved register.
@@ -1516,8 +1518,8 @@ backend_ra_read() {    # <dir> <iid> — the RA register text (marker stripped);
     # sort_by(.created_at) before last, exactly like backend_proof_read: a later RA UPDATE must win. The
     # notes API does not guarantee creation order, so without the sort a STALE earlier register could be read.
     _gl_paged "issues/$2/notes" \
-      | jq -r --arg m "$_GL_RA_MARKER" '[.[]? | select((.body//"")|startswith($m))] | sort_by(.created_at) | (last // {}) | .body // ""' 2>/dev/null \
-      | awk -v m="$_GL_RA_MARKER" 'NR==1 && $0==m {next} {print}'
+      | jq -r --arg m "$_GL_RA_MARKER" --arg f "$_GL_RA_MARKER_FORMER" '[.[]? | select((.body//"")|startswith($m) or startswith($f))] | sort_by(.created_at) | (last // {}) | .body // ""' 2>/dev/null \
+      | awk -v m="$_GL_RA_MARKER" -v f="$_GL_RA_MARKER_FORMER" 'NR==1 && ($0==m || $0==f) {next} {print}'
 }
 
 # --- epics (milestones) ------------------------------------------------------------------------------------------
@@ -1652,7 +1654,7 @@ _GL_SSDLC_PHASES="Prerequisites $STORY_PHASE_ORDER"
 
 # backend_ensure_labels <dir> — mechanical hygiene: create any KNOWN label missing at project level so it
 # shows in the GitLab GUI for a hand-created story, AND RECONCILE the color of an existing KNOWN label that has
-# DRIFTED from the SSoT (_GL_KNOWN_LABELS). The color drift was the fleet-wide bug: the old code SKIPPED
+# DRIFTED from the SSoT (_GL_KNOWN_LABELS). The color drift was the bug seen across projects: the old code SKIPPED
 # every existing label, so when an SSoT color changed (e.g. a new color for type::*) the projects that already had the
 # label kept the OLD color forever -> the SAME label showed in DIFFERENT colors across projects (read as duplicates).
 # Now a create-if-missing OR a PUT-reconcile-if-drifted keeps every project's colors converged on the SSoT, so the
@@ -1687,7 +1689,7 @@ backend_ensure_labels() {
 # each alias present in the project (e.g. the built-in `bug`), migrate every issue carrying it onto its canonical
 # scoped twin (`type::fix`) via the scoped mutex, THEN DELETE the alias definition so it stops showing as a duplicate
 # and new stories cannot pick it. Same shape + safety as backend_prune_legacy_labels: strongest enforcement the
-# labels API allows (the alias becomes TRANSIENT, pruned on the next story op, so the fleet converges and the
+# labels API allows (the alias becomes TRANSIENT, pruned on the next story op, so everything converges and the
 # duplicate can never re-accumulate). Idempotent, best-effort / FAIL-OPEN (a labels/issues API hiccup must NEVER
 # block a story op), no-op without a write token. NOTE: this deletes only the PROJECT-level alias; retiring the
 # instance-wide GitLab default template label is a separate admin action.
@@ -1717,7 +1719,7 @@ backend_prune_aliases() {
 # collapsed to a single `:`) — e.g. type::feat -> type:feat, ssdlc:phase::Design -> ssdlc:phase:Design. For each
 # legacy label present in the project: relabel every issue carrying it onto the canonical (native scoped mutex),
 # THEN DELETE the legacy definition so it stops showing as a duplicate. This is the strongest ENFORCEMENT the labels
-# API allows: legacy labels become TRANSIENT — pruned on the next story op, fleet-wide, so the drift can never
+# API allows: legacy labels become TRANSIENT — pruned on the next story op, in every project, so the drift can never
 # accumulate again. Runs only when a legacy def actually exists (post-cleanup it is a cheap no-op). Idempotent,
 # best-effort / FAIL-OPEN (a labels/issues API hiccup must NEVER block a story op), no-op without a write token.
 backend_prune_legacy_labels() {
@@ -1818,8 +1820,8 @@ backend_get_phase() { _gl_get_scoped "$2" "ssdlc:phase"; }
 # [phase-walk gate] backend_phase_walked <dir> <iid> -> rc 0 when the SERVER-side label-event history shows the
 # work ENTERED Implementation (scoped or legacy form) BEFORE this close; rc 1 = a phase jump (the story is being
 # closed over an unwalked history), or a history longer than the page cap (refused, never judged on a part of it).
-# The WHOLE history is read (_gl_paged: every page): GitLab's default first page of 20 events once hid the
-# Implementation add of a story with 37 events. A fetch failure is fail-OPEN with a LOUD notice: a transient must never
+# The WHOLE history is read (_gl_paged: every page): GitLab's default first page of 20 events can hide the
+# Implementation add of a story with many events. A fetch failure is fail-OPEN with a LOUD notice: a transient must never
 # wedge a close, and the gate re-arms on the next attempt. The events live server-side, so an agent cannot rewrite them.
 # [RiskMitigation RA-01] the phase walk is judged on every page of the history.
 backend_phase_walked() {

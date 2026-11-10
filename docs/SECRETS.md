@@ -24,3 +24,7 @@ The credentials are deliberately **split by purpose**:
   tests the Bridge runs: they start with a clean environment.
 - **Secrets on demand.** When the agent needs a secret for its own work (for example a token for a third-party service named in the project's settings), it asks the Bridge, which returns the
   current value without ever saying where it is stored; a value changed in the credential store is picked up without restarting the container.
+
+## Related pages
+
+[The three components](COMPONENTS.md), [Installing and configuring Kyklos](INSTALL_AND_CONFIG.md), [Git: branching and authorisation](GIT.md), [CI](CI.md), and [the README](../README.md) for the full list.

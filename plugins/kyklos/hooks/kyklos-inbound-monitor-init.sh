@@ -37,7 +37,7 @@ configured=1
 
 if [ "$configured" = 0 ]; then
     # State 3 — unconfigured. Only NOTICE on a Kyklos container (or one with a partial coordination config); a
-    # plain non-fleet shell has nothing to coordinate and stays quiet.
+    # plain shell has nothing to coordinate and stays quiet.
     if [ "${KYKLOS:-0}" = "1" ] || [ -n "${KYKLOS_ISSUES_API:-}${KYKLOS_ISSUES_LABEL:-}${KYKLOS_ISSUES_PROJECT:-}${KYKLOS_ISSUES_GROUP:-}${KYKLOS_ISSUES_TOKEN_ENV:-}" ]; then
         touch "$marker" 2>/dev/null || true
         cat >&2 <<'MSG'

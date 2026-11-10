@@ -79,3 +79,7 @@ also load it on its own when a task calls for it), *agent only*, or *user only*.
 | `kyklos:ssdlc-inbound-monitor`    | user and agent | Keeps the conversation with other agents alive: a periodic check that picks up a reply even while the agent is idle.                                                      |
 | `kyklos:ssdlc-ai-fix-loop`        | user and agent | Works through the findings of an automated code review on a merge request, proposing a fix for each and applying it only on human approval, with a bound.                 |
 | `kyklos:reorient`                 | user only      | Re-orients the agent after a container restart: it drops stale assumptions and rediscovers the tools, skills, instructions and backlog.                                   |
+
+## Related pages
+
+[The three components](COMPONENTS.md), [The Kyklos workflow](WORKFLOW.md), [The Proof Table](PROOF.md), [Git: branching and authorisation](GIT.md), and [the README](../README.md) for the full list.

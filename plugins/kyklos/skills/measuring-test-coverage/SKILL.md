@@ -33,7 +33,7 @@ the values:
    `.mutation_test_dotnet`); `off` (the safe answer) means no mutation run.
 4. **Mutation level** *(ask ONLY when `MUTATION_TESTING=on`)* — "Which Stryker mutation level? `Basic` (fewest
    mutants, fastest) · `Standard` · `Advanced` · `Complete` (most thorough, slowest). Default `Basic`." →
-   `MUTATION_LEVEL=Basic|Standard|Advanced|Complete`. This knob is CONSUMED by the fleet CI templates' `mutation.yml`, so the
+   `MUTATION_LEVEL=Basic|Standard|Advanced|Complete`. This knob is CONSUMED by the CI mutation job, so the
    interview is its ONLY sanctioned writer — persist it here rather than letting a consumer ride the in-template
    `Basic` default silently. (An `off` project skips this — no level is needed.)
 
@@ -98,9 +98,13 @@ Discipline / Risk Assessment Proof rows when a high-CRAP method is accepted rath
     going on the host in the meantime, so nothing is lost. Repeating the same `get_coverage` call joins the run already
     queued or going rather than starting a second one. Reports are saved under `reportDir`
     (`.kyklos/coverage/<jobId>` in the solution) for `copy_file` or direct reading.
-  - **Measure before you arm auto-merge:** arming auto-merge on a change that touches production C# needs this
-    story's Test Discipline token (`hooks/kyklos-automerge-coverage-guard.sh` refuses the arm without it;
-    `hooks/lib/proof-tool-gate.sh` defines what the token covers). A plain push to let CI run is still fine.
+  - **Measure before you arm auto-merge:** arming auto-merge on a change that touches production C# needs the
+    content ledger to show every changed C# line of the story run by a passing test at the commit being armed
+    (`test_facts` for the story: `gap 0, expired 0`), the same answer the close reads. Get there with `get_coverage`
+    WITHOUT `story` and a `filter` over the tests that run the changed lines; runs add up, so run only what covers the
+    remaining GAP lines. A Test Discipline token from a whole-suite `get_coverage` with `story` is still accepted
+    (`hooks/kyklos-automerge-coverage-guard.sh` refuses the arm when neither settles it; off switch for the ledger
+    path only: `KYKLOS_AUTOMERGE_LEDGER=off`). A plain push to let CI run is still fine.
   - **Bind the proof token to your story:** pass `story` (e.g. `42`). Without it the Test Discipline token takes
     its story from the branch name or last commit, which finds none on a trunk such as `develop`. The result's
     `proofToken` field says whether a token was issued and, if not, why. A token is issued only for a GREEN run:
@@ -126,13 +130,13 @@ Discipline / Risk Assessment Proof rows when a high-CRAP method is accepted rath
 ## What coverage measures (the denominator)
 
 Define exclusions once in `coverage.runsettings` (the `XPlat Code Coverage <Configuration>`), the same set
-the fleet CI uses: generated code by `GeneratedCodeAttribute` plus generated-file patterns (`**/*.g.cs`,
+CI uses: generated code by `GeneratedCodeAttribute` plus generated-file patterns (`**/*.g.cs`,
 `**/*.Designer.cs`, EF `**/Migrations/**`), record/DTO auto-properties by `SkipAutoProps`, and anything
 marked `[ExcludeFromCodeCoverage]` — so a % reflects real hand-written logic, not data-holders.
 
 **Do NOT exclude `CompilerGeneratedAttribute`.** The compiler moves the body of every `async` and iterator
 method into a hidden compiler-generated state-machine class, so excluding that attribute silently removes real logic
-from coverage and from the CRAP gate. The bridge's `get_coverage` already applies the fleet set.
+from coverage and from the CRAP gate. The bridge's `get_coverage` already applies that set.
 
 Changing these exclusions shifts every assembly's denominator, so re-measure broadly to re-baseline
 consistently.
