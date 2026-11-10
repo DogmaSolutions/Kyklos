@@ -1,5 +1,7 @@
 # Installing and configuring Kyklos on Windows
 
+> **Early access (the repository is private).** Only invited GitHub accounts can reach `DogmaSolutions/Kyklos` for now, so anonymous downloads answer 404. Before the steps below, follow [Early access: the repository is private](AGENT_INSTALL.md#early-access-the-repository-is-private-do-this-first): sign in with the GitHub CLI, download the release files with `gh`, put the Bridge in the Launcher's cache folder, and give the plugin install a read-only GitHub token (`Marketplace:TokenName`).
+
 [← Back to the README](../README.md)
 
 > **Want your agent to do it?** This page is written for people. [Installing Kyklos with an agent](AGENT_INSTALL.md) gives the same procedure as numbered steps with a check after each one, so that an agent running on the host can follow it and stop to ask you wherever only a person can act.

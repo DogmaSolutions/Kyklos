@@ -102,3 +102,5 @@ To get started, follow [Installing and configuring Kyklos on Windows](docs/INSTA
 Which platforms and features are supported today (Windows, Linux, macOS) is in [Current scope](docs/INSTALL_AND_CONFIG.md#current-scope). The three parts you install, the [Launcher, the Bridge and the Plugin](docs/COMPONENTS.md), keep [secrets](docs/SECRETS.md) out of the agent's hands and enforce the [workflow](docs/WORKFLOW.md) through [proofs](docs/PROOF.md) and [adversarial reviews](docs/ADVERSARIAL_REVIEW.md).
 
 To let an agent do the installation for you, point it (running on the host, not in a container) at [docs/AGENT_INSTALL.md](docs/AGENT_INSTALL.md): numbered steps with a check after each one, which stop and ask you wherever only a person can act (tokens, secrets, logins, approvals).
+
+**Early access:** the repository is private for now, so anonymous downloads answer 404. Invited users start with [Early access: the repository is private](docs/AGENT_INSTALL.md#early-access-the-repository-is-private-do-this-first) (GitHub CLI sign-in, a read-only token, the Bridge in the Launcher's cache).

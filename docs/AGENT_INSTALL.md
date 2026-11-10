@@ -48,6 +48,59 @@ Inside the steps, an OS-specific part is headed **🪟 Windows** or **🐧 Linux
 
 ---
 
+## Early access: the repository is private (do this first)
+
+During early access the GitHub repository `DogmaSolutions/Kyklos` is private: only invited GitHub accounts can see it, and every anonymous download from it answers **404 Not Found**. That affects three things the normal steps take for granted: downloading the release files, the Launcher fetching the `Kyklos Bridge` from the release, and the container installing the `Kyklos Plugin` from the marketplace. Until the repository is public, do the following on top of the normal steps. When it is public, skip this section.
+
+**What the person needs (🛑 STOP: ask the person, never handle the token yourself):**
+
+1. A GitHub account that Dogma Solutions invited to `DogmaSolutions/Kyklos` (the invitation was accepted).
+2. The GitHub CLI `gh`, signed in with that account: the person runs `gh auth login` in their own terminal. **Check:** `gh repo view DogmaSolutions/Kyklos --json name`. **Expected:** `{"name":"Kyklos"}`.
+3. A read-only GitHub access token for the plugin install: on github.com, *Settings*, *Developer settings*, *Fine-grained tokens*, *Generate new token*, resource owner `DogmaSolutions`, repository `Kyklos` only, permission *Contents: Read-only*. (Dogma Solutions may have to approve the request; tell them if it stays pending.) The person stores it in the Launcher's credential store under the name `KYKLOS_MARKETPLACE_TOKEN` (step 8, like any other secret), and you add `"TokenName": "KYKLOS_MARKETPLACE_TOKEN"` to the `Marketplace` section of the Launcher settings (step 7). The Launcher gives this token only to the plugin install inside the container; the agent never sees it.
+
+**Download the release files with `gh` instead of the plain download (replaces the download commands of step 5; the checksum and signature checks of step 5 stay the same):**
+
+🪟 Windows:
+
+```powershell
+Set-Location <launcher-folder>
+gh release download --repo DogmaSolutions/Kyklos --pattern kyklos-launcher-win-x64.zip --pattern kyklos-bridge-win-x64.exe --pattern SHA256SUMS.txt --clobber
+```
+
+🐧 Linux:
+
+```bash
+cd <launcher-folder>
+gh release download --repo DogmaSolutions/Kyklos --pattern kyklos-launcher-linux-x64.zip --pattern kyklos-bridge-linux-x64 --pattern SHA256SUMS.txt --clobber
+```
+
+**Check:** the checksum check of step 5 for the Launcher zip, and the same check for the Bridge file (its line is in `SHA256SUMS.txt` too). **Expected:** both match.
+
+**Give the Launcher the Bridge (after step 5, before the first launch).** The Launcher fetches the Bridge from the release without a login, which fails while the repository is private. When it cannot reach the release, it starts the newest Bridge in its cache folder whose checksum file matches, so put the downloaded Bridge there. Use the version of the release you downloaded (shown on the release page and in `gh release view --repo DogmaSolutions/Kyklos`), written below as `<version>`, for example `0.2.23098`.
+
+🪟 Windows:
+
+```powershell
+$d = "$env:LOCALAPPDATA\KyklosBridge\<version>"
+New-Item -ItemType Directory -Force $d | Out-Null
+Copy-Item <launcher-folder>\kyklos-bridge-win-x64.exe $d
+(Get-FileHash "$d\kyklos-bridge-win-x64.exe" -Algorithm SHA256).Hash.ToLower() | Set-Content -NoNewline "$d\kyklos-bridge-win-x64.exe.sha256"
+```
+
+🐧 Linux:
+
+```bash
+d="${XDG_DATA_HOME:-$HOME/.local/share}/KyklosLauncher/KyklosBridge/<version>"
+mkdir -p "$d" && cp <launcher-folder>/kyklos-bridge-linux-x64 "$d/" && chmod +x "$d/kyklos-bridge-linux-x64"
+sha256sum "$d/kyklos-bridge-linux-x64" | cut -d' ' -f1 | tr -d '\n' > "$d/kyklos-bridge-linux-x64.sha256"
+```
+
+If the Launcher settings set `Launcher:Bridge:CacheDirectory`, use that folder instead of the default above. **Check (at the first launch, step 10):** the launch log says the Bridge was started from the cache because the release could not be reached. **Expected:** the launch goes on and the Bridge answers. A message that the release manifest answered HTTP 404 is expected during early access.
+
+**The Bridge as a .NET tool (optional).** `DogmaSolutions.Kyklos.Bridge` on NuGet.org is public and needs no GitHub access: `dotnet tool install --global DogmaSolutions.Kyklos.Bridge`. The Launcher does not use it; it is for running the Bridge by hand.
+
+---
+
 ## Step 1: collect the decisions (🛑 STOP)
 
 **Ask the person** for the values below, and explain that you need them to fill in the configuration. None of them is a secret.
@@ -186,6 +239,8 @@ git -C <workspace-folder>\Repo remote -v
 ---
 
 ## Step 5: download and check the Launcher
+
+> **Early access:** while the repository is private, the plain downloads below answer 404. Download with `gh` as described in [Early access](#early-access-the-repository-is-private-do-this-first), then run the checks below on the downloaded files.
 
 ### 🪟 Windows
 
