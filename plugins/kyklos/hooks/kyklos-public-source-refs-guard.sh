@@ -136,12 +136,23 @@ fi
                 hit="(cannot check: ${_perr:-the organisation patterns are misconfigured}; fix AUDIENCE_LINT_ORG_PATTERNS or AUDIENCE_LINT_ORG_PATTERNS_FILE, or the tool it names)"
             fi
         fi
+        # The generic patterns judge the text with its version values masked, as the docs lint does (one mask): a
+        # version number such as an assembly's file version is never read as a private address.
+        _pmasked="$newtext"
+        if [ "${#_pgen[@]}" -gt 0 ]; then
+            # shellcheck source=SCRIPTDIR/../skills/update-docs/audience-lint-version-mask.sh
+            if . "$_pdir/audience-lint-version-mask.sh" 2>/dev/null; then
+                _pmasked="$(printf '%s' "$newtext" | al_mask_versions)"
+            else
+                hit="(cannot check: the version mask of the generic patterns did not load; reinstall the plugin)"
+            fi
+        fi
         for _pl in ${_pgen[@]+"${_pgen[@]}"}; do
             [ -z "$hit" ] || break
             _pl="${_pl%$'\r'}"
             case "$_pl" in ''|'#'*) continue ;; esac
-            if printf '%s' "$newtext" | grep -cE -- "$_pl" 2>/dev/null >/dev/null; then
-                hit="generic marker: $(printf '%s' "$newtext" | grep -oE -- "$_pl" 2>/dev/null | sort -u | head -3 | tr '\n' ' ' | sed 's/ $//')"
+            if printf '%s' "$_pmasked" | grep -cE -- "$_pl" 2>/dev/null >/dev/null; then
+                hit="generic marker: $(printf '%s' "$_pmasked" | grep -oE -- "$_pl" 2>/dev/null | sort -u | head -3 | tr '\n' ' ' | sed 's/ $//')"
             fi
         done
         # The organisation half is matched by the loader, plain and sealed entries alike, each in its own case mode.

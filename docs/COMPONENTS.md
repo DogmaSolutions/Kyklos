@@ -26,7 +26,7 @@ Specifically, the actions and roles of the three components are these:
 where it is checked, logged and attributed. Logic lives once, in the `Kyklos Bridge`. The Plugin only guides the agent there and makes sure the `Kyklos Bridge` is used.
 
 All components are available in the Kyklos marketplace, published in the [Kyklos GitHub repository](https://github.com/DogmaSolutions/Kyklos).  
-Through [Docker Desktop](https://www.docker.com/products/docker-desktop/), the `Kyklos Launcher` builds a container and injects into it, from the marketplace, the `Kyklos Plugin` and the `Kyklos Bridge`.
+Through [Docker Desktop](https://www.docker.com/products/docker-desktop/), the `Kyklos Launcher` builds a container and injects into it, from the marketplace, the `Kyklos Plugin` and the `Kyklos Bridge`. Without the Launcher, the same three steps are done by hand: see [Wiring a project by hand](INSTALL_AND_CONFIG.md#wiring-a-project-by-hand-without-the-launcher) (the Plugin installs with `claude plugin marketplace add https://github.com/DogmaSolutions/Kyklos.git`, then `claude plugin install kyklos@dogmasolutions`).
 
 <p align="center">
 <img src="../assets/workflow/AI-Driven_development_009.png" alt="The Launcher builds the container and injects the Plugin and the Bridge" width="800"/>

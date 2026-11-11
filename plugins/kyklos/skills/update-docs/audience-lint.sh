@@ -89,6 +89,10 @@ fi
 AL_CASE=(-i)
 [ "${AUDIENCE_LINT_CASE_SENSITIVE:-0}" = "1" ] && AL_CASE=()
 
+# The version values are masked before matching (one mask for the engine and the write guard).
+# shellcheck source=SCRIPTDIR/audience-lint-version-mask.sh
+. "$AL_DIR/audience-lint-version-mask.sh" || { echo "audience-lint: the version mask did not load" >&2; exit 2; }
+
 # al_allowed FILE HITLINE -> 0 when an allow-list entry covers this hit.
 al_allowed() {
   local i
@@ -142,7 +146,7 @@ for f in "$@"; do
     done < <(al_org_scan "$f" "$AL_ORG_ENTRIES" | sort -t$'\t' -k1,1n -u)
   fi
   for i in "${!PATTERNS[@]}"; do
-    if grep -nE ${AL_CASE[@]+"${AL_CASE[@]}"} -- "${PATTERNS[$i]}" "$f" >"$HIT" 2>/dev/null; then
+    if al_mask_versions "$f" | grep -nE ${AL_CASE[@]+"${AL_CASE[@]}"} -- "${PATTERNS[$i]}" >"$HIT" 2>/dev/null; then
       while IFS= read -r hit; do
         al_allowed "$f" "$hit" && continue
         echo "LEAK  $f: internal marker [${LABELS[$i]}] -> $hit"

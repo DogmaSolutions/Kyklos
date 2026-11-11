@@ -1,6 +1,6 @@
 # Installing and configuring Kyklos on Windows
 
-> **Early access (the repository is private).** Only invited GitHub accounts can reach `DogmaSolutions/Kyklos` for now, so anonymous downloads answer 404. Before the steps below, follow [Early access: the repository is private](AGENT_INSTALL.md#early-access-the-repository-is-private-do-this-first): sign in with the GitHub CLI, download the release files with `gh`, put the Bridge in the Launcher's cache folder, and give the plugin install a read-only GitHub token (`Marketplace:TokenName`).
+> **Early access (the repository is private).** Only invited GitHub accounts can reach `DogmaSolutions/Kyklos` for now, so anonymous downloads answer 404. Before the steps below, follow [Early access: the repository is private](AGENT_INSTALL.md#early-access-the-repository-is-private-do-this-first): sign in with the GitHub CLI, download the release files with `gh`, and give the Launcher a read-only GitHub token for the plugin install (`Marketplace:TokenName`) and the Bridge download (`Launcher:Bridge:ReleaseTokenName`); putting the Bridge in the Launcher's cache folder by hand is the fallback when the release token is not set.
 
 [← Back to the README](../README.md)
 
@@ -14,6 +14,7 @@ Kyklos is young. Today it works with one stack, and it is proven mainly on one p
 - **Issue tracker and CI:** [GitLab](https://about.gitlab.com/) (GitLab.com or self-managed, Community Edition included). A standalone or offline project can keep its stories in plain files instead (see [Storages](STORAGES.md)); the CI features then stay off.
 - **Projects the Bridge builds and tests on the host:** .NET (the .NET SDK on the host).
 - **Host operating system:** Windows is the primary platform. Linux support is in development. macOS is not supported.
+- **Agent conversation language:** English. The engineering policy, the skills and the messages of the hooks and the Bridge are written in English, and two guards read the agent's English wording: the stop guard (a turn that ends with a question counts as waiting for you in any language, but its check that refuses "which one next?" or "should I continue?" questions knows only English phrasing) and the guard on questions the agent asks through Claude Code's question tool. Stories and the Proof Table keep fixed English headings and field names, which the tools write and read; what you write under them may be in any language. Everything the other guards check (commands, files, branch names, commit messages beyond their fixed type words such as `feat` or `fix`, tool calls) works whatever language you and the agent speak.
 
 The table shows each component and its main features per host operating system. ✅ supported · 🚧 in development (it may already be in the release, but it is not yet proven to the same standard as Windows) · ❌ not supported. Where a feature works differently on a platform, the cell says how.
 
@@ -129,6 +130,8 @@ Install, in this order:
 6. **[PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-windows)** (recommended; the Launcher falls back to Windows PowerShell for the few steps that need a script).
 7. A **Claude Code** subscription or API account: the agent inside the container signs in to it the first time it starts (see the [Claude Code documentation](https://code.claude.com/docs)).
 
+To check them all at once, run the commands of [Step 2 of the agent procedure](AGENT_INSTALL.md#step-2-check-the-prerequisites), which also says what each one must print.
+
 ### 2.2 The local clone
 
 The companion is the working folder; the source is cloned inside it, as its own repository, in a folder named `Repo`:
@@ -137,7 +140,7 @@ The companion is the working folder; the source is cloned inside it, as its own 
 cd C:\work
 git clone https://gitlab.example.com/hello/hello-world-companion.git
 cd hello-world-companion
-git clone https://gitlab.example.com/hello/hello-world.git Repo
+git clone https://gitlab.example.com/hello/hello-world-sources.git Repo
 ```
 
 Add one line to the companion's `.gitignore`, so the source is never committed into the companion:
@@ -226,6 +229,8 @@ The Launcher reads a few values that describe where your Kyklos components come 
 | `Bridge:PackageProjectId` | the number of the project whose package registry publishes the `Kyklos Bridge` |
 | `Bridge:TokenName` | the name of the token that reads that package registry (the distribution read token) |
 
+**A private release repository (early access).** While the GitHub repository is private, the anonymous download answers 404, and the Launcher's message names the setting that fixes it. Instead of putting the Bridge in the Launcher's cache folder by hand, set `"ReleaseTokenName": "KYKLOS_MARKETPLACE_TOKEN"` in the `Bridge` section: the name of the same read-only GitHub token the plugin install uses (*Contents: Read-only* on the `Kyklos` repository), stored in the credential store under that name (step 2.7). The Launcher then reads the release through GitHub's release API with that token, sends it only to the API and never to the storage address a download is redirected to, and checks the Bridge against the release checksums as before. Remove the setting once the repository is public.
+
 The normal route is the one above: the Launcher downloads the Bridge from the [Kyklos releases page](https://github.com/DogmaSolutions/Kyklos/releases), checks it against the release checksums and starts it for you. The same page carries Bridge builds for Windows, Linux and macOS (Apple silicon). Of these, only the Windows Bridge program and the Windows Launcher program inside `kyklos-launcher-win-x64.zip` carry a code signature from Dogma Solutions; the Linux and macOS builds and the Linux Launcher are not signed, so check them against `SHA256SUMS.txt` on the same page.
 
 Write the two paths as **absolute** paths (in JSON, every `\` is written `\\`). A relative path is never read from the folder you start the Launcher in: a relative `Projects:SettingsRoot` is read from the Launcher's own folder, and a relative `Projects:PolicyOrganisationLayer` from the settings root (or from the Launcher's own folder when no settings root is set). An absolute path leaves no doubt. A path written for Windows (with a drive letter, or a `\\server\share` path) is taken as it is written on every operating system: on a Linux or macOS host it is never joined under another folder, so such a file is reported as missing, naming the path exactly as you wrote it.
@@ -244,7 +249,62 @@ Or run it without installing, with the .NET 10 `dnx` command:
 dnx DogmaSolutions.Kyklos.Bridge --port <port> --solution <solution>
 ```
 
-The Launcher does not need this package: it keeps taking the Bridge from the public release. Use the package to run the Bridge yourself, for example on a machine where you wire a project by hand (see the [components](COMPONENTS.md)).
+`kyklos-bridge --help` lists the commands the tool understands, and `kyklos-bridge --version` prints its version.
+
+The Launcher does not need this package: it keeps taking the Bridge from the public release. Use the package to run the Bridge yourself, for example on a machine where you wire a project by hand (see [Wiring a project by hand](#wiring-a-project-by-hand-without-the-launcher) below).
+
+#### Wiring a project by hand, without the Launcher
+
+At every launch the Launcher starts the project's `Kyklos Bridge`, installs the `Kyklos Plugin` in the agent's session and connects the two. Do these steps yourself only where you run the agent without the Launcher. `5180` below stands for the port you choose for the project's Bridge.
+
+1. **Start the Bridge** for the project's solution (installed as above, or with `dnx`):
+
+   ```bash
+   kyklos-bridge --port 5180 --solution <solution>
+   ```
+
+   To protect the verbs that act with your credentials, give the Bridge a shared secret in the variable `KYKLOS_BRIDGE_AUTH_TOKEN` of its environment, read from your credential store when you start it, never written into a file. Without it, the verbs that act with a host credential (secrets, CI, issue tracker, stories) are refused. When Docker is not running or cannot be read by your user, the Bridge listens on loopback only and says so in a warning; set `KYKLOS_BRIDGE_BIND` to choose the address yourself.
+
+2. **Check that the Bridge answers.** The agent's session talks to the Bridge with [MCP](https://modelcontextprotocol.io/) requests posted to `/mcp`; a plain `GET` of `/` or `/mcp` is refused. Send it the MCP `initialize` request, which needs no secret:
+
+   ```bash
+   curl -s -X POST http://127.0.0.1:5180/mcp -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
+   ```
+
+   On Windows, in PowerShell:
+
+   ```powershell
+   (Invoke-RestMethod -Method Post -Uri http://127.0.0.1:5180/mcp -ContentType 'application/json' -Body '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}').result.serverInfo
+   ```
+
+   **Expected:** an answer whose `result.serverInfo` holds the name `KyklosBridge` and the version (`"serverInfo":{"name":"KyklosBridge","version":"<version>"}` in the `curl` output), where `<version>` is the Bridge's version (`dotnet tool list --global` shows the installed one). A shorter check of the same Bridge is `curl -s http://127.0.0.1:5180/api/status`, which answers one line starting with `KyklosBridge on :5180 (v<version>)` and naming the solution. No answer at all means no Bridge listens on that port: read the Bridge's console output.
+
+3. **Install the Plugin** in Claude Code, where the agent runs (inside its container, or on the machine itself):
+
+   ```bash
+   claude plugin marketplace add https://github.com/DogmaSolutions/Kyklos.git
+   claude plugin install kyklos@dogmasolutions
+   ```
+
+   During early access the repository is private, so the clone needs your invited GitHub account: where the agent runs, sign in with `gh auth login` and let git use that login with `gh auth setup-git` before the two commands (see [Early access](AGENT_INSTALL.md#early-access-the-repository-is-private-do-this-first)).
+
+   `dogmasolutions` is the marketplace's name and `kyklos` the plugin's, as the marketplace's `.claude-plugin/marketplace.json` declares them. **Check:** `claude plugin list`. **Expected:** the entry `kyklos@dogmasolutions` with `Status: ✔ enabled`. A later release is taken with `claude plugin marketplace update dogmasolutions`, then a new session.
+
+4. **Connect the session to the Bridge.** Put this `.mcp.json` at the root of the workspace the agent opens (from inside a container, the host is `host.docker.internal`; on the machine itself, use `127.0.0.1`):
+
+   ```json
+   {
+     "mcpServers": {
+       "KyklosBridge": {
+         "type": "http",
+         "url": "http://host.docker.internal:5180/mcp",
+         "headers": { "X-Bridge-Auth": "${KYKLOS_BRIDGE_AUTH_TOKEN}" }
+       }
+     }
+   }
+   ```
+
+   The server name must be exactly `KyklosBridge`: the Plugin's hooks and skills call its tools as `mcp__KyklosBridge__*`. Claude Code replaces `${KYKLOS_BRIDGE_AUTH_TOKEN}` with the value of that variable in the session's environment, so the secret is never written in the file; leave the `headers` line out when the Bridge runs without a secret. **Check:** in the session, `/mcp` lists `KyklosBridge` as connected.
 
 #### Encrypted and extra drives (Windows only)
 
@@ -354,6 +414,7 @@ Anything the agent may not do on its own (publishing outward, deleting shared th
 - **The workspace folder is refused:** create the folder (or clone the companion into it) before launching.
 - **The `Kyklos Plugin` is not installed in the session:** the container could not clone the marketplace. Check the marketplace address. For the public marketplace on GitHub, no token is needed: leave `Marketplace:TokenName` empty. For a preview marketplace on a GitLab server, check that `Marketplace:TokenName` names the token, that the token is stored under that name (the configuration check reports a token that is not) and that it can read the marketplace repository, and launch again.
 - **A push token is refused:** it has more than `write_repository`. Create a new one with that scope only.
+- **A Bridge started earlier cannot be replaced:** a Bridge that was started with an older credential refuses the Launcher's request to stop, so a new launch could not replace it. When you launch that same project yourself, the Launcher ends that one Bridge process, and only if it is the very process it recorded starting (same process id and same start time) and that process is the one that answered. The launch's answer says so. A test run in progress on that Bridge is lost when it is ended. Any other process, a reused process id, or a Bridge that refuses for another reason (for example because it is busy with a run while still accepting the Launcher's credential) is left alone.
 - **The container does not start:** check that Docker Desktop's engine is running, and that `devcontainer --version` works in a new terminal.
 - **The Launcher says a Bridge on the project's port did not answer its stop request:** to move a project to a newer Bridge or newer settings, the Launcher asks the Bridge that is already running to stop, using the project's current credential. A Bridge that was started with an older credential does not accept that request. The Launcher then leaves it running, does not start a second Bridge on the same port, and does not end the process itself, so the launch does not go on with the new Bridge. The message does not yet name the process; a later release will. Until then, end that Bridge yourself (in Task Manager, the `Kyklos Bridge` program that listens on the project's port) and press **Launch** again.
 - **The agent cannot reach GitLab:** check the story and CI tokens' expiry dates and scopes, then store the new values under the same names in the credential store; the next request picks them up.
