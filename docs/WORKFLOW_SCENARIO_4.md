@@ -29,7 +29,7 @@ So the source change goes through a person before the close:
 Until the person's push, the four remote rows of the source change stay open, and the agent records the story as waiting on that push instead of closing it. A push into a **public** source is
 refused, for every session, when anything it sends carries an AI or agent artifact.
 
-In the [*Private Sources + Public Artifacts* topology](TOPOLOGIES.md), the public repository is never pushed by hand and never holds stories: the private source follows scenario 1, 2 or 3, and the pipeline publishes
+In the [*Private Sources + Public Artifacts* topology](TOPOLOGIES.md), the public repository is never pushed by hand and never holds stories: the private source follows [scenario 1](WORKFLOW_SCENARIO_1.md), 2 or 3, and the pipeline publishes
 the artifact.  
 
 The diagram below is also available in [Yed GRAPHML format](../assets/workflow/AI-Driven_development_013-4-companion-person-push.graphml).  
@@ -37,6 +37,31 @@ The diagram below is also available in [Yed GRAPHML format](../assets/workflow/A
 <p align="center">
 <img src="../assets/workflow/AI-Driven_development_013-4-companion-person-push.png" alt="Closing flow: companion topology, the source is pushed by a person" width="800"/>
 </p>
+
+## How the checks work in this scenario
+
+```mermaid
+flowchart TD
+    S["Story in the companion"] --> C{"Commit in the nested source"}
+    C -->|"source read-only for the agent"| X1["Refused: the person commits there"]
+    C -->|"allowed"| T["Bridge builds and tests the source on the host"]
+    T --> P{"Push of the source"}
+    P -->|"agent may not push it"| H["A person pushes the source branch with its armed merge request"]
+    P -->|"public source carrying an agent artifact"| X2["Refused, for every session"]
+    H --> PL["Source pipeline green, GitLab merges"]
+    PL --> CL{"story close: deliverable in the source project merged, every Refs commit on its trunk, in the companion and the source"}
+    CL -->|"pass"| D["Closed"]
+    CL -->|"fail"| X3["Refused, findings listed"]
+```
+
+- **Files and resources.** The companion holds the backlog and the agent tooling; the nested source (`Repo/` by default) holds the code. Each rule judges the repository the command acts on:
+  a commit in `Repo/` is judged by the source's own settings, read from the companion's [`.claude/standards.env`](WORKFLOW.md#greppable-opt-out-switches).
+- **Secrets.** The companion push credential reaches only the companion; a source push credential exists only if the project gives one. The [Bridge](COMPONENTS.md#kyklos-bridge) reads both projects on GitLab with its own
+  tokens.
+- **Signatures.** The tokens record the tree they measured (the source, not the companion), and the close checks them against the host's copy of the source as merged.
+- **When the checks run.** At each write (no internal reference or agent file may enter a public source), each commit and push, and at the close.
+- **What a failure causes.** A commit left in the source checkout, or a source change not merged on the source's trunk, keeps the story open.
+- **Impact on the user.** The person commits or pushes in the source when the agent may not, and the story waits for them (it is recorded as blocked on the person).
 
 ## Related pages
 

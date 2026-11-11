@@ -7,7 +7,7 @@ projections of it, regenerated from it, never edited by hand.
 
 ## GitLab storage (the SSoT for team projects)
 
-A story is a [GitLab](https://about.gitlab.com/) [**issue**](https://docs.gitlab.com/ee/user/project/issues/), and an **epic** is a GitLab [**milestone**](https://docs.gitlab.com/ee/user/project/milestones/). Milestones are used instead of native epics because Kyklos aims to run a full-fledged Agile SSDLC workflow even in personal and non-enterprise environments, including GitLab Community Edition, where Agile constructs such as epics do not exist and must be mapped to milestones. The agent's behaviour and the story's lifecycle are driven by [**scoped labels**](https://docs.gitlab.com/ee/user/project/labels.html#scoped-labels), which only the story tool (a tool of the Bridge) may change (a hand edit
+A story is a [GitLab](https://about.gitlab.com/) [**issue**](https://docs.gitlab.com/ee/user/project/issues/), and an **[epic](AGILE.md)** is a GitLab [**milestone**](https://docs.gitlab.com/ee/user/project/milestones/). Milestones are used instead of native epics because Kyklos aims to run a full-fledged Agile SSDLC workflow even in personal and non-enterprise environments, including GitLab Community Edition, where Agile constructs such as epics do not exist and must be mapped to milestones. The agent's behaviour and the story's lifecycle are driven by [**scoped labels**](https://docs.gitlab.com/ee/user/project/labels.html#scoped-labels), which only the story tool (a tool of the [Bridge](COMPONENTS.md#kyklos-bridge)) may change (a hand edit
 of a status or phase label is refused, because each scope must hold exactly one value):
 
 | Label           | Values                                                                                  | What it drives                                                                                                               |
@@ -20,13 +20,41 @@ of a status or phase label is refused, because each scope must hold exactly one 
 | `ssdlc:phase::` | `Requirements`, `Design`, `Implementation`, `Testing`, `Deployment`, `Review`           | where the story is in the SSDLC; moving backwards needs a recorded reason, and a story nobody has started cannot pass Design |
 
 Phases advance on their own, by the Kyklos workflow rules, at lifecycle events: a commit on the story's branch moves the story to Implementation, a push to Testing, the close to Review. The story's specification lives in the issue
-description; proofs, reviews, coverage receipts and the risk register are posted as marked notes on the issue, where people can read them.
+description; proofs, reviews, [coverage receipts](PROOF_DIMENSION_TEST_DISCIPLINE.md#shell-scripts-the-token-and-the-coverage-receipt) and the [risk register](PROOF_DIMENSION_RISK_ASSESSMENT.md) are posted as marked notes on the issue, where people can read them.
 
 ### Adoption of existing issues
 
 Only issues carrying the `story` label are treated as SSDLC stories. When Kyklos finds one while looking for work, it *adopts* it: among other operations, it formats the content with the story templates and expectations of Kyklos, and ensures that a `kind::` label exists, assuming `development` when there is none.
 
-An issue without the `story` label is not adopted: it is not treated as a story, it is not expected to have a `kind::` label, and Kyklos ignores it, unless a person triggers its adoption explicitly with the corresponding skill or by asking the agent.
+An issue without the `story` label is not adopted: it is not treated as a story, it is not expected to have a `kind::` label, and Kyklos ignores it, unless a person triggers its adoption explicitly with the corresponding [skill](HOOKS_AND_SKILLS.md#how-the-agent-knows-what-to-do-skills) or by asking the agent.
+
+### How writes to the GitLab storage are checked
+
+```mermaid
+flowchart TD
+    A["Agent: story, agent-msg or proof command"] --> B["Bridge verb, with the story token held on the host"]
+    R["Agent: raw curl, glab or script on the issues or milestones API"] --> G{"Rules before the command runs"}
+    G -->|"creates an issue"| X1["Refused, no override"]
+    G -->|"changes a story's lifecycle labels, a milestone, a proof note"| X2["Refused: use the tool, a one-shot marker exists for a genuine repair"]
+    B --> T{"Free text written by the agent?"}
+    T -->|"a line that is a GitLab quick action, for example /close"| X3["Refused, naming the line"]
+    T -->|"clean"| D["One GitLab writer in the Bridge"]
+    D --> GL["GitLab issue, labels, notes"]
+    GL --> RD["Reads come back in three states: open, closed, or unknown with its cause"]
+    RD --> M["Local mirror under Stories/ regenerated"]
+    E["Agent edits a mirror file by hand"] --> X4["Refused: mirror files are generated"]
+```
+
+- **One writer.** Every write to GitLab goes through one place in the [Bridge](COMPONENTS.md#kyklos-bridge), with typed operations, so a label, a state or a note is always written the same way. The agent's container has no
+  token that can call the GitLab API.
+- **Free text is checked per poster.** GitLab runs *quick actions*: a line that starts with `/` and a letter (for example `/close` or `/label`), outside a fenced code block, changes the issue when
+  the note is posted. Text the agent wrote (a message, a reply, a review report, a block reason, a story description) is refused when such a line is in it, naming the line, so the agent rewrites
+  it. Text the Bridge builds itself (receipts, proofs, signed records) is composed so that no line can start that way.
+- **Three-state reads.** A fact the Bridge reads (an issue's state, a story's status, a blocker) is open, closed, or **unknown**, with the field or the error that made it unknown; an unknown
+  fact is never read as "closed" or "done", and the gate that needs it refuses.
+- **The mirror.** The files under `Stories/` are projections, regenerated from GitLab; a hand edit is refused, and a backlog that disagrees with the stories stops the agent's turn.
+- **Impact on the user.** None: these refusals send the agent to the right tool. A genuine repair of a mirror file or a milestone uses the [one-shot markers](WORKFLOW.md#one-shot-override-markers) listed in
+  [Overrides](WORKFLOW.md#one-shot-override-markers).
 
 ## File-system storage (for standalone and offline use)
 
@@ -35,7 +63,7 @@ Each story is a folder; its `requirements.md` starts with a **header** that play
 | Header field | What it regulates                                                                                                                                                          |
 |------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `Status`     | the lifecycle state (`Todo`, `In-progress`, `Blocked`, `Parked`, `Done`): a story that is not started cannot leave Design, and a blocked story is not offered as next work |
-| `Story-Type` | a descriptive hint about the deliverable (library, service, CI, infrastructure, plugin, documentation, test); like `type::` on GitLab, it does not steer the workflow      |
+| `Story-Type` | a descriptive hint about the deliverable (library, service, CI, infrastructure, plugin, documentation, test); like [`type::`](#gitlab-storage-the-ssot-for-team-projects) on GitLab, it does not steer the workflow      |
 | `Epic`       | the [epic](AGILE.md) the story belongs to; it groups the story in `BACKLOG.md`                                                                                             |
 | `Branch`     | the story's own branch; the guards use it to tie commits, pushes and the close to the story                                                                                |
 | `Summary`    | the one-line description shown in the backlog                                                                                                                              |
@@ -99,5 +127,5 @@ Stories/
     └── …
 ```
 
-Every story, in either storage (see also [Project topologies](TOPOLOGIES.md)), must contain seven items before it can progress: requirements, use cases to test, failure modes, fail-open versus fail-hard decisions, poka-yoke, acceptance criteria
+Every story, in either storage (see also [Project topologies](TOPOLOGIES.md)), must contain seven items before it can progress: requirements, use cases to test, failure modes, fail-open versus fail-hard decisions, [poka-yoke](PROOF_DIMENSION_POKA_YOKE.md), acceptance criteria
 (Given/When/Then) and a risk assessment. A tool checks them mechanically.

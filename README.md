@@ -40,6 +40,22 @@ The primary purpose of **Kyklos** is to make the agent stick to the steps and pr
 7. **The human decides what matters.** Kyklos keeps a short, explicit list of actions that always stop for a person: publishing outward, deleting shared things, introducing a new blocking gate.
    Everything else, the agent drives on its own, within the rules.
 
+### How "proven, not asserted" works
+
+```mermaid
+flowchart LR
+    W["Agent's work"] --> T["A tool measures it on the host: tests and coverage, duplication scan, documentation pass, adversarial review"]
+    T --> S["The Kyklos Bridge signs the result with a key only it holds"]
+    S --> N["Token and report attached to the story"]
+    N --> C{"At the close: token re-computed over the current files, change merged on the remote?"}
+    C -->|"yes"| D["Story closed"]
+    C -->|"no"| X["Close refused, reasons listed"]
+```
+
+Each token is a keyed hash (HMAC-SHA256) of what the tool measured, made with a key kept in the operating system's credential store and given only to the [Bridge](docs/COMPONENTS.md#kyklos-bridge), so the agent cannot produce
+one by hand, and a file changed after its measurement no longer matches. The rules of the close are in [the workflow](docs/WORKFLOW.md), the rows in [the Proof Table](docs/PROOF.md), and the rare
+exceptions a person may grant in [Overrides](docs/WORKFLOW.md#overrides).
+
 ## 🎯 Who it is for
 
 - **Tech leads and developers** who want AI agents in their teams without lowering the bar, and who need evidence they can audit rather than a promise.
@@ -54,7 +70,7 @@ Many countries are introducing laws that require software makers to follow best 
 A secure development lifecycle is the first step towards meeting them, and the foundation that keeps a team compliant over time.
 
 For example, the EU requires the adoption of these practices, to varying degrees, through the [**Cyber
-Resilience Act**](https://eur-lex.europa.eu/eli/reg/2024/2847/oj) (EU Regulation 2024/2847), the **NIS2** (EU Directive 2022/2555) and the [**Machinery Regulation**](https://eur-lex.europa.eu/eli/reg/2023/1230/oj) (EU 2023/1230). The [Knowledge base](docs/KB.md) links the original texts.
+Resilience Act**](https://eur-lex.europa.eu/eli/reg/2024/2847/oj) (EU Regulation 2024/2847), the **[NIS2](docs/KB.md#standards-catalogues-and-references)** (EU Directive 2022/2555) and the [**Machinery Regulation**](https://eur-lex.europa.eu/eli/reg/2023/1230/oj) (EU 2023/1230). The [Knowledge base](docs/KB.md) links the original texts.
 
 <p align="center">
 <img src="assets/workflow/AI-Driven_development_000.png" alt="Overview of the AI-driven development workflow" width="900"/>
@@ -93,15 +109,16 @@ The following sections illustrate how *Kyklos* works and how it helps to keep th
 14. [Manually install and configure Kyklos on Windows](docs/INSTALL_AND_CONFIG.md)
 15. [Installing Kyklos with an agent: step-by-step instructions an agent can follow](docs/AGENT_INSTALL.md)
 16. [Knowledge base](docs/KB.md)
+17. [Supported languages and tools: programming languages, test frameworks, measuring tools and human languages](docs/SUPPORT_MATRIX.md)
 
 
 ## 🚀 Get Started
 
 To get started, follow [Installing and configuring Kyklos on Windows](docs/INSTALL_AND_CONFIG.md): a roadmap from zero to a working agent on a "Hello World" .NET project in GitLab.
 
-Which platforms and features are supported today (Windows, Linux, macOS) is in [Current scope](docs/INSTALL_AND_CONFIG.md#current-scope). The three parts you install, the [Launcher, the Bridge and the Plugin](docs/COMPONENTS.md), keep [secrets](docs/SECRETS.md) out of the agent's hands and enforce the [workflow](docs/WORKFLOW.md) through [proofs](docs/PROOF.md) and [adversarial reviews](docs/ADVERSARIAL_REVIEW.md).
+Which platforms and features are supported today (Windows, Linux, macOS) is in [Current scope](docs/INSTALL_AND_CONFIG.md#current-scope). Every check works for C# on .NET; bash scripts get line coverage; code in other languages is not measured; the agent's instructions and Kyklos's messages are in English. Which programming languages, test frameworks, measuring tools and human languages each check supports is in [Supported languages and tools](docs/SUPPORT_MATRIX.md). The three parts you install, the [Launcher, the Bridge and the Plugin](docs/COMPONENTS.md), keep [secrets](docs/SECRETS.md) out of the agent's hands and enforce the [workflow](docs/WORKFLOW.md) through [proofs](docs/PROOF.md) and [adversarial reviews](docs/ADVERSARIAL_REVIEW.md).
 
-To run without the Launcher (you start the Bridge, install the Plugin in Claude Code and connect the two yourself), see [Wiring a project by hand](docs/INSTALL_AND_CONFIG.md#wiring-a-project-by-hand-without-the-launcher); the Plugin itself installs with:
+To run without the [Launcher](docs/COMPONENTS.md#kyklos-launcher) (you start the [Bridge](docs/COMPONENTS.md#kyklos-bridge), install the [Plugin](docs/COMPONENTS.md#kyklos-plugin) in Claude Code and connect the two yourself), see [Wiring a project by hand](docs/INSTALL_AND_CONFIG.md#wiring-a-project-by-hand-without-the-launcher); the Plugin itself installs with:
 
 ```bash
 claude plugin marketplace add https://github.com/DogmaSolutions/Kyklos.git

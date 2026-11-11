@@ -1,6 +1,6 @@
 # Installing and configuring Kyklos on Windows
 
-> **Early access (the repository is private).** Only invited GitHub accounts can reach `DogmaSolutions/Kyklos` for now, so anonymous downloads answer 404. Before the steps below, follow [Early access: the repository is private](AGENT_INSTALL.md#early-access-the-repository-is-private-do-this-first): sign in with the GitHub CLI, download the release files with `gh`, and give the Launcher a read-only GitHub token for the plugin install (`Marketplace:TokenName`) and the Bridge download (`Launcher:Bridge:ReleaseTokenName`); putting the Bridge in the Launcher's cache folder by hand is the fallback when the release token is not set.
+> **Early access (the repository is private).** Only invited GitHub accounts can reach `DogmaSolutions/Kyklos` for now, so anonymous downloads answer 404. Before the steps below, follow [Early access: the repository is private](AGENT_INSTALL.md#early-access-the-repository-is-private-do-this-first): sign in with the GitHub CLI, download the release files with `gh`, and give the [Launcher](COMPONENTS.md#kyklos-launcher) a read-only GitHub token for the plugin install ([`Marketplace:TokenName`](#25-the-organisation-settings)) and the [Bridge](COMPONENTS.md#kyklos-bridge) download (`Launcher:Bridge:ReleaseTokenName`); putting the Bridge in the Launcher's cache folder by hand is the fallback when the release token is not set.
 
 [← Back to the README](../README.md)
 
@@ -12,29 +12,30 @@ Kyklos is young. Today it works with one stack, and it is proven mainly on one p
 
 - **AI agent:** [Claude Code](https://code.claude.com/docs).
 - **Issue tracker and CI:** [GitLab](https://about.gitlab.com/) (GitLab.com or self-managed, Community Edition included). A standalone or offline project can keep its stories in plain files instead (see [Storages](STORAGES.md)); the CI features then stay off.
-- **Projects the Bridge builds and tests on the host:** .NET (the .NET SDK on the host).
+- **Projects the [Bridge](COMPONENTS.md#kyklos-bridge) builds and tests on the host:** .NET (the .NET SDK on the host).
 - **Host operating system:** Windows is the primary platform. Linux support is in development. macOS is not supported.
-- **Agent conversation language:** English. The engineering policy, the skills and the messages of the hooks and the Bridge are written in English, and two guards read the agent's English wording: the stop guard (a turn that ends with a question counts as waiting for you in any language, but its check that refuses "which one next?" or "should I continue?" questions knows only English phrasing) and the guard on questions the agent asks through Claude Code's question tool. Stories and the Proof Table keep fixed English headings and field names, which the tools write and read; what you write under them may be in any language. Everything the other guards check (commands, files, branch names, commit messages beyond their fixed type words such as `feat` or `fix`, tool calls) works whatever language you and the agent speak.
+- **Programming languages:** C# on .NET gets every check: builds and tests on the host (NUnit, xUnit or MSTest), line coverage (coverlet or Microsoft's code-coverage extension), the CRAP score and mutation testing (Stryker.NET). Bash scripts get line coverage (bashcov, in the agent's container) and the script formal check, which also covers PowerShell and batch files. Other languages, F# and Visual Basic included, get only the checks that do not depend on the language, and their code is not measured. The full list per check is in [Supported languages and tools](SUPPORT_MATRIX.md).
+- **Human languages:** English. The engineering policy, the [skills](HOOKS_AND_SKILLS.md#how-the-agent-knows-what-to-do-skills) and the messages of the [hooks](HOOKS_AND_SKILLS.md#how-a-hook-decides-one-hook-per-event-every-rule-in-the-bridge), the Bridge and the Launcher are in English, and the two rules that read the agent's own words (the stop rule and the rule on questions the agent asks you) match English phrasing only. Stories and the [Proof Table](PROOF.md#the-proof-table-1) keep fixed English headings and words; what you write under them, and everything the other rules check (commands, files, branch names, commit messages beyond their fixed type words such as `feat` or `fix`), may be in any language. Details in [Supported languages and tools](SUPPORT_MATRIX.md#human-languages).
 
 The table shows each component and its main features per host operating system. ✅ supported · 🚧 in development (it may already be in the release, but it is not yet proven to the same standard as Windows) · ❌ not supported. Where a feature works differently on a platform, the cell says how.
 
 | Component | Feature | Windows | Linux (x86-64) | macOS |
 |-----------|---------|---------|----------------|-------|
-| **🚀 Launcher** | Runs, with its control panel in the browser | ✅ (signed program) | 🚧 a bundle is released, best effort, not signed (check it against `SHA256SUMS.txt`) | ❌ no build |
+| **🚀 [Launcher](COMPONENTS.md#kyklos-launcher)** | Runs, with its control panel in the browser | ✅ (signed program) | 🚧 a bundle is released, best effort, not signed (check it against `SHA256SUMS.txt`) | ❌ no build |
 | | Container engine | Docker Desktop (WSL 2 backend) | 🚧 Docker Engine 20.10 or later, no Docker Desktop needed | ❌ |
 | | Credential store for tokens and for the control-panel login | Windows Credential Manager | 🚧 a self-hosted secrets server or an encrypted file vault, named in the Launcher's settings (see step 2.7 below); the process environment is read only when neither is configured, and then the login cannot be set up | ❌ |
-| | One isolated development container per project, with the `Kyklos Plugin` and the wiring to the `Kyklos Bridge` | ✅ | 🚧 (the container reaches the Bridge through Docker's host gateway) | ❌ |
+| | One isolated development container per project, with the [`Kyklos Plugin`](COMPONENTS.md#kyklos-plugin) and the wiring to the `Kyklos Bridge` | ✅ | 🚧 (the container reaches the Bridge through Docker's host gateway) | ❌ |
 | | Checks a configuration before launch (settings, folders, tokens' scopes, reviewed Bridge settings) | ✅ | 🚧 | ❌ |
-| | Downloads the `Kyklos Bridge` and checks it | ✅ checksum and code signature | 🚧 checksum only | ❌ |
+| | Downloads the `Kyklos Bridge` and checks it | ✅ checksum; the code signature too when [`Launcher:Bridge:RequireAuthenticode`](WORKFLOW.md#launcher-opt-outs) is on (off by default) | 🚧 checksum only | ❌ |
 | | Opens the agent's session | ✅ in a new console window | 🚧 in the configured terminal, else the first of `x-terminal-emulator`, `gnome-terminal`, `konsole`, `xterm`; without a desktop session, the page shows the command to attach | ❌ |
 | | Unlocks BitLocker-encrypted drives a launch needs (workspace, extra mounts, drives you name) before the launch, then mounts them into Docker Desktop's virtual machine (see [Encrypted and extra drives](#encrypted-and-extra-drives-windows-only)) | ✅ you type the password in Windows' own elevated prompt | not applicable (skipped) | not applicable |
 | | PowerShell script fallbacks for the launch steps | ✅ | ❌ native steps only | ❌ |
 | **🔀 Bridge** | Real builds, tests and coverage on the host | ✅ | 🚧 runs, best effort | ❌ built, never run or tested |
-| | Proof tokens, Proof Table checks, coverage facts, story and epic actions | ✅ | 🚧 | ❌ built, never run or tested |
+| | Proof tokens, Proof Table checks, coverage facts, story and [epic](AGILE.md) actions | ✅ | 🚧 | ❌ built, never run or tested |
 | | Issue-tracker, merge-request and CI actions | ✅ GitLab | 🚧 GitLab | ❌ |
 | | Secret providers | Windows Credential Manager, a self-hosted secrets server, an encrypted file vault | 🚧 a self-hosted secrets server, an encrypted file vault | ❌ |
 | | Stops the processes it started when it ends | ✅ bound to the Bridge's lifetime (Windows job object) | 🚧 each run leads its own process group; leftovers of a killed Bridge are ended at its next start | ❌ |
-| | Builds documents and takes screenshots of a running app (`doc_build`, `host_app_screenshot`) | ✅ Microsoft Edge | 🚧 Microsoft Edge, Google Chrome or Chromium | ❌ |
+| | Builds documents and takes screenshots of a running app ([`doc_build`](PROOF_DIMENSION_DOCUMENTATION.md#manuals-built-by-the-bridge-the-doc_build-receipt), `host_app_screenshot`) | ✅ Microsoft Edge | 🚧 Microsoft Edge, Google Chrome or Chromium | ❌ |
 | | Installed by the Launcher from the Kyklos releases page | ✅ | 🚧 | ❌ |
 | | Installed as a .NET tool from NuGet.org (`DogmaSolutions.Kyklos.Bridge`, see [Getting the Bridge from NuGet.org](#getting-the-bridge-from-nugetorg)) | ✅ | ✅ (the Bridge itself is best effort on Linux) | ❌ the Bridge is not tested on macOS |
 | **🔌 Plugin** | Hooks and skills inside the agent's session | ✅ | 🚧 (follows the Launcher) | ❌ no Launcher |
@@ -50,9 +51,9 @@ The components are distributed through the Kyklos marketplace, published in the 
 
 ## About this guide
 
-This guide takes you from nothing to a working agent on a small "Hello World" .NET project kept in GitLab, with its CI. It is a roadmap, not a reference: it names every piece you need, in the order you need it, and says what each one is for. The settings themselves are explained where you set them (each field of the Launcher's configuration page carries its own description).
+This guide takes you from nothing to a working agent on a small "Hello World" .NET project kept in GitLab, with its CI. It is a roadmap, not a reference: it names every piece you need, in the order you need it, and says what each one is for. The settings themselves are explained where you set them (each field of the [Launcher](COMPONENTS.md#kyklos-launcher)'s configuration page carries its own description).
 
-The example project uses the **Private Companion + Public Sources** topology (see [Project topologies](TOPOLOGIES.md)): a private *companion* repository holds the agent's instructions and the backlog, and the public source repository is cloned inside it. It is the most complete set-up; the other topologies need a subset of the same steps.
+The example project uses the **[Private Companion + Public Sources](TOPOLOGIES.md#private-companion--public-sources)** topology (see [Project topologies](TOPOLOGIES.md)): a private *companion* repository holds the agent's instructions and the backlog, and the public source repository is cloned inside it. It is the most complete set-up; the other topologies need a subset of the same steps.
 
 Throughout the guide, `gitlab.example.com` stands for your GitLab address, `hello-world-sources` for the public source project and `hello-world-companion` for its private companion.
 
@@ -61,8 +62,8 @@ Throughout the guide, `gitlab.example.com` stands for your GitLab address, `hell
 | Where | What |
 |-------|------|
 | **In GitLab** | a group with two projects (the companion, private, and the source, public), the labels and first milestone the backlog uses, a few purpose-built access tokens, and a runner for the CI |
-| **On your Windows machine** | Docker Desktop, Git, the .NET SDK, the Dev Containers CLI, the `Kyklos Launcher` with your organisation's settings, a reviewed settings folder for the `Kyklos Bridge`, a local clone of the companion with the source nested inside it, and the tokens stored in the Windows Credential Manager |
-| **Running** | a development container with Claude Code and the `Kyklos Plugin`, connected to the `Kyklos Bridge` on the host, ready to take its first story |
+| **On your Windows machine** | Docker Desktop, Git, the .NET SDK, the Dev Containers CLI, the [`Kyklos Launcher`](COMPONENTS.md#kyklos-launcher) with your organisation's settings, a reviewed settings folder for the [`Kyklos Bridge`](COMPONENTS.md#kyklos-bridge), a local clone of the companion with the source nested inside it, and the tokens stored in the Windows Credential Manager |
+| **Running** | a development container with Claude Code and the [`Kyklos Plugin`](COMPONENTS.md#kyklos-plugin), connected to the `Kyklos Bridge` on the host, ready to take its first story |
 
 ---
 
@@ -70,7 +71,7 @@ Throughout the guide, `gitlab.example.com` stands for your GitLab address, `hell
 
 ### 1.1 The instance
 
-Any GitLab works: GitLab.com or a self-managed instance, Community Edition included (Kyklos uses milestones for epics so that no paid feature is needed; see [Storages](STORAGES.md)). You need an account that can create a group and projects, and that can create access tokens for them.
+Any GitLab works: GitLab.com or a self-managed instance, Community Edition included (Kyklos uses milestones for [epics](AGILE.md) so that no paid feature is needed; see [Storages](STORAGES.md)). You need an account that can create a group and projects, and that can create access tokens for them.
 
 ### 1.2 A group and two projects
 
@@ -83,30 +84,32 @@ Any GitLab works: GitLab.com or a self-managed instance, Community Edition inclu
 ### 1.3 The backlog: labels and the first epic
 
 The stories live in the companion's issues. Kyklos drives them with a small set of labels (see [Storages](STORAGES.md) for what each one does).  
-Create them in the group, so that both projects can use them. If you don't, *Kyklos Bridge* will progressively create them for you when they are needed. 
+Create them in the group, so that both projects can use them. If you don't, *[Kyklos Bridge](COMPONENTS.md#kyklos-bridge)* will progressively create them for you when they are needed. 
 
 | Label | Values to create |
 |-------|------------------|
 | `story` | (a single label) |
-| `kind::` | `kind::development`, `kind::analysis`, `kind::documentation`, `kind::ops` |
+| [`kind::`](STORAGES.md#gitlab-storage-the-ssot-for-team-projects) | `kind::development`, `kind::analysis`, `kind::documentation`, `kind::ops` |
 | `severity::` | `severity::critical`, `severity::high`, `severity::medium`, `severity::low` |
 | `status::` | `status::todo`, `status::doing`, `status::blocked-on-issue`, `status::blocked-on-user`, `status::blocked-on-external`, `status::parked` |
 | `ssdlc:phase::` | `ssdlc:phase::Requirements`, `ssdlc:phase::Design`, `ssdlc:phase::Implementation`, `ssdlc:phase::Testing`, `ssdlc:phase::Deployment`, `ssdlc:phase::Review` |
 | `type::` | for example `type::feat`, `type::fix`, `type::docs`, `type::ci` |
 
-Then create the first **epic**: a milestone in the companion project whose title starts with the letter `E` and a two-digit number, then a short name (for example "First steps"). Every story belongs to an epic.
+Then create the first **[epic](AGILE.md)**: a milestone in the companion project whose title starts with the letter `E` and a two-digit number, then a short name (for example "First steps"). Every story belongs to an epic.
 
 ### 1.4 The access tokens
 
-Kyklos splits credentials by purpose (see [Secrets](SECRETS.md)): the agent can push code, but anything that acts on GitLab goes through the `Kyklos Bridge`, which keeps those tokens on your machine and never hands them to the agent. Create these tokens (project or group access tokens work; give each an expiry date you will remember to renew):
+Kyklos splits credentials by purpose (see [Secrets](SECRETS.md)): the agent can push code, but anything that acts on GitLab goes through the [`Kyklos Bridge`](COMPONENTS.md#kyklos-bridge), which keeps those tokens on your machine and never hands them to the agent. Create these tokens (project or group access tokens work; give each an expiry date you will remember to renew):
 
 | Token | Created on | Scopes | What it is for |
 |-------|-----------|--------|----------------|
 | **Story token** | the companion project (or the group) | `api` | The Bridge reads and writes stories, notes, labels and milestones, and creates and arms merge requests. Stays on the host. |
 | **CI token** | the source project (or the group) | `read_api` (`api` if the agent should create and arm merge requests there) | The Bridge reads pipelines, jobs, logs and test reports of the source project. Stays on the host. |
-| **Source push token** | the source project | `write_repository` only | The agent pushes its story branches to the source repository. The Launcher refuses to start a project whose push token could also call the API. |
+| **Source push token** | the source project | `write_repository` only | The agent pushes its story branches to the source repository. The [Launcher](COMPONENTS.md#kyklos-launcher) refuses to start a project whose push token could also call the API. |
 | **Companion push token** | the companion project | `write_repository` only | The agent pushes its changes to the companion (instructions, settings, documents). |
-| **Distribution read token** | wherever the Kyklos components are published for you | `read_api`, `read_repository` | The Launcher downloads the `Kyklos Bridge`, and installs the `Kyklos Plugin` from a preview marketplace on a GitLab server. Not needed when they come from the public Kyklos repository: the public marketplace on GitHub is freely accessible, without a token. |
+| **Distribution read token** | wherever the Kyklos components are published for you | `read_api`, `read_repository` | The Launcher downloads the `Kyklos Bridge`, and installs the [`Kyklos Plugin`](COMPONENTS.md#kyklos-plugin) from a preview marketplace on a GitLab server. Not needed when they come from the public Kyklos repository: the public marketplace on GitHub is freely accessible, without a token. |
+
+How the Launcher checks each token at every launch, and where each one goes, is shown in [Secrets](SECRETS.md#how-the-secrets-travel-and-where-they-are-checked).
 
 Keep each value only until the next step, where it goes into your machine's credential store; you will not see it again in GitLab. Never put a token value in a file, a repository or a chat.
 
@@ -125,8 +128,8 @@ Install, in this order:
 1. **WSL 2** (Windows Subsystem for Linux), which Docker Desktop uses: in an administrator PowerShell, `wsl --install`, then restart.
 2. **[Docker Desktop](https://www.docker.com/products/docker-desktop/)**, with the WSL 2 backend. Start it once and wait until it reports that the engine is running.
 3. **[Git for Windows](https://git-scm.com/download/win)**.
-4. **The [.NET SDK](https://dotnet.microsoft.com/download)** your project targets. The `Kyklos Bridge` builds and tests your code on the host, so the SDK must be here, not only in the container.
-5. **[Node.js](https://nodejs.org/)** (the LTS version), then the **Dev Containers CLI**: `npm install -g @devcontainers/cli`. The Launcher uses it to build and start the development container.
+4. **The [.NET SDK](https://dotnet.microsoft.com/download)** your project targets. The [`Kyklos Bridge`](COMPONENTS.md#kyklos-bridge) builds and tests your code on the host, so the SDK must be here, not only in the container.
+5. **[Node.js](https://nodejs.org/)** (the LTS version), then the **Dev Containers CLI**: `npm install -g @devcontainers/cli`. The [Launcher](COMPONENTS.md#kyklos-launcher) uses it to build and start the development container.
 6. **[PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-windows)** (recommended; the Launcher falls back to Windows PowerShell for the few steps that need a script).
 7. A **Claude Code** subscription or API account: the agent inside the container signs in to it the first time it starts (see the [Claude Code documentation](https://code.claude.com/docs)).
 
@@ -192,11 +195,11 @@ Push the branch, open a merge request into `develop`, check that the pipeline is
 1. Download `kyklos-launcher-win-x64.zip` from the [Kyklos releases page](https://github.com/DogmaSolutions/Kyklos/releases/latest). To check the download, compare `Get-FileHash kyklos-launcher-win-x64.zip` with its line in `SHA256SUMS.txt` on the same page; the programs inside are signed by Dogma Solutions.
 2. The self-contained bundle needs nothing else installed (no .NET runtime): unzip it into an empty folder of its own, for example `C:\Tools\Kyklos`.
 
-Do not start it yet: it first needs your organisation's settings and a settings folder for the Bridge, the next two steps.
+Do not start it yet: it first needs your organisation's settings and a settings folder for the [Bridge](COMPONENTS.md#kyklos-bridge), the next two steps.
 
 ### 2.5 The organisation settings
 
-The Launcher reads a few values that describe where your Kyklos components come from. They are not secrets: addresses, a project number and the **names** under which the tokens are stored (step 2.7), never the token values. Put them in an `appsettings.json` in the Launcher's folder, next to the Launcher program (`DogmaSolutions.Kyklos.Launcher.exe` on Windows, `DogmaSolutions.Kyklos.Launcher` on Linux):
+The [Launcher](COMPONENTS.md#kyklos-launcher) reads a few values that describe where your Kyklos components come from. They are not secrets: addresses, a project number and the **names** under which the tokens are stored (step 2.7), never the token values. Put them in an `appsettings.json` in the Launcher's folder, next to the Launcher program (`DogmaSolutions.Kyklos.Launcher.exe` on Windows, `DogmaSolutions.Kyklos.Launcher` on Linux):
 
 ```json
 {
@@ -212,14 +215,14 @@ The Launcher reads a few values that describe where your Kyklos components come 
 }
 ```
 
-**The marketplace and its token.** Most users install the `Kyklos Plugin` from the public marketplace on GitHub, which is freely accessible without a token: set `Marketplace:RepositoryUrl` to its clone address and nothing else. Some users reach early previews through a preview marketplace on a GitLab server, which needs a token: also set `"TokenName": "KYKLOS_DISTRIBUTION_TOKEN"` in the `Marketplace` section, and store that token in the credential store (step 2.7) like any other secret. So the token is an explicit, optional setting that you apply only for the marketplace you use. The Launcher gives it to the plugin install inside the container only; you do not list it among a project's secrets.
+**The marketplace and its token.** Most users install the [`Kyklos Plugin`](COMPONENTS.md#kyklos-plugin) from the public marketplace on GitHub, which is freely accessible without a token: set `Marketplace:RepositoryUrl` to its clone address and nothing else. Some users reach early previews through a preview marketplace on a GitLab server, which needs a token: also set `"TokenName": "KYKLOS_DISTRIBUTION_TOKEN"` in the `Marketplace` section, and store that token in the credential store (step 2.7) like any other secret. So the token is an explicit, optional setting that you apply only for the marketplace you use. The Launcher gives it to the plugin install inside the container only; you do not list it among a project's secrets.
 
 | Setting | What it is |
 |---------|------------|
 | `Marketplace:RepositoryUrl` | the clone address of the marketplace the `Kyklos Plugin` is installed from |
 | `Marketplace:TokenName` | optional: the name of the token that clones a preview marketplace on a GitLab server (usually the distribution read token); leave it out for the public marketplace on GitHub |
 | `Projects:PolicyOrganisationLayer` | your organisation layer: the file that completes the generic engineering policy with your organisation's facts (start from the sample layer the marketplace ships, `dist/CLAUDE.org.sample.md`) |
-| `Projects:SettingsRoot` | the folder that holds each project's reviewed `Kyklos Bridge` settings (step 2.6) |
+| `Projects:SettingsRoot` | the folder that holds each project's reviewed [`Kyklos Bridge`](COMPONENTS.md#kyklos-bridge) settings (step 2.6) |
 
 **Where the `Kyklos Bridge` comes from.** The Launcher downloads it from the [Kyklos releases page](https://github.com/DogmaSolutions/Kyklos/releases), checks it against the checksum published with the release, and needs no token and no setting for it. `Bridge:ReleaseUrl` holds that address. To use a GitLab package registry instead (for early previews), set these three settings, and the Launcher reads that registry:
 
@@ -235,9 +238,36 @@ The normal route is the one above: the Launcher downloads the Bridge from the [K
 
 Write the two paths as **absolute** paths (in JSON, every `\` is written `\\`). A relative path is never read from the folder you start the Launcher in: a relative `Projects:SettingsRoot` is read from the Launcher's own folder, and a relative `Projects:PolicyOrganisationLayer` from the settings root (or from the Launcher's own folder when no settings root is set). An absolute path leaves no doubt. A path written for Windows (with a drive letter, or a `\\server\share` path) is taken as it is written on every operating system: on a Linux or macOS host it is never joined under another folder, so such a file is reported as missing, naming the path exactly as you wrote it.
 
+**How the Launcher checks the Bridge it starts.**
+
+```mermaid
+flowchart TD
+    S["Launch needs Bridge version V"] --> C{"Cached copy of V?"}
+    C -->|"yes"| H{"Its SHA-256 equals the published checksum?"}
+    H -->|"yes"| SIG
+    H -->|"no"| D
+    C -->|"no"| D["Download, hashing while it streams into a temporary file"]
+    D --> P{"Release publishes a checksum?"}
+    P -->|"no"| E{"Launcher:Bridge:AllowUnverifiedBinary on?"}
+    E -->|"no"| X1["Refused"]
+    E -->|"yes"| W["Kept, with a warning in the log"]
+    P -->|"yes"| Q{"Hash equals it?"}
+    Q -->|"no"| X2["Refused: the file is never moved into place"]
+    Q -->|"yes"| K["Moved into the cache, hash kept beside it"]
+    K --> SIG{"Launcher:Bridge:RequireAuthenticode on, on Windows?"}
+    W --> SIG
+    SIG -->|"yes, and the code signature is not valid"| X3["Refused"]
+    SIG -->|"no, or valid"| R["Bridge started"]
+```
+
+The release checksums are the `SHA256SUMS.txt` file of the release page; a launch that cannot reach the release page uses the cached copy only when its hash still equals the one recorded
+beside it. A truncated, changed or planted file is never run. The code signature check is an extra layer you switch on with [`Launcher:Bridge:RequireAuthenticode`](WORKFLOW.md#launcher-opt-outs) (off by default); with or
+without it, you can check the Windows program's signature yourself as [the agent install steps](AGENT_INSTALL.md) show. A refused Bridge means no launch: download the release again, or report a
+checksum that does not match. The verification lives in `launcher/src/KyklosLauncher/Bridge/BridgeBinaryCache.cs`.
+
 #### Getting the Bridge from NuGet.org
 
-The `Kyklos Bridge` is also published on NuGet.org as the .NET tool package `DogmaSolutions.Kyklos.Bridge` (command name `kyklos-bridge`), the same version as the public release. It needs the .NET 10 SDK, no feed and no token. NuGet.org signs every package it serves (check it with `dotnet nuget verify --all`), and the Bridge's own assemblies inside it carry Dogma Solutions' code signature.
+The [`Kyklos Bridge`](COMPONENTS.md#kyklos-bridge) is also published on NuGet.org as the .NET tool package `DogmaSolutions.Kyklos.Bridge` (command name `kyklos-bridge`), the same version as the public release. It needs the .NET 10 SDK, no feed and no token. NuGet.org signs every package it serves (check it with `dotnet nuget verify --all`), and the Bridge's own assemblies inside it carry Dogma Solutions' code signature.
 
 ```powershell
 dotnet tool install --global DogmaSolutions.Kyklos.Bridge
@@ -251,11 +281,11 @@ dnx DogmaSolutions.Kyklos.Bridge --port <port> --solution <solution>
 
 `kyklos-bridge --help` lists the commands the tool understands, and `kyklos-bridge --version` prints its version.
 
-The Launcher does not need this package: it keeps taking the Bridge from the public release. Use the package to run the Bridge yourself, for example on a machine where you wire a project by hand (see [Wiring a project by hand](#wiring-a-project-by-hand-without-the-launcher) below).
+The [Launcher](COMPONENTS.md#kyklos-launcher) does not need this package: it keeps taking the Bridge from the public release. Use the package to run the Bridge yourself, for example on a machine where you wire a project by hand (see [Wiring a project by hand](#wiring-a-project-by-hand-without-the-launcher) below).
 
 #### Wiring a project by hand, without the Launcher
 
-At every launch the Launcher starts the project's `Kyklos Bridge`, installs the `Kyklos Plugin` in the agent's session and connects the two. Do these steps yourself only where you run the agent without the Launcher. `5180` below stands for the port you choose for the project's Bridge.
+At every launch the [Launcher](COMPONENTS.md#kyklos-launcher) starts the project's [`Kyklos Bridge`](COMPONENTS.md#kyklos-bridge), installs the [`Kyklos Plugin`](COMPONENTS.md#kyklos-plugin) in the agent's session and connects the two. Do these steps yourself only where you run the agent without the Launcher. `5180` below stands for the port you choose for the project's Bridge.
 
 1. **Start the Bridge** for the project's solution (installed as above, or with `dnx`):
 
@@ -304,11 +334,11 @@ At every launch the Launcher starts the project's `Kyklos Bridge`, installs the 
    }
    ```
 
-   The server name must be exactly `KyklosBridge`: the Plugin's hooks and skills call its tools as `mcp__KyklosBridge__*`. Claude Code replaces `${KYKLOS_BRIDGE_AUTH_TOKEN}` with the value of that variable in the session's environment, so the secret is never written in the file; leave the `headers` line out when the Bridge runs without a secret. **Check:** in the session, `/mcp` lists `KyklosBridge` as connected.
+   The server name must be exactly `KyklosBridge`: the Plugin's [hooks](HOOKS_AND_SKILLS.md#how-a-hook-decides-one-hook-per-event-every-rule-in-the-bridge) and [skills](HOOKS_AND_SKILLS.md#how-the-agent-knows-what-to-do-skills) call its tools as `mcp__KyklosBridge__*`. Claude Code replaces `${KYKLOS_BRIDGE_AUTH_TOKEN}` with the value of that variable in the session's environment, so the secret is never written in the file; leave the `headers` line out when the Bridge runs without a secret. **Check:** in the session, `/mcp` lists `KyklosBridge` as connected.
 
 #### Encrypted and extra drives (Windows only)
 
-A launch needs every drive its container binds: the workspace drive, the drive of each extra mount, and any drive you list in `Launcher:Launch:AlwaysUnlockDrives`. On Windows, the Launcher prepares them before it starts anything, in two phases:
+A launch needs every drive its container binds: the workspace drive, the drive of each extra mount, and any drive you list in `Launcher:Launch:AlwaysUnlockDrives`. On Windows, the [Launcher](COMPONENTS.md#kyklos-launcher) prepares them before it starts anything, in two phases:
 
 1. **Unlock**, before Docker is checked, so that Docker Desktop's virtual machine starts with the drives open. A drive that is already open is left alone. A drive that is locked with BitLocker gets an unlock in Windows' own elevated prompt, where **you** type the BitLocker password: the Launcher never reads, stores or logs it. One drive at a time, up to `BitLockerUnlockAttempts` tries. The drive Windows runs from is never unlocked, because it is always open.
 2. **Mount**, after the Docker engine is up: each drive is mounted into Docker Desktop's virtual machine with writable file metadata, so that Git can change file modes. A failed mount is retried.
@@ -330,7 +360,7 @@ Then start the Launcher. It opens its control panel in your browser (it listens 
 
 ### 2.6 The Bridge settings, reviewed
 
-Each project's `Kyklos Bridge` runs with its own settings file. Because those settings decide what the agent may reach, the Launcher uses only a **reviewed** version: the file must be committed in a git repository, unchanged since that commit, and identical to the version on its remote branch. A file the agent could edit, or an edit nobody committed, is refused.
+Each project's [`Kyklos Bridge`](COMPONENTS.md#kyklos-bridge) runs with its own settings file. Because those settings decide what the agent may reach, the [Launcher](COMPONENTS.md#kyklos-launcher) uses only a **reviewed** version: the file must be committed in a git repository, unchanged since that commit, and identical to the version on its remote branch. A file the agent could edit, or an edit nobody committed, is refused.
 
 1. Create the settings root (`C:\KyklosSettings` above) as a git repository with a remote, for example a private project in your GitLab group. Keep it outside every project's workspace folder: the agent's container must not be able to write it.
 2. For each project, add the file `projects/<project name>/bridge.appsettings.json`, where `<project name>` is exactly the project name you give the configuration in step 2.8. The smallest file is:
@@ -340,6 +370,23 @@ Each project's `Kyklos Bridge` runs with its own settings file. Because those se
    ```
 
 3. Commit it and push it. After any later change, commit and push again before the next launch.
+
+How the Launcher checks the file at every launch:
+
+```mermaid
+flowchart TD
+    L["Launch of project N"] --> F{"projects/N/bridge.appsettings.json exists under the settings root?"}
+    F -->|"no"| X1["Refused: file missing, or its folder name differs from the project name"]
+    F -->|"yes"| O{"Outside the workspace and every extra mount the container can write?"}
+    O -->|"no"| X2["Refused"]
+    O -->|"yes"| T{"Tracked in git, unchanged since its commit, identical to its remote branch?"}
+    T -->|"no"| X3["Refused: commit and push it first"]
+    T -->|"yes"| B["Bridge started with exactly the reviewed settings"]
+```
+
+The settings decide what the agent may reach (its role, the projects it serves, the CI refs it may write), so only a version a person committed and pushed counts: an edit nobody committed, or a
+file the agent could write, is refused. The check needs `git` on the host; a missing `git` refuses too. The refusal names the file and what to do. The check lives in
+`launcher/src/KyklosLauncher/Bridge/BridgeSettingsGate.cs`.
 
 ### 2.7 The secrets
 
@@ -351,9 +398,9 @@ On the control panel's home page, use the **Credentials and tokens** section to 
 | `HELLO_CI_TOKEN` | the CI token |
 | `HELLO_SOURCE_PUSH_TOKEN` | the source push token |
 | `HELLO_COMPANION_PUSH_TOKEN` | the companion push token |
-| `KYKLOS_DISTRIBUTION_TOKEN` | the distribution read token, if you need one (a preview marketplace, or the `Kyklos Bridge` from a GitLab package registry) |
+| `KYKLOS_DISTRIBUTION_TOKEN` | the distribution read token, if you need one (a preview marketplace, or the [`Kyklos Bridge`](COMPONENTS.md#kyklos-bridge) from a GitLab package registry) |
 
-The configuration you create next, and the organisation settings of step 2.5, refer to these **names**, never to the values. The values stay in the credential store; the Launcher reads them at launch time and hands them only to the component that needs them.
+The configuration you create next, and the organisation settings of step 2.5, refer to these **names**, never to the values. The values stay in the credential store; the [Launcher](COMPONENTS.md#kyklos-launcher) reads them at launch time and hands them only to the component that needs them.
 
 **On Linux** there is no Windows Credential Manager: the same names are stored in OpenBao (`Launcher:Secrets:OpenBaoUrl`) or in the encrypted file vault (`Launcher:Secrets:VaultPath`), and the control panel says which one took each value. Once either is configured, they are the only places a secret is read from: a token that exists only in the Launcher's environment is reported as missing. That includes the registry token the Launcher itself uses to download the `Kyklos Bridge` (for example `KYKLOS_DISTRIBUTION_TOKEN`): with a vault or OpenBao configured, store it there too. The environment is read only on a host that configures neither.
 
@@ -361,16 +408,16 @@ The configuration you create next, and the organisation settings of step 2.5, re
 
 On the configurations page, create a configuration named `hello-world-sources`. The **Essentials** card lists every required setting; for this project, set:
 
-- the **project name** (`hello-world-sources`). It must match the folder name of step 2.6, and it also decides the port of the project's `Kyklos Bridge`. Two different names can lead to the same port; the Launcher then refuses the second project and names the first, and you rename one of them. When you leave it empty, the project takes the configuration's name;
+- the **project name** (`hello-world-sources`). It must match the folder name of step 2.6, and it also decides the port of the project's [`Kyklos Bridge`](COMPONENTS.md#kyklos-bridge). Two different names can lead to the same port; the [Launcher](COMPONENTS.md#kyklos-launcher) then refuses the second project and names the first, and you rename one of them. When you leave it empty, the project takes the configuration's name;
 - the **workspace folder** (`C:\work\hello-world-companion`). The folder must already exist: the Launcher does not create it;
 - the **GitLab address** (`https://gitlab.example.com`). It is needed because this project keeps its stories in GitLab and uses the Bridge's CI verbs. A project that keeps its stories in files (`STORY_BACKEND=filesystem`) and turns the CI verbs off (`KYKLOS_BRIDGE_CI_OFF_REASON` set to the reason, in the configuration or in the project's reviewed Bridge settings file) needs no GitLab address;
 - the **story storage** set to GitLab, with the **story project** being the companion project's number (shown on its GitLab home page), and the story token's name (`HELLO_STORY_TOKEN`);
 - the **source push repository** (the source project's clone address) with its push token's name, and the **companion push repository** with its push token's name;
 - the **repository shape**: a companion with the source in the folder `Repo`, the source following GitFlow;
 - the **CI project** (the source project's number) with the CI token's name: the project whose pipelines the plugin's CI gate watches after a push (`KYKLOS_CI_PROJECT_ID`, `KYKLOS_CI_TOKEN_ENV`). The `Kyklos Bridge`'s own CI verbs take their project and token from the story settings above (the story project and the story token's name), whatever the story storage, unless you turn them off with `KYKLOS_BRIDGE_CI_OFF_REASON`;
-- the **Kyklos Plugin** turned on (`KYKLOS=1`). It is installed from the marketplace of step 2.5; a project can use another one in the editor's **Plugin marketplace** section (`KYKLOS_MARKETPLACE_URL`, and `KYKLOS_MARKETPLACE_TOKEN_NAME` for a preview marketplace that needs a token). The marketplace token is not one of the project's secrets: do not add it to `KYKLOS_SECRETS`.
+- the **[Kyklos Plugin](COMPONENTS.md#kyklos-plugin)** turned on (`KYKLOS=1`). It is installed from the marketplace of step 2.5; a project can use another one in the editor's **Plugin marketplace** section (`KYKLOS_MARKETPLACE_URL`, and `KYKLOS_MARKETPLACE_TOKEN_NAME` for a preview marketplace that needs a token). The marketplace token is not one of the project's secrets: do not add it to `KYKLOS_SECRETS`.
 - optionally, the **agent arguments** (`KYKLOS_AGENT_ARGUMENTS`). Left empty, which is the default, the agent starts with Claude Code's normal permission prompts: it asks before it acts, and no remote-control session is opened. To run it unattended, set `--dangerously-skip-permissions`; the agent then acts with no prompts inside its container, so use it only on a project whose container and tokens you are content to leave to the agent. To follow the session from another device, add `--remote-control`. With `--dangerously-skip-permissions` the Launcher also records, inside the container, that the agent's one-time warning about that mode was accepted, so the session starts without waiting for you; without the flag it records nothing, and removes an earlier record. Only these two flags are handled that way: `--permission-mode bypassPermissions` and `--allow-dangerously-skip-permissions` are accepted but record nothing, so a session started with them waits at the agent's warning. The project's value replaces the Launcher's host-wide default (`Launcher:Launch:ClaudeSession:ClaudeArguments`, also empty) for that project; only letters, digits, spaces and `. _ = / : @ + -` are accepted, and the configuration check names the setting when the value is refused;
-- optionally, the project's **own names** (`KYKLOS_OWN_NAMES`): the product and customer names this project may write in its own source although they are on the organisation's disclosure list. They are exempted only there, as whole names, and from that one check; with no list, nothing is exempted.
+- optionally, the project's **own names** ([`KYKLOS_OWN_NAMES`](WORKFLOW.md#launcher-opt-outs)): the product and customer names this project may write in its own source although they are on the organisation's disclosure list. They are exempted only there, as whole names, and from that one check; with no list, nothing is exempted.
 
 Press **Save**. The configuration check runs before anything is launched and reports **every** problem it finds in one answer, field by field: a missing setting, a workspace folder that does not exist, a Bridge settings file that is missing or not committed, a project name whose Bridge port another project already uses, a missing organisation setting. Fix them all, then save again until the check confirms the configuration. The configuration's secrets view then shows each declared secret as available or missing: all of them must be available before the first launch.
 
@@ -378,7 +425,7 @@ These checks are part of the Launcher from the release that carries them; an ear
 
 ### 2.9 The first launch
 
-Press **Launch**. The Launcher checks the configuration, checks what each token is allowed to do, makes sure Docker is running, starts the `Kyklos Bridge` on the host, builds and starts the development container with Claude Code and the `Kyklos Plugin`, and opens the agent's session in a new terminal. The first launch takes a while, because it builds the container image; later launches reuse it.
+Press **Launch**. The [Launcher](COMPONENTS.md#kyklos-launcher) checks the configuration, checks what each token is allowed to do, makes sure Docker is running, starts the [`Kyklos Bridge`](COMPONENTS.md#kyklos-bridge) on the host, builds and starts the development container with Claude Code and the [`Kyklos Plugin`](COMPONENTS.md#kyklos-plugin), and opens the agent's session in a new terminal. The first launch takes a while, because it builds the container image; later launches reuse it.
 
 The launch page shows each of these steps. If the launch stops, the step that failed is marked and shows the reason; fix it and press **Launch** again.
 
@@ -390,15 +437,15 @@ In the session, sign in to Claude Code when asked, and check with `/plugin` that
 
 ### 3.1 Declare the topology
 
-Ask the agent to declare the project's repository model. It runs the `kyklos:ssdlc-repo-model` skill, which asks you a few questions and records the answer (Private Companion + Public Sources, the source in `Repo`, the companion trunk-based, the source on GitFlow) in the companion's settings. Every guard derives its behaviour from this declaration (see [Project topologies](TOPOLOGIES.md)). The agent commits it to the companion.
+Ask the agent to declare the project's repository model. It runs the [`kyklos:ssdlc-repo-model`](HOOKS_AND_SKILLS.md#how-the-agent-knows-what-to-do-skills) skill, which asks you a few questions and records the answer ([Private Companion + Public Sources](TOPOLOGIES.md#private-companion--public-sources), the source in `Repo`, the companion trunk-based, the source on GitFlow) in the companion's settings. Every guard derives its behaviour from this declaration (see [Project topologies](TOPOLOGIES.md)). The agent commits it to the companion.
 
 ### 3.2 Ask for a change
 
 Describe a small change in plain words, for example: "add a `Greeter` class that returns `Hello, <name>!`, with tests". The agent then follows the Kyklos workflow (see [The Kyklos workflow](WORKFLOW.md)):
 
-1. it creates a story in the companion's issues, with its severity, its epic (`E01`) and a specification (requirements, use cases, failure modes, acceptance criteria and a risk assessment);
-2. it works on a story branch of the source, builds and tests on the host through the Bridge, and earns the coverage proof for the lines it changed;
-3. an adversarial review is run and recorded on the story;
+1. it creates a story in the companion's issues, with its severity, its [epic](AGILE.md) (`E01`) and a specification (requirements, use cases, failure modes, acceptance criteria and a risk assessment);
+2. it works on a story branch of the source, builds and tests on the host through the [Bridge](COMPONENTS.md#kyklos-bridge), and earns the coverage proof for the lines it changed;
+3. an [adversarial review](ADVERSARIAL_REVIEW.md) is run and recorded on the story;
 4. it pushes the branch, opens a merge request into `develop` and arms it, so that it merges itself when the pipeline is green;
 5. once merged, it fills the story's [Proof Table](PROOF.md) from the evidence the tools produced, and closes the story.
 
@@ -406,13 +453,13 @@ Anything the agent may not do on its own (publishing outward, deleting shared th
 
 ## When something does not work
 
-- **The Launcher refuses to launch:** the configuration check names every missing setting, secret, folder or tool in one answer, and the configuration's secrets view shows which secrets are missing; both are available before you launch. A launch that stops later marks the step that failed and shows the reason on it.
+- **The [Launcher](COMPONENTS.md#kyklos-launcher) refuses to launch:** the configuration check names every missing setting, secret, folder or tool in one answer, and the configuration's secrets view shows which secrets are missing; both are available before you launch. A launch that stops later marks the step that failed and shows the reason on it.
 - **An organisation setting is reported missing:** check that `appsettings.json` sits next to the Launcher program (`DogmaSolutions.Kyklos.Launcher.exe` on Windows, `DogmaSolutions.Kyklos.Launcher` on Linux), that its keys are under `Launcher:Bridge`, `Launcher:Projects` and `Launcher:Marketplace` exactly as in step 2.5, and that its paths are absolute. A file written for an earlier Launcher, with the marketplace keys under `Launcher:Projects`, is moved to `Launcher:Marketplace` when the Launcher starts (a backup of the file is kept beside it).
-- **The Bridge settings file is refused:** it is missing, its folder name differs from the project name, or it is not exactly the committed and pushed version. Commit and push it in the settings root (step 2.6), and keep the settings root outside the workspace folder.
+- **The [Bridge](COMPONENTS.md#kyklos-bridge) settings file is refused:** it is missing, its folder name differs from the project name, or it is not exactly the committed and pushed version. Commit and push it in the settings root (step 2.6), and keep the settings root outside the workspace folder.
 - **The project name is refused because of its Bridge port:** another project's name leads to the same port. Rename one of the two projects, and rename its Bridge settings folder to match.
 - **The launch stops because a drive is unavailable (Windows):** the drive stayed locked (the BitLocker prompt was closed or the password was wrong `BitLockerUnlockAttempts` times), is not present, or could not be mounted. Unlock or connect it and press **Launch** again (see [Encrypted and extra drives](#encrypted-and-extra-drives-windows-only)).
 - **The workspace folder is refused:** create the folder (or clone the companion into it) before launching.
-- **The `Kyklos Plugin` is not installed in the session:** the container could not clone the marketplace. Check the marketplace address. For the public marketplace on GitHub, no token is needed: leave `Marketplace:TokenName` empty. For a preview marketplace on a GitLab server, check that `Marketplace:TokenName` names the token, that the token is stored under that name (the configuration check reports a token that is not) and that it can read the marketplace repository, and launch again.
+- **The [`Kyklos Plugin`](COMPONENTS.md#kyklos-plugin) is not installed in the session:** the container could not clone the marketplace. Check the marketplace address. For the public marketplace on GitHub, no token is needed: leave [`Marketplace:TokenName`](#25-the-organisation-settings) empty. For a preview marketplace on a GitLab server, check that `Marketplace:TokenName` names the token, that the token is stored under that name (the configuration check reports a token that is not) and that it can read the marketplace repository, and launch again.
 - **A push token is refused:** it has more than `write_repository`. Create a new one with that scope only.
 - **A Bridge started earlier cannot be replaced:** a Bridge that was started with an older credential refuses the Launcher's request to stop, so a new launch could not replace it. When you launch that same project yourself, the Launcher ends that one Bridge process, and only if it is the very process it recorded starting (same process id and same start time) and that process is the one that answered. The launch's answer says so. A test run in progress on that Bridge is lost when it is ended. Any other process, a reused process id, or a Bridge that refuses for another reason (for example because it is busy with a run while still accepting the Launcher's credential) is left alone.
 - **The container does not start:** check that Docker Desktop's engine is running, and that `devcontainer --version` works in a new terminal.
