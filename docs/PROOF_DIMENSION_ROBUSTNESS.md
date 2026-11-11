@@ -23,7 +23,7 @@ belong to [Resilience](PROOF_DIMENSION_RESILIENCE.md); refusing malformed input 
 
 ## How it is checked
 
-Robustness is a **judgement row with a mechanical spine**: the failure modes are numbered in the specification, the Bridge
+Robustness is a **judgement row with a mechanical spine**: the failure modes are numbered in the specification, the [Bridge](COMPONENTS.md#kyklos-bridge)
 looks for tests that name them, and the close demands each one cited in this row.
 
 ```mermaid
@@ -46,9 +46,9 @@ flowchart TD
 
 1. **Declared items.** The specification's failure-mode section lists bullets such as `- **FM1** The upload is interrupted
    half-way -> nothing partial is written`. The Bridge reads the `FM` numbers from that section.
-2. **The draft.** `proof_draft` looks for a changed test that names each `FM` item as an exact token in a running test's method
+2. **The draft.** [`proof_draft`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) looks for a changed test that names each `FM` item as an exact token in a running test's method
    name or in its `[Category]`, `[Trait]` or `[Property]` value (`FM1_interrupted_upload_writes_nothing`), or a host tool receipt
-   naming it. For a development or operations story, a failure mode **needs a test**: the adversarial review never covers an `FM`
+   naming it. For a development or operations story, a failure mode **needs a test**: the [adversarial review](ADVERSARIAL_REVIEW.md) never covers an `FM`
    item, because a handled failure is behaviour and behaviour is shown by running it. The row stays open with the prompt
    *judge that each failure mode is handled; name the test that would fail if it were not*, plus the items named and not named.
    The items not named go into the signed draft record.
@@ -61,7 +61,7 @@ flowchart TD
    test visits.
 
 **Where things are, and the key.** The failure modes live in the story's issue description, the proof in the note marked
-`<!-- kyklos:story-proof -->`. The draft record that lists uncovered items is signed by the Bridge with the proof signing key
+`<!-- kyklos:story-proof -->`. The draft record that lists uncovered items is signed by the Bridge with the [proof signing key](PROOF_DIMENSION_TEST_DISCIPLINE.md#signatures-the-key-and-when-they-are-checked)
 `KYKLOS_PROOF_HMAC_KEY` (HMAC-SHA256, prefix `proof-draft:`, bound to the story, the project and a generation number); the key
 stays in the Windows Credential Manager and in the Bridge process (see [Secrets](SECRETS.md)). A record that does not verify is
 ignored, and an older record posted again loses to the newest one.
@@ -99,7 +99,7 @@ another tool would have found it.
 **UNPROVEN, and what fixes it:** the close answers
 `dimension "Robustness" is PROVEN but story item "FM2" (declared in "## Failure modes") is not cited inside a FORMAL <kbd>...</kbd> metric group`.
 The agent had written "FM2 handled by the empty-file test" in the evidence text. Fix: cite it as a metric,
-`<kbd>FM2 (FM2_empty_file_imports_nothing):</kbd> pass`, which `proof_set` accepts because the draft found that test.
+`<kbd>FM2 (FM2_empty_file_imports_nothing):</kbd> pass`, which [`proof_set`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) accepts because the draft found that test.
 
 **NOT_PERTINENT:**
 
@@ -113,7 +113,7 @@ When the change adds no input, no state and no branch that could meet an unusual
 If the story declares `FM` items, they still have to be cited in some PROVEN row, or the close refuses them. Not required for
 analysis and documentation stories. The owner can untick the dimension in the story's
 [Proof Discipline](PROOF.md#the-owners-proof-discipline) (its items are then waived with it), or waive a gap at the close with the
-`proof-override` label and a named cause (see [the workflow](WORKFLOW.md)).
+[`proof-override`](WORKFLOW.md#the-owners-proof-override-label) label and a named cause (see [the workflow](WORKFLOW.md)).
 
 ## Related pages
 

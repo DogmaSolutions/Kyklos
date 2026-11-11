@@ -61,7 +61,7 @@ In words:
   the consumer-facing files for internal patterns and exits with an error on any hit. Its built-in patterns are generic;
   an organisation adds its own (its domain, secret-store paths, internal names) as configuration, through the variable
   `AUDIENCE_LINT_ORG_PATTERNS` or a pattern file (`AUDIENCE_LINT_ORG_PATTERNS_FILE`, by default the project's
-  `.claude/audience-lint-org-patterns.txt`, kept in a repository that is never published). The Launcher can hand those names
+  `.claude/audience-lint-org-patterns.txt`, kept in a repository that is never published). The [Launcher](COMPONENTS.md#kyklos-launcher) can hand those names
   to the container only as salted hashes, so the container never holds them in clear text; a finding names the category and
   the line, never the pattern. A hit is fixed by moving the detail to an internal document, never suppressed. A reviewed
   allow-list entry (`AUDIENCE_LINT_ALLOW_FILE`) needs a written reason and is meant for test data and format examples only.
@@ -71,19 +71,19 @@ In words:
   signature, since the key never enters the container): it records a fingerprint of the story's own change to each file,
   and any later edit to that change makes it stale. Its purpose is to show the documentation pass ran over the code as it
   is now, not over an earlier draft of it.
-- **The pinned links.** `proof_draft` lists the documents among the files the story's cited deliverables changed (a `.md`
+- **The pinned links.** [`proof_draft`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) lists the documents among the files the story's cited deliverables changed (a `.md`
   file, or any file under a `doc/` or `docs/` folder) and writes one `Doc` metric per document, linked at the deliverable's
   commit on the remote (`.../-/blob/<commit>/<path>`). A reviewer opening the link sees the document exactly as it shipped,
   not as it reads today.
 - **When it is checked.** At `proof_set`, when the agent ends its turn after setting the row, and at the close
-  (`story_close`), on the files the story's deliverables changed, read from the remote (see
+  ([`story_close`](WORKFLOW.md#how-the-close-checks-the-rules)), on the files the story's deliverables changed, read from the remote (see
   [which rows depend on the remote](WORKFLOW.md#which-proof-table-rows-depend-on-the-remote)).
 - **What a failure causes.** The close is refused with the reason; the agent updates the documents, runs the lint and
   the pass again, and drafts the proof again. No person is needed, except for the one-time conventions interview.
 
 ### Manuals built by the Bridge: the `doc_build` receipt
 
-A project whose user manual is a folder of Markdown pages can build it with the Bridge verb `doc_build`: one
+A project whose user manual is a folder of Markdown pages can build it with the [Bridge](COMPONENTS.md#kyklos-bridge) verb `doc_build`: one
 self-contained HTML file and one print-ready PDF per language, printed offline on the host. The build **fails and writes
 nothing** on any problem: a broken link or anchor, a missing image, a page listed but missing, a page on disk the manual
 does not list, a diagram that does not draw.
@@ -91,7 +91,7 @@ does not list, a diagram that does not draw.
 When the build is made for a story (its `story` argument) and succeeds, the Bridge records a **tool receipt** on the host:
 the verb, the run's id, the specification items (`R1`, `UC2`, `AC3`, `RA-01` and so on) the manual's pages name, and the
 SHA-256 of each file it wrote. It is kept in the Bridge's state folder (`tool-receipts/<story>/`), which no container
-mounts, so only a real run of the Bridge can add one; it is not signed. `proof_draft` then cites the receipt as evidence for
+mounts, so only a real run of the Bridge can add one; it is not signed. [`proof_draft`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) then cites the receipt as evidence for
 those items (`UC1 (tool receipt): doc_build run <id>`) in the [Completeness](PROOF_DIMENSION_COMPLETENESS.md) row: for a
 documentation or analysis story, which has no tests to name its items, a successful manual build that names them plays the
 same role. A failed build records no receipt.
@@ -152,7 +152,7 @@ would have to re-learn. The evidence must say why. A documentation story always 
 
 The project setting `KYKLOS_TOOL_GATE_DOCUMENTATION=0` accepts a PROVEN verdict without the token (an explicit opt-out;
 the check is on by default). The owner can untick the dimension in the story's
-[Proof Discipline](PROOF.md#the-owners-proof-discipline), or apply the `proof-override` label naming the cause. See
+[Proof Discipline](PROOF.md#the-owners-proof-discipline), or apply the [`proof-override`](WORKFLOW.md#the-owners-proof-override-label) label naming the cause. See
 [Overrides](WORKFLOW.md#overrides).
 
 ## Related pages

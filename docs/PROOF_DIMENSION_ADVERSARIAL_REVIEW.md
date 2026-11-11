@@ -22,7 +22,7 @@ this row NOT_PERTINENT.
   without a finding.
 - **No blocker or major finding is left open.** Blockers and majors are fixed and the fix is reviewed again, for at most
   **3 rounds**; whatever remains is put to a person, never silently dropped.
-- **The review on record is authentic and current**: signed by the Bridge over exactly the posted report, and (for code
+- **The review on record is authentic and current**: signed by the [Bridge](COMPONENTS.md#kyklos-bridge) over exactly the posted report, and (for code
   that coverage measures) newer than the last change of that code the remote received.
 
 ## How it is checked
@@ -50,11 +50,11 @@ sequenceDiagram
 
 In words:
 
-1. **Minting (`advreview_mint`).** The reviewer hands the Bridge the story number and the report text. The Bridge refuses
+1. **Minting (`advreview_mint`).** The reviewer hands the [Bridge](COMPONENTS.md#kyklos-bridge) the story number and the report text. The Bridge refuses
    a request without a story number, an empty report, a report over 512 KB, and a report that breaks the template (naming
    the line, and showing the template). It refuses too when it has no signing key: it never answers with a hash anyone
    could compute. Otherwise it computes the **bound body** `advreview:<story>:<SHA-256 of the report>` and the **token**,
-   the HMAC-SHA256 of that body under the proof signing key, through the same proof script the other tokens use, so the
+   the HMAC-SHA256 of that body under the [proof signing key](PROOF_DIMENSION_TEST_DISCIPLINE.md#signatures-the-key-and-when-they-are-checked), through the same proof script the other tokens use, so the
    format lives in one place. It keeps the body and the token for the story in its own state folder, per project, and
    answers with the token: 64 lowercase hexadecimal characters.
 2. **Posting (`advreview_post`).** The reviewer posts the same report with the token through the Bridge. The Bridge
@@ -64,7 +64,7 @@ In words:
    `Adversarial review (round N)`, where N is counted from the story's earlier review notes, carrying a hidden marker
    (`<!-- kyklos:adversarial-review story=<id> round=N -->`) and the token line. Each round is its own note, so the history
    of the review loop stays on the story.
-3. **Drafting.** `proof_draft` finds the newest review note on the story, asks the Bridge to check its token, and fills the
+3. **Drafting.** [`proof_draft`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) finds the newest review note on the story, asks the Bridge to check its token, and fills the
    row with two metrics: `Report` (the note's link) and `Token` (the token). If the newest token does not verify, the row
    stays open: *"the newest review note's token does not verify; run the review again"*.
 4. **Checking (`advreview_check`, and the close).** The Bridge recomputes the HMAC over the body it kept for the story and
@@ -103,7 +103,7 @@ flowchart TD
 
 - **Never NOT_PERTINENT.** A NOT_PERTINENT row is refused, for every kind.
 - **The two metrics.** A PROVEN row needs a `Report` metric linking the review note (a URL) and a `Token` metric (a
-  64-character hexadecimal value). The Bridge reads the token from the row exactly as it renders.
+  64-character hexadecimal value). The [Bridge](COMPONENTS.md#kyklos-bridge) reads the token from the row exactly as it renders.
 - **Authentic.** The Bridge's answer for that token must be exactly `authentic`.
 - **Fresh** ([rule 4 of the workflow](WORKFLOW.md#rule-4-the-review-saw-the-finished-code)). For a development story whose
   change touches code that coverage measures (C#, or shell scripts in the folders shell coverage reads), the review is dated
@@ -111,8 +111,8 @@ flowchart TD
   from the merge request that carried it. Both are times the server records; neither is a commit date the author writes.
   A fix pushed after the review needs a new review before the close. A code commit that reached the trunk without a merge
   request has no such time, and the close refuses it.
-- **Where the check runs.** In the Bridge, at `proof_set`, when the agent ends its turn after a close, and at
-  `story_close`. The check acts on the story's own repository and project; a story in a project the Bridge does not serve
+- **Where the check runs.** In the Bridge, at [`proof_set`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked), when the agent ends its turn after a close, and at
+  [`story_close`](WORKFLOW.md#how-the-close-checks-the-rules). The check acts on the story's own repository and project; a story in a project the Bridge does not serve
   is refused (`PROJECT-NOT-SERVED`).
 
 **What a failure causes.** The close is refused with the reason, and the review runs again: a new round, a new note, a new
@@ -129,7 +129,7 @@ like a review note. See [The Proof Table](PROOF.md).
 | Metric | Rule |
 |--------|------|
 | `Report` | **required**: a link (URL) to the review note on the story |
-| `Token` | **required**: the 64-character token the Bridge minted for that report; it must verify |
+| `Token` | **required**: the 64-character token the [Bridge](COMPONENTS.md#kyklos-bridge) minted for that report; it must verify |
 | `Rounds` | how many review rounds ran (at most 3 before a person decides) |
 | `Open blockers or majors` | must be 0 |
 | one metric per specification item the review covers | for documentation, analysis and ops stories, a clean review covers the items its *Checked, no finding* section names, unless that section says an item was not checked |
@@ -139,12 +139,12 @@ like a review note. See [The Proof Table](PROOF.md).
 The author is the worst judge of their own work, and an agent reviewing its own change mostly confirms what it already
 believes. A second agent with no access to the author's reasoning, ideally a different model with different blind spots,
 finds what the author cannot. But a review only counts if it is real: an agent under pressure to finish can write
-"reviewed, no findings" in a row. The token makes that impossible: no review note signed by the Bridge, no PROVEN row.
+"reviewed, no findings" in a row. The token makes that impossible: no review note signed by the [Bridge](COMPONENTS.md#kyklos-bridge), no PROVEN row.
 
 **A realistic case.** The "Retry Export" story is ready; its tests pass. The reviewer's round 1 finds **F1, major**: the
 wait between attempts ignores the cancellation token, so stopping the service during a wait leaves the export running for
 up to 4 seconds; it adds the test `A_shutdown_during_a_wait_ends_the_export_at_once`, expected to fail. The author fixes
-it and pushes. The close is now refused by the freshness check (*"the adversarial review is not newer than the newest work
+it and pushes. The close is now refused by the freshness check (*"the [adversarial review](ADVERSARIAL_REVIEW.md) is not newer than the newest work
 the remote received"*): the fix itself has not been reviewed. Round 2 reviews the pushed fix, finds nothing, and its token
 goes into the row. Had the author instead edited round 1's report to read "no findings", its SHA-256 would no longer match
 the body the Bridge kept, and the token would not verify.
@@ -171,7 +171,7 @@ The fix is exactly what the reason says: start a fresh reviewer, let it mint and
 
 Never. A documentation, analysis or ops story is reviewed too (its review is not held to the freshness timing, which only
 concerns code that coverage measures). Only a person can waive the row: by unticking it in the story's
-[Proof Discipline](PROOF.md#the-owners-proof-discipline) or with the `proof-override` label and its named cause; both are
+[Proof Discipline](PROOF.md#the-owners-proof-discipline) or with the [`proof-override`](WORKFLOW.md#the-owners-proof-override-label) label and its named cause; both are
 recorded on the story. See [Overrides](WORKFLOW.md#overrides).
 
 ## Related pages

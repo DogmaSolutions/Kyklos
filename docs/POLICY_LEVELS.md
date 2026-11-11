@@ -16,7 +16,7 @@ is untouched.
 
 ## Settings
 
-Each setting has a launcher-wide value (in the launcher's `appsettings.json`, or the environment variable of the same
+Each setting has a launcher-wide value (in the [launcher](COMPONENTS.md#kyklos-launcher)'s `appsettings.json`, or the environment variable of the same
 name) and a per-project value (the configuration's **Policy** tab). A project that sets its own repository address takes
 its branch, path and token name from its own configuration only, so the launcher's token never goes to a project's
 address.
@@ -55,7 +55,7 @@ In the composed policy, a replaced rule keeps its place under a visible line
 `Kyklos rule <id> removed by the Corporate policy: <reason>`; and an "Overrides in force" list opens the file. Only one
 version of a rule ever reaches the agent.
 
-**Hooks stay on.** Several rules are also enforced by a Kyklos hook. Replacing or removing the text does not switch the
+**Hooks stay on.** Several rules are also enforced by a Kyklos [hook](HOOKS_AND_SKILLS.md#how-a-hook-decides-one-hook-per-event-every-rule-in-the-bridge). Replacing or removing the text does not switch the
 hook off: hooks keep their own off-switches. The launch says, per rule, which hook still enforces the original and how
 to switch it off (the table below lists them).
 
@@ -91,16 +91,16 @@ flowchart TD
     C --> H["Launch lists every replaced or removed rule and the hook that still enforces it"]
 ```
 
-The token that reads a private repository is named by `KYKLOS_CORPORATE_POLICY_TOKEN_NAME`, read from the credential store on the host, and handed to git through the child process's
-environment only. A refused file starts nothing, and the message names the line, so the person fixes the file and pushes it again. Replacing a rule's text never switches off the rule a hook
+The token that reads a private repository is named by [`KYKLOS_CORPORATE_POLICY_TOKEN_NAME`](#settings), read from the credential store on the host, and handed to git through the child process's
+environment only. A refused file starts nothing, and the message names the line, so the person fixes the file and pushes it again. Replacing a rule's text never switches off the rule a [hook](HOOKS_AND_SKILLS.md#how-a-hook-decides-one-hook-per-event-every-rule-in-the-bridge)
 enforces: that takes the hook's own switch, which the person sets (see [Overrides](WORKFLOW.md#greppable-opt-out-switches)).
 
 ## When the repository cannot be read
 
-The launcher keeps the last copy that composed without error (per repository address, branch and path, in its own data
+The [launcher](COMPONENTS.md#kyklos-launcher) keeps the last copy that composed without error (per repository address, branch and path, in its own data
 folder, with the commit and date). When the repository cannot be read, the launch uses that copy and says so as a
 warning: `Corporate repository <address> unreachable; using the last good copy <commit> from <date>`. When there has
-never been a good copy, the launch is refused: a configured Corporate policy never silently yields a session without it.
+never been a good copy, the launch is refused: a configured [Corporate policy](#writing-a-corporate-policy) never silently yields a session without it.
 A file that is refused is never kept as the last good copy and is never replaced by an older one.
 
 A change pushed to the repository reaches each project at its next launch. The composed policy is part of the
@@ -111,7 +111,7 @@ container definition's fingerprint, so the image is rebuilt when it changes.
 A configuration's **Policy** tab, beside **Settings**, holds the Corporate settings and two buttons:
 
 - **Check** reads the repository on the host and shows where Level 1 came from (address, commit, date, size), the three
-  levels, and the overrides table (identifier, title, replaced or removed, reason, hook still active), each row opening
+  levels, and the overrides table (identifier, title, replaced or removed, reason, [hook](HOOKS_AND_SKILLS.md#how-a-hook-decides-one-hook-per-event-every-rule-in-the-bridge) still active), each row opening
   the Kyklos original beside its replacement; or the exact error.
 - **Preview** shows the whole composed policy, with every override's line marked, from the values as entered, saved or
   not. It uses the same composer as the launch, so the preview and the container's file cannot differ.

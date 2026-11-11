@@ -21,19 +21,19 @@ What the checks assume about the agent, and the optional hardening against a del
 ## The Proof Table
 
 Every story ends with a **Proof Table**: one row per quality dimension, in four columns: **Quality Dimension**, **Verdict** (PROVEN, NOT_PERTINENT with a reason, or UNPROVEN), **Evidence** (what was
-checked, where, and how) and **Metrics**. The table lives on the story, where reviewers can read it. The agent cannot close a story while any required row is UNPROVEN; only a person can override that,
+checked, where, and how) and **Metrics**. The table lives on the story, where reviewers can read it. The agent cannot close a story while any required row is UNPROVEN; only a person can [override](WORKFLOW.md#overrides) that,
 and the override is recorded.
 
 **Every dimension carries metrics**: short, labelled figures, each naming the tool that produced it, for example `Story lines (ledger): covered or limited 42 of 42 story lines` or `Duplication (jscpd): 0 clones`. On the tool-gated rows
-(Test Discipline, Non-Duplication, Documentation, Risk Assessment, i18n, Adversarial Review) a PROVEN verdict without them is refused; on every row a verdict without evidence text is refused (a
+([Test Discipline](PROOF_DIMENSION_TEST_DISCIPLINE.md), [Non-Duplication](PROOF_DIMENSION_NON_DUPLICATION.md), [Documentation](PROOF_DIMENSION_DOCUMENTATION.md), [Risk Assessment](PROOF_DIMENSION_RISK_ASSESSMENT.md), [i18n](PROOF_DIMENSION_I18N.md), [Adversarial Review](PROOF_DIMENSION_ADVERSARIAL_REVIEW.md)) a PROVEN verdict without them is refused; on every row a verdict without evidence text is refused (a
 NOT_PERTINENT row carries its reason instead). Every item of the story's specification (each requirement, use case, failure mode and acceptance criterion) must also appear as its own metric in the row
 that proves it, so nothing in the specification can be left silently unproven. Each dimension's page says exactly what its row must carry and which program checks it.
 
-**Four rows are drafted from the remote, merged state**: Completeness, Test Discipline, Non-Duplication and Documentation read the cited deliverable on the remote (its changed files, its commit,
+**Four rows are drafted from the remote, merged state**: [Completeness](PROOF_DIMENSION_COMPLETENESS.md), Test Discipline, Non-Duplication and Documentation read the cited deliverable on the remote (its changed files, its commit,
 its pipeline), so they cannot be proven while the change exists only on the agent's machine. The close then certifies the **merged result**: the deliverable merged into the trunk, every commit
 naming the story on the trunk, the signed evidence judged where the story landed. See [The Kyklos Workflow](WORKFLOW.md).
 
-**Which rows are mandatory depends on the story's kind**, its `kind::` label (see [Storages](STORAGES.md)); the `type::` label is informational and plays no part. A row outside a kind's set is not required, and a lighter table can never be used for a development story. When the kind
+**Which rows are mandatory depends on the story's kind**, its [`kind::`](STORAGES.md#gitlab-storage-the-ssot-for-team-projects) label (see [Storages](STORAGES.md)); the `type::` label is informational and plays no part. A row outside a kind's set is not required, and a lighter table can never be used for a development story. When the kind
 cannot be read, the full development set applies (and a story adopted without a kind is given `development`, see [Storages](STORAGES.md#adoption-of-existing-issues)): an error can only raise the bar.
 
 The table below lists, for every dimension, the **metrics** its row must carry, and for every story kind whether those metrics are **mandatory**:
@@ -46,12 +46,12 @@ The table below lists, for every dimension, the **metrics** its row must carry, 
 | [Input Validation](PROOF_DIMENSION_INPUT_VALIDATION.md)           | the rejection tests of each entry point                                                                                   |     ✅      |                                                       ✅                                                        |    –     |       –       |
 | [Robustness](PROOF_DIMENSION_ROBUSTNESS.md)                       | one metric per failure mode, plus the boundary and edge-case tests                                                        |     ✅      |                                                       ✅                                                        |    –     |       –       |
 | [Resilience](PROOF_DIMENSION_RESILIENCE.md)                       | the failure-injection tests and the retry or recovery settings they cover                                                 |     ✅      |                                                       ✅                                                        |    –     |       –       |
-| [Security Posture](PROOF_DIMENSION_SECURITY_POSTURE.md)           | the controls added or touched, each with its formal reference (CWE, OWASP, IEC 62443, CAPEC)                              |     ✅      |                                                       ✅                                                        |    –     |       –       |
+| [Security Posture](PROOF_DIMENSION_SECURITY_POSTURE.md)           | the controls added or touched, each with its formal reference ([CWE](KB.md#standards-catalogues-and-references), OWASP, IEC 62443, CAPEC)                              |     ✅      |                                                       ✅                                                        |    –     |       –       |
 | [Defense in Depth](PROOF_DIMENSION_DEFENSE_IN_DEPTH.md)           | for each control, the fallback layer (or the reason there is none)                                                        |     ✅      |                                                       ✅                                                        |    –     |       –       |
 | [Observability](PROOF_DIMENSION_OBSERVABILITY.md)                 | the failure paths added and the signal each one emits                                                                     |     ✅      |                                                       ✅                                                        |    –     |       –       |
 | [Thread Safety](PROOF_DIMENSION_THREAD_SAFETY.md)                 | the concurrency tests, and the repeat-under-load count of each timing-dependent test file                                 |     ✅      |                                                       ✅                                                        |    –     |       –       |
 | [Configurability](PROOF_DIMENSION_CONFIGURABILITY.md)             | the configuration tests, including the refusal of invalid configuration                                                   |     ✅      |                                                       ✅                                                        |    –     |       –       |
-| [Test Discipline](PROOF_DIMENSION_TEST_DISCIPLINE.md)             | the share of changed lines a passing Bridge run executed (`Story lines`: from the Bridge's signed content ledger for C#, from the coverage receipt for shell scripts, with **the attached receipt archive** linked), highest CRAP score when C# changed, the mutation statement (whether mutation testing ran, or why it was not required) |     ✅      | 🟡 coverage and CRAP figures optional when the deliverable cannot be tested, or testing it would be destructive |    –     |       –       |
+| [Test Discipline](PROOF_DIMENSION_TEST_DISCIPLINE.md)             | the share of changed lines a passing [Bridge](COMPONENTS.md#kyklos-bridge) run executed (`Story lines`: from the Bridge's signed [content ledger](PROOF_DIMENSION_TEST_DISCIPLINE.md#the-content-ledger-what-the-bridge-records-after-every-passing-run) for C#, from the [coverage receipt](PROOF_DIMENSION_TEST_DISCIPLINE.md#shell-scripts-the-token-and-the-coverage-receipt) for shell scripts, with **the attached receipt archive** linked), highest [CRAP score](WORKFLOW.md#glossary) when C# changed, the mutation statement (whether mutation testing ran, or why it was not required) |     ✅      | 🟡 coverage and CRAP figures optional when the deliverable cannot be tested, or testing it would be destructive |    –     |       –       |
 | [Non-Duplication](PROOF_DIMENSION_NON_DUPLICATION.md)             | clones found and duplicated share, **the attached duplication report**                                                    |     ✅      |                                                       ✅                                                        |    –     |       –       |
 | [Documentation](PROOF_DIMENSION_DOCUMENTATION.md)                 | the documents updated, the audience-lint findings                                                                         |     ✅      |                                                       ✅                                                        |    –     |      ✅       |
 | [Poka-Yoke](PROOF_DIMENSION_POKA_YOKE.md)                         | each footgun introduced and the rung of its guard                                                                         |     ✅      |                                                       ✅                                                        |    –     |       –       |
@@ -63,7 +63,7 @@ Adversarial Review is in every kind's set and the agent can never waive it. As f
 what Kyklos relies on against an agent acting deliberately against you is explained in [What Kyklos assumes about the agent](PROOF_AGENT_ASSUMPTIONS.md).
 
 **What makes the table trustworthy:** the mechanical rows cannot be filled by typing. Their evidence (the content ledger facts and the tokens of Test Discipline, the tool tokens, the
-review token) is signed by the `Kyklos Bridge` with a key the agent cannot read and bound to the exact content it judged, so a later change makes it stale and a forged one does not verify. Where a
+[review token](ADVERSARIAL_REVIEW.md#how-the-review-token-is-made-and-checked)) is signed by the `Kyklos Bridge` with a key the agent cannot read and bound to the exact content it judged, so a later change makes it stale and a forged one does not verify. Where a
 row needs an **attached file** (the coverage receipt archive of a shell-script Test Discipline row, the duplication report for Non-Duplication), the row must link exactly that attachment. How
 the Test Discipline evidence is recorded and checked, for C# and for shell scripts, is on its [page](PROOF_DIMENSION_TEST_DISCIPLINE.md).
 
@@ -83,7 +83,7 @@ values in force:
 ```
 
 The section belongs to the owner of the project, and it applies to that one story. Unticking a dimension disables it, ticking one
-requires it, and writing a number changes a threshold, relaxed or tightened. The Bridge alone reads it. An agent can read it and
+requires it, and writing a number changes a threshold, relaxed or tightened. The [Bridge](COMPONENTS.md#kyklos-bridge) alone reads it. An agent can read it and
 ask for a change, and cannot change it: an edit by the agent's own account is no change, and the section is restored.
 
 A disabled dimension needs no evidence. A threshold relaxed past the last measured result satisfies the dimension at once, with
@@ -93,7 +93,7 @@ verified counts as no change.
 
 ### How a change of the section is judged
 
-The issue tracker records **who** edited a story's description, but not **which part** of it. So the Bridge judges the section by
+The issue tracker records **who** edited a story's description, but not **which part** of it. So the [Bridge](COMPONENTS.md#kyklos-bridge) judges the section by
 comparing it with its own signed copy (next section) and by reading the tracker's list of description edits:
 
 ```mermaid
@@ -111,7 +111,7 @@ flowchart TD
     N --> G
 ```
 
-- **Who counts as the owner:** the accounts listed in the Bridge setting `Agile:Acceptance:OwnerAccounts`. With the list empty,
+- **Who counts as the owner:** the accounts listed in the Bridge setting [`Agile:Acceptance:OwnerAccounts`](WORKFLOW.md#bridge-owner-settings). With the list empty,
   no change of the section is the owner's, and every change is refused.
 - **What the agent can do:** read the section with `proof_discipline_get` (it says whether the reading is verified and lists the
   owner's decisions), and ask with `proof_discipline_ask`, which posts one tickable comment on the story naming what is asked,
@@ -130,7 +130,7 @@ The logic lives in the Bridge, in `ProofDisciplineJudge` (the ruling) and `Proof
 
 ### The Bridge's signed copy of the section
 
-Next to each story, the Bridge keeps one **note** that holds a signed copy of its Proof Discipline section. You will see it in the
+Next to each story, the [Bridge](COMPONENTS.md#kyklos-bridge) keeps one **note** that holds a signed copy of its Proof Discipline section. You will see it in the
 story's notes: it opens with a sentence saying what it is, and the data it holds is folded away under a small
 "Signed record" heading.
 
@@ -153,19 +153,19 @@ flowchart LR
     N -->|"read back and verified on every judged load"| BR
 ```
 
-- **Where the key lives.** The signing key is the proof signing key, `KYKLOS_PROOF_HMAC_KEY`. The `Kyklos Launcher` creates it on
+- **Where the key lives.** The signing key is the [proof signing key](PROOF_DIMENSION_TEST_DISCIPLINE.md#signatures-the-key-and-when-they-are-checked), `KYKLOS_PROOF_HMAC_KEY`. The [`Kyklos Launcher`](COMPONENTS.md#kyklos-launcher) creates it on
   the first launch that needs it (32 random bytes), stores it in the **Windows Credential Manager** under that name, verifies it
   by reading it back, and hands it only to the Bridge process through its environment. It never reaches the agent's container,
   and the Bridge removes it from the environment of every build and test it starts. The Bridge reads it from the environment
   variable named by the setting `Agile:Proof:HmacKeyEnvironmentVariableName` (default `KYKLOS_PROOF_HMAC_KEY`). If the
   credential store cannot keep the key, the launch is refused, because a key that changes at every launch would make every
   ledger fact, token and copy signed before it unverifiable; the one way past is the project's explicit, logged launch parameter
-  `KYKLOS_ALLOW_UNPERSISTED_HMAC`. See [Secrets](SECRETS.md).
+  [`KYKLOS_ALLOW_UNPERSISTED_HMAC`](WORKFLOW.md#launcher-opt-outs). See [Secrets](SECRETS.md).
 - **What is signed.** The copy's data is one JSON object: the story, the project, an **anchor** (the number of the newest
   description edit the copy accounts for), the section as it was at creation, the section last accepted, and the owner's
   decisions (each with subject, original value, new value, who and when). The Bridge computes HMAC-SHA256, keyed with the
   signing key, over the text `proof-discipline:` followed by that JSON, and stores the result as the object's `mac` field. The
-  prefix makes sure a signed record of another kind (a proof draft record, a review token) never verifies as a copy.
+  prefix makes sure a signed record of another kind (a proof draft record, a [review token](ADVERSARIAL_REVIEW.md#how-the-review-token-is-made-and-checked)) never verifies as a copy.
 - **When it is checked.** Every time the Bridge judges the section (see the diagram above): the Bridge reads the story's notes,
   keeps only the copies whose `mac` verifies under its key **and** that name this story of this project, and takes the one
   with the highest anchor. The comparison of the signature is made in constant time.
@@ -180,7 +180,7 @@ flowchart LR
 
 ## Example
 
-A realistic, complete Proof Table of a small development story ("Retry Export": a failed upload is retried with growing waits):
+A realistic, complete [Proof Table](#the-proof-table-1) of a small development story ("Retry Export": a failed upload is retried with growing waits):
 
 | Quality Dimension    | Verdict          | Evidence                                                                                                                                                                                                    | Metrics                                                                                                                                                                                                                        |
 |----------------------|------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|

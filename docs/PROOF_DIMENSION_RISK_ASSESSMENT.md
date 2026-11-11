@@ -26,7 +26,7 @@ risk delta and is exempt.
    [Cyber Resilience Act](https://eur-lex.europa.eu/eli/reg/2024/2847/oj)), and the weakness it addresses
    ([CWE](https://cwe.mitre.org/) or [CAPEC](https://capec.mitre.org/)).
 
-A register item, as the `kyklos:ssdlc-risk-assessment` skill writes it:
+A register item, as the [`kyklos:ssdlc-risk-assessment`](HOOKS_AND_SKILLS.md#how-the-agent-knows-what-to-do-skills) skill writes it:
 
 | # | Asset / entry point | Threat | Vector | Impact × Likelihood | Mitigation (where) | Residual | Standard |
 |---|---|---|---|---|---|---|---|
@@ -64,27 +64,27 @@ flowchart TD
 
 In words:
 
-- **The criteria, once per project.** On first use the skill interviews the developer: which standards apply, which
+- **The criteria, once per project.** On first use the [skill](HOOKS_AND_SKILLS.md#how-the-agent-knows-what-to-do-skills) interviews the developer: which standards apply, which
   regulations (and in which countries), and which risks every story must consider regardless of the change (for example
   authentication and authorisation, input validation, secret handling, the supply chain, denial of service). The answers
   are saved in the project's `CLAUDE.md` under `## Risk assessment criteria`; the skill's `has-risk-criteria.sh` tells
   whether they exist. A PROVEN row is refused while the section is missing, so no register is judged against criteria
   nobody agreed to.
 - **Where the register lives.** It is written only through the story tool, `story ra <id> --apply <file>`, which calls the
-  Bridge verb `ra_set`. On an issue-tracker storage the register is a note on the story that starts with the marker line
-  `<!-- kyklos:risk-assessment -->`; on the file-system storage it is the story's `risk-assessment.md` (see
-  [Storages](STORAGES.md)). A hand-edited mirror of the note is ignored by the gate, and a hook forbids editing it.
+  [Bridge](COMPONENTS.md#kyklos-bridge) verb `ra_set`. On an issue-tracker storage the register is a note on the story that starts with the marker line
+  `<!-- kyklos:risk-assessment -->`; on the [file-system storage](STORAGES.md#file-system-storage-for-standalone-and-offline-use) it is the story's `risk-assessment.md` (see
+  [Storages](STORAGES.md)). A hand-edited mirror of the note is ignored by the gate, and a [hook](HOOKS_AND_SKILLS.md#how-a-hook-decides-one-hook-per-event-every-rule-in-the-bridge) forbids editing it.
 - **What `ra_set` accepts.** A text with at least one numbered item (a bullet or a table row starting with `RA-nn`), or a
   `Risk-Assessment-Waived: <who/why>` line recording a person's waiver. Anything else is refused, so an empty or
   malformed register is never stored as if it were one.
 - **The close.** For a story whose type is not `docs` or `test`, the Bridge's close reads the register (the register note,
   else the story's description) and refuses the story when it holds no numbered item. Only the owner can lift that: by
   unticking Risk Assessment in the story's [Proof Discipline](PROOF.md#the-owners-proof-discipline), or by applying the
-  `proof-override` label with its named cause. The agent may never waive the row itself: a NOT_PERTINENT Risk
+  [`proof-override`](WORKFLOW.md#the-owners-proof-override-label) label with its named cause. The agent may never waive the row itself: a NOT_PERTINENT Risk
   Assessment on a story of another type needs a person's recorded waiver line.
 - **Register items are specification items.** Items declared as bullets in the story's specification (`- **RA-01** ...`)
-  must be cited as metric keys in a PROVEN row, like requirements and use cases. `proof_draft` counts a risk item as
-  covered when the register states it handled, or when a clean adversarial review lists it as checked.
+  must be cited as metric keys in a PROVEN row, like requirements and use cases. [`proof_draft`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) counts a risk item as
+  covered when the register states it handled, or when a clean [adversarial review](ADVERSARIAL_REVIEW.md) lists it as checked.
 - **The markers.** When the row is PROVEN, every item whose register line claims a code mitigation is searched for in the
   repository (`[RiskMitigation RA-nn]`). A claimed mitigation with no marker is reported by name as a **warning**, not a
   refusal on its own, because some items are mitigated by process, not by code; the
@@ -102,7 +102,7 @@ In words:
 
 ## Why it exists
 
-Regulations such as NIS2 and the Cyber Resilience Act, and the IEC 62443 development practice, ask for evidence that risks
+Regulations such as [NIS2](KB.md#standards-catalogues-and-references) and the Cyber Resilience Act, and the IEC 62443 development practice, ask for evidence that risks
 were identified and treated. A register written once a year for an auditor does not describe the code that shipped last
 week. A register per story, scoped to the change and tied to the code by markers, does: an auditor can search
 `[RiskMitigation` and land on every control, and every control points back to the story that introduced it.
@@ -128,7 +128,7 @@ Two years later the rate limiter is refactored; a search for `RA-02` finds the r
 | Risk Assessment | ❌ UNPROVEN | No register on the story yet. | – |
 
 The close answers *"a numbered RA register is required for this story type and none was found"*. The fix: run the
-`ssdlc-risk-assessment` skill over the story's change, write the register with `story ra <id> --apply <file>`, add the
+`ssdlc-risk-assessment` [skill](HOOKS_AND_SKILLS.md#how-the-agent-knows-what-to-do-skills) over the story's change, write the register with `story ra <id> --apply <file>`, add the
 markers at the mitigating code, then set the row.
 
 **NOT_PERTINENT.**
@@ -141,7 +141,7 @@ markers at the mitigating code, then set the row.
 
 For `docs` and `test` story types, which change no production behaviour (if such a story does touch a risk surface, it
 gets a register as usual). For any other type, only a person can decide the row does not apply, recorded as a waiver line
-in the register or as the owner's decision in the story's Proof Discipline.
+in the register or as the owner's decision in the story's [Proof Discipline](PROOF.md#the-owners-proof-discipline).
 
 ## Related pages
 

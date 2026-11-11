@@ -20,7 +20,7 @@ proves the row with all three counts at 0, citing the scanner.
   - strings that drive logic: values compared in a condition, switch labels, configuration or dictionary keys, attribute
     arguments, protocol tokens;
   - script files (shell, PowerShell, batch), which are out of scope;
-  - **agent-facing messages**: text a tool, gate, hook or server returns to an AI agent or to developer tooling, never to an
+  - **agent-facing messages**: text a tool, gate, [hook](HOOKS_AND_SKILLS.md#how-a-hook-decides-one-hook-per-event-every-rule-in-the-bridge) or server returns to an AI agent or to developer tooling, never to an
     end user. The test is *who reads it*: the same `throw new ArgumentException("...")` is agent-facing in a gate and
     user-facing in an application's dialog;
   - technical literals with no human text (separators, formats, addresses, file names).
@@ -65,7 +65,7 @@ In words:
   text.
 - **The judgement.** The scanner is a pre-filter. Each candidate is decided by meaning, and the evidence names why each
   ignored one was ignored.
-- **The arithmetic.** The Bridge checks the row itself, at `proof_set` and again at the close: the metrics `Candidates`,
+- **The arithmetic.** The [Bridge](COMPONENTS.md#kyklos-bridge) checks the row itself, at [`proof_set`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) and again at the close: the metrics `Candidates`,
   `Promoted` and `Ignored` must all be present, each must name the tool that produced it, each must be a whole number, and
   promoted plus ignored must equal candidates. A NOT_PERTINENT row is refused outright on a development story.
 - **No signature.** The counts are not signed: the scanner runs in the container and its output is reproducible by anyone
@@ -81,7 +81,7 @@ In words:
 | `Candidates (<tool>)` | whole number, the scanner's candidate count on the changed lines |
 | `Promoted (<tool>)` | whole number, the candidates moved into resources |
 | `Ignored (<tool>)` | whole number, the candidates left in place, each with its exclusion rule in the evidence |
-| the sum | `Promoted + Ignored = Candidates`, checked by the Bridge |
+| the sum | `Promoted + Ignored = Candidates`, checked by the [Bridge](COMPONENTS.md#kyklos-bridge) |
 
 ## Why it exists
 

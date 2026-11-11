@@ -2,7 +2,7 @@
 
 [← Back to the README](../README.md)
 
-Through Skills and Hooks, the `Kyklos Plugin` and the `Kyklos Bridge` make the agent abide by the SSDLC workflow.
+Through Skills and Hooks, the [`Kyklos Plugin`](COMPONENTS.md#kyklos-plugin) and the [`Kyklos Bridge`](COMPONENTS.md#kyklos-bridge) make the agent abide by the SSDLC workflow.
 
 Hooks run on every action the agent takes, such as running a command, editing a file, or ending its turn. They are the mechanical half of Kyklos; the other half are the skills, described [below](#how-the-agent-knows-what-to-do-skills). Hooks are also called *guards* in these documents. They fall into a few families:
 
@@ -14,12 +14,12 @@ Hooks run on every action the agent takes, such as running a command, editing a 
 | **Safety**           | destructive file deletions, secrets written to disk or into a public repository, internal details leaking into public code                                                                                               |
 | **Momentum**         | an agent that stops while unblocked work remains, or that ignores a message waiting for its reply from a person or another agent                                                                                         |
 
-A hook that blocks always says why, and what the agent should do instead.
+A [hook](#how-a-hook-decides-one-hook-per-event-every-rule-in-the-bridge) that blocks always says why, and what the agent should do instead.
 
 ## How a hook decides: one hook per event, every rule in the Bridge
 
 Claude Code runs hooks at fixed points of the agent's work, called *events*: before a tool call (PreToolUse), after it (PostToolUse, or PostToolUseFailure when it failed), when the agent
-wants to end its turn (Stop), when a session starts (SessionStart) and when the person sends a prompt (UserPromptSubmit). The `Kyklos Plugin` registers **one** hook for each of these events,
+wants to end its turn (Stop), when a session starts (SessionStart) and when the person sends a prompt (UserPromptSubmit). The [`Kyklos Plugin`](COMPONENTS.md#kyklos-plugin) registers **one** hook for each of these events,
 `plugins/kyklos/hooks/kyklos-event.sh`, and that hook holds no rule of its own. Every rule (the families in the table above) lives once, in the [`Kyklos Bridge`](COMPONENTS.md), and is judged
 there.
 
@@ -48,7 +48,7 @@ flowchart TD
 - **The order of rules.** The rules run in parallel, and only their messages are ordered: rules on the command text first, then rules on git facts, then rules on stored records, then rules that read the tracker. So the same command always gets the same message. A rule whose condition does not match does not run (a plain `ls` reads neither git nor the tracker). A rule that fails or runs out of time counts as a refusal ("rule failed"); the others still answer, so one answer lists every reason.
 - **Which repository a rule judges.** The repository the command acts on (`git -C <dir>`, a `cd` in the command, a push of a nested source), not the folder the session started in. When the Bridge does not serve that repository, its story rules are reported as **not judgeable** and skipped by name; the local checks still run.
 - **What a refusal causes.** A refused tool call does not run; the agent reads the reasons and changes its approach. A refused Stop sends the agent back to work. Most refusals need nothing from the user; the few that a person must settle are described in [Overrides](WORKFLOW.md#overrides).
-- **When the Bridge is down.** Every tool call is refused until it is back; the person starts or updates it in the `Kyklos Launcher`. The Bridge is required: there is no switch that turns the hook off.
+- **When the Bridge is down.** Every tool call is refused until it is back; the person starts or updates it in the [`Kyklos Launcher`](COMPONENTS.md#kyklos-launcher). The Bridge is required: there is no switch that turns the hook off.
 
 <p align="center">
 <img src="../assets/workflow/AI-Driven_development_012.png" alt="Skills and hooks keep the agent on the SSDLC workflow" width="900"/>
@@ -90,7 +90,7 @@ flowchart TD
     K -->|"no"| X2["Blocked: names the next item to work on"]
 ```
 
-The open work is read from the tracker by the Bridge with its own token, never from the agent's word or a local file it can edit; a blocked story's recorded blocker is re-checked at each Stop
+The open work is read from the tracker by the [Bridge](COMPONENTS.md#kyklos-bridge) with its own token, never from the agent's word or a local file it can edit; a blocked story's recorded blocker is re-checked at each Stop
 (a block on an issue or merge request lifts by itself when that closes or merges). A blocked Stop only sends the agent back to work: the user sees nothing unless the agent then asks a real
 question. The number of identical Stops before the stuck-breaker releases is `CONTINUE_GUARD_STUCK_TURNS` (default 3). The switches above are opt-outs of the person (see
 [Overrides](WORKFLOW.md#greppable-opt-out-switches)); no marker excuses the open-work check.
@@ -112,7 +112,7 @@ Skills are short, focused playbooks the agent loads when a task calls for them. 
 - **Story and proof:** planning a story, building its [Proof Table](PROOF.md), the [adversarial review](ADVERSARIAL_REVIEW.md), the risk assessment.
 - **Engineering quality:** running and reading tests, measuring coverage as a floor (trust is the goal), mistake-proofing a design, removing duplication, internationalising user-facing text,
   annotating security controls with standard references ([CWE](https://cwe.mitre.org/), [OWASP](https://owasp.org/), [IEC 62443](https://www.isa.org/standards-and-publications/isa-standards/isa-iec-62443-series-of-standards)).
-- **Collaboration:** messaging other agents through the tracker, monitoring for replies, using the `Kyklos Bridge`.
+- **Collaboration:** messaging other agents through the tracker, monitoring for replies, using the [`Kyklos Bridge`](COMPONENTS.md#kyklos-bridge).
 - **Documentation:** finding every document a change affects and keeping it accurate, with a lint that stops internal details from leaking into public documents.
 
 The skills are shipped with the [`Kyklos Plugin`](COMPONENTS.md). **Invocable** says who can start a skill: *user and agent* (the user types it as a slash command, for example `/kyklos:ssdlc-story`, and the agent can
@@ -120,20 +120,20 @@ also load it on its own when a task calls for it), *agent only*, or *user only*.
 
 | Skill                             | Invocable      | Purpose                                                                                                                                                                   |
 |---------------------------------|--------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `kyklos:ssdlc-story`              | user and agent | Plans and tracks work as stories (specification, tasks, risk register) in the configured storage, through the story tool; the backlog is generated, never edited by hand. |
+| `kyklos:ssdlc-story`              | user and agent | Plans and tracks work as stories (specification, tasks, [risk register](PROOF_DIMENSION_RISK_ASSESSMENT.md)) in the configured storage, through the story tool; the backlog is generated, never edited by hand. |
 | `kyklos:ssdlc-story-proof`        | user and agent | The final gate of a story: judges every Quality Dimension of the story's kind and records the verdicts, evidence and metrics in its Proof Table.                          |
 | `kyklos:ssdlc-adversarial-review` | user and agent | Runs the mandatory, tamper-proof adversarial review of a story's change, posts the report and has the Bridge sign its token; drives the bounded fix loop.                 |
 | `kyklos:ssdlc-risk-assessment`    | user and agent | Produces and keeps current the story's numbered risk register, cited to the standards and laws the project applies (IEC 62443, NIS2, the CRA).                            |
-| `kyklos:ssdlc-cysec`              | agent only     | The security-annotation convention (`[CySec]`): format, verbs and formal references (CWE, OWASP, IEC 62443, CAPEC), applied while writing security code.                  |
+| `kyklos:ssdlc-cysec`              | agent only     | The security-annotation convention ([`[CySec]`](PROOF_DIMENSION_SECURITY_POSTURE.md#how-it-is-checked)): format, verbs and formal references (CWE, OWASP, IEC 62443, CAPEC), applied while writing security code.                  |
 | `kyklos:ssdlc-cysec-comments`     | user and agent | Sweeps existing code for security controls that lack a `[CySec]` annotation and adds them, building the control inventory.                                                |
-| `kyklos:ssdlc-deduplicate`        | user and agent | The Non-Duplication pass: finds duplicated constants and logic with a detector, triages them by meaning and centralises them.                                             |
-| `kyklos:ssdlc-i18n`               | user and agent | The i18n pass: moves every user-facing text a story added or changed into the project's localisation resources, without duplicates.                                       |
-| `kyklos:update-docs`              | user and agent | The Documentation pass: finds every document a change affects, updates it, and runs the audience lint that keeps internal details out of public documents.                |
+| `kyklos:ssdlc-deduplicate`        | user and agent | The [Non-Duplication](PROOF_DIMENSION_NON_DUPLICATION.md) pass: finds duplicated constants and logic with a detector, triages them by meaning and centralises them.                                             |
+| `kyklos:ssdlc-i18n`               | user and agent | The [i18n](PROOF_DIMENSION_I18N.md) pass: moves every user-facing text a story added or changed into the project's localisation resources, without duplicates.                                       |
+| `kyklos:update-docs`              | user and agent | The [Documentation](PROOF_DIMENSION_DOCUMENTATION.md) pass: finds every document a change affects, updates it, and runs the audience lint that keeps internal details out of public documents.                |
 | `kyklos:poka-yoke`                | user and agent | [Mistake-proofing](https://en.wikipedia.org/wiki/Poka-yoke) by design: chooses the highest guard that makes a mistake impossible or makes it fail at once.                |
 | `kyklos:measuring-test-coverage`  | user and agent | Coverage as a floor and test trust as the goal: how coverage is collected, what to test next, which tests can really fail, what to exclude.                               |
 | `kyklos:running-tests`            | user and agent | How tests are run, investigated and reported, and how a failure is traced to its cause instead of being called "pre-existing".                                            |
 | `kyklos:using-the-bridge`         | user and agent | How the agent uses the `Kyklos Bridge` for builds, tests and host actions the sealed container cannot do.                                                                 |
-| `kyklos:ssdlc-repo-model`         | user and agent | Declares the project's topology once; every guard derives its branching and push discipline from it.                                                                      |
+| `kyklos:ssdlc-repo-model`         | user and agent | Declares the project's [topology](TOPOLOGIES.md) once; every guard derives its branching and push discipline from it.                                                                      |
 | `kyklos:ssdlc-agent-msg`          | user and agent | Messages between agents through the issue tracker: create, read the inbox, reply, reopen and close, all through the Bridge.                                               |
 | `kyklos:ssdlc-inbound-monitor`    | user and agent | Keeps the conversation with other agents alive: a periodic check that picks up a reply even while the agent is idle.                                                      |
 | `kyklos:ssdlc-ai-fix-loop`        | user and agent | Works through the findings of an automated code review on a merge request, proposing a fix for each and applying it only on human approval, with a bound.                 |

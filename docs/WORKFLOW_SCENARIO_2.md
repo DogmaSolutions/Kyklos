@@ -12,7 +12,7 @@
 
 
 ## Scenario 2 - High-level workflow
-The agent works exactly as above but cannot push. A person pushes the story branch, and the merge request is created armed in that push (or the agent creates and arms it through the Bridge once
+The agent works exactly as above but cannot push. A person pushes the story branch, and the merge request is created armed in that push (or the agent creates and arms it through the [Bridge](COMPONENTS.md#kyklos-bridge) once
 the branch is on the remote).  
 Until that push the story **cannot close**: the deliverable is not on the remote (rule 1), the story's commits are not on the trunk (rule 2), and the four remote rows stay open. The agent marks the
 story as waiting on a person and works on something else.
@@ -43,14 +43,14 @@ flowchart TD
     CL -->|"fail"| X2["Refused, findings listed"]
 ```
 
-- **Files and resources.** As in [Scenario 1](WORKFLOW_SCENARIO_1.md); the push comes from the person's machine or from the push-authorised session.
-- **Secrets.** The container holds a push credential only if one is configured; the push rule refuses the push anyway while `KYKLOS_CI_MONITOR` and `KYKLOS_ALLOW_PUSH` are unset. The person
+- **Files and resources.** As in [Scenario 1](WORKFLOW_SCENARIO_1.md); the push comes from the person's machine or from the [push-authorised session](INFRASTRUCTURE_SESSION.md).
+- **Secrets.** The container holds a push credential only if one is configured; the push rule refuses the push anyway while [`KYKLOS_CI_MONITOR`](WORKFLOW.md#greppable-opt-out-switches) and `KYKLOS_ALLOW_PUSH` are unset. The person
   pushes with their own credential.
 - **Signatures.** The tokens are made on the host before the push and checked at the close against the merged files; a person's push does not change them unless the files change.
 - **When the checks run.** The push rule at the agent's attempt; the close only after the merge.
 - **What a failure causes.** The story cannot close before the person's push and the merge (rules 1 and 2); the remote rows stay open. A blocked story does not stop the agent's turn: the blocker
   is recorded on the story and re-checked at every Stop.
-- **Impact on the user.** The person pushes each finished story branch with its merge request (never a trunk merged locally). A one-time exception is the `push-override` label
+- **Impact on the user.** The person pushes each finished story branch with its merge request (never a trunk merged locally). A one-time exception is the [`push-override`](WORKFLOW.md#the-push-override-and-merge-override-labels) label
   (see [Overrides](WORKFLOW.md#the-push-override-and-merge-override-labels)).
 
 ## Related pages

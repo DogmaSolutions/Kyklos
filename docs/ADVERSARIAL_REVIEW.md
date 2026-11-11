@@ -7,7 +7,7 @@ the author's notes. It looks for correctness errors, mismatches with the require
 performance defects and security holes. It also looks beyond the changed lines: every caller of what changed, other stories that touched the same files, the real behaviour of external systems (not
 what a fake assumes), and behaviour under load. It writes at least one new test meant to break the change.
 
-**Where it sits:** in phases *(5) Deployment* and *(6) Review* of the [workflow diagram](WORKFLOW.md): after the tests, the coverage receipt, the documentation pass and the risk assessment. A review that is not a *clean bill* sends the work back to development (the red path in the diagram). The review is posted on the story with its token,
+**Where it sits:** in phases *(5) Deployment* and *(6) Review* of the [workflow diagram](WORKFLOW.md): after the tests, the [coverage receipt](PROOF_DIMENSION_TEST_DISCIPLINE.md#shell-scripts-the-token-and-the-coverage-receipt), the documentation pass and the risk assessment. A review that is not a *clean bill* sends the work back to development (the red path in the diagram). The review is posted on the story with its token,
 and the close verifies that token (see the [Proof Table](PROOF.md)): a story cannot close on a review that never ran, or on a report edited after it was signed.
 
 **It must see the finished code:** for a development story whose change touches code that coverage measures, the review on record must be **newer than the moment the remote received the last
@@ -75,14 +75,14 @@ sequenceDiagram
     end
 ```
 
-- **Where things are.** The report is posted as a numbered note on the story (`Adversarial review (round N)`), by the Bridge's own account: the verb `advreview_mint` signs the report, and `advreview_post` posts it with its token; the skill
+- **Where things are.** The report is posted as a numbered note on the story (`Adversarial review (round N)`), by the [Bridge](COMPONENTS.md#kyklos-bridge)'s own account: the verb `advreview_mint` signs the report, and `advreview_post` posts it with its token; the [skill](HOOKS_AND_SKILLS.md#how-the-agent-knows-what-to-do-skills)
   `kyklos:ssdlc-adversarial-review` drives it. A note that only quotes the marker of a review note does not count.
-- **The secret.** The token is a keyed hash (HMAC-SHA256) under the proof signing key `KYKLOS_PROOF_HMAC_KEY`. The `Kyklos Launcher` creates that key on first use, keeps it in the operating
+- **The secret.** The token is a keyed hash (HMAC-SHA256) under the [proof signing key](PROOF_DIMENSION_TEST_DISCIPLINE.md#signatures-the-key-and-when-they-are-checked) `KYKLOS_PROOF_HMAC_KEY`. The [`Kyklos Launcher`](COMPONENTS.md#kyklos-launcher) creates that key on first use, keeps it in the operating
   system's credential store and hands it only to the Bridge process; the agent's container and the builds the Bridge runs never receive it (see [Secrets](SECRETS.md)). Without the key no token is
   made and none verifies.
 - **How the signature is computed.** The Bridge hashes the report text with SHA-256 and signs the text `advreview:<story>:<that hash>`. Changing one character of the report, or presenting the
   token on another story, gives a different value. The computation lives in `bridge/src/DogmaSolutions.ProjectManagement.Agile.Ssdlc/ProofTokenBinding.cs`.
-- **When it is checked.** When the proof is written (`proof_set` and the proof check), at the close, and by the Stop rule that re-grades a story closed in the session. The close also checks the
+- **When it is checked.** When the proof is written ([`proof_set`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) and the proof check), at the close, and by the [Stop rule](HOOKS_AND_SKILLS.md#forced-productivity) that re-grades a story closed in the session. The close also checks the
   timing of rule 4 of [the workflow](WORKFLOW.md#rule-4-the-review-saw-the-finished-code): for a development story, the review must be newer than the moment the remote received the last change of
   the code coverage measures.
 - **Free text is checked before it is posted.** A line of the report that would run a tracker command (on GitLab a *quick action*: a line starting with `/` and a letter, such as `/close`,

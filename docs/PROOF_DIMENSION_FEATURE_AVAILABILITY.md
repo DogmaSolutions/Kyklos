@@ -18,8 +18,8 @@ that would fail if the path from the outside to the feature were broken. It is r
 
 ## How it is checked
 
-Feature Availability is a **judgement row with a mechanical spine**. `proof_draft` leaves it open for the agent, with a prompt
-and the list of requirements evidence already names; the agent writes the row; the Bridge checks the citations at the write and
+Feature Availability is a **judgement row with a mechanical spine**. [`proof_draft`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) leaves it open for the agent, with a prompt
+and the list of requirements evidence already names; the agent writes the row; the [Bridge](COMPONENTS.md#kyklos-bridge) checks the citations at the write and
 at the close.
 
 ```mermaid
@@ -40,7 +40,7 @@ flowchart TD
 
 1. **The draft.** `proof_draft` reads the story's `## Requirements` section and looks for evidence naming each `R` item: a changed
    test whose running test method (or its `[Category]`, `[Trait]` or `[Property]` value) carries the item as an exact token
-   (`R1_export_command_retries`), a host tool receipt, or the newest adversarial review whose token the Bridge verifies and whose
+   (`R1_export_command_retries`), a host tool receipt, or the newest [adversarial review](ADVERSARIAL_REVIEW.md) whose token the Bridge verifies and whose
    "Checked" section states the item handled without negative wording. It leaves the row open with the prompt and with the lists
    of named and unnamed items, and records the unnamed ones in its signed draft record (see
    [Completeness](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) for the record and its signature).
@@ -57,7 +57,7 @@ flowchart TD
 
 **Keys, files and secrets.** The specification is the story's issue description; the proof is a note on the story marked
 `<!-- kyklos:story-proof -->`, written only by the Bridge with the GitLab token it keeps on the host. The signed draft record
-is signed with the proof signing key `KYKLOS_PROOF_HMAC_KEY` (Windows Credential Manager, handed only to the Bridge process; see
+is signed with the [proof signing key](PROOF_DIMENSION_TEST_DISCIPLINE.md#signatures-the-key-and-when-they-are-checked) `KYKLOS_PROOF_HMAC_KEY` (Windows Credential Manager, handed only to the Bridge process; see
 [Secrets](SECRETS.md)). Nothing in this row is signed by the agent.
 
 **What a failure causes.** A refusal at the write leaves the stored row as it was; a refusal at the close keeps the story open with
@@ -97,7 +97,7 @@ the merge, not reported by the first user.
 | Feature Availability | ❌ UNPROVEN | OPEN (proof_draft): judgement row, judge that each requirement is delivered and reachable by its user; cite only the items evidence names. Evidence names: R1 (test: tests/ExportCommandTests.cs); no evidence names R2, so they cannot be cited until a test, a tool receipt or the review covers them. | – |
 
 Fix: add an end-to-end test that carries `R2` in its name, push, draft again, then write the row citing both items. Writing
-`R2` into the row before that is refused by `proof_set`.
+`R2` into the row before that is refused by [`proof_set`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked).
 
 **NOT_PERTINENT:**
 
@@ -112,7 +112,7 @@ The evidence cell must say why (an empty or filler reason is refused). It is not
 stories. A NOT_PERTINENT row cites no items, so if the story declares requirements, they must still be cited in some PROVEN row
 (usually [Completeness](PROOF_DIMENSION_COMPLETENESS.md)), or the close refuses them as uncited. The owner can also untick the
 dimension in the story's [Proof Discipline](PROOF.md#the-owners-proof-discipline), or waive a gap at the close with the
-`proof-override` label and a named cause (see [the workflow](WORKFLOW.md)).
+[`proof-override`](WORKFLOW.md#the-owners-proof-override-label) label and a named cause (see [the workflow](WORKFLOW.md)).
 
 ## Related pages
 

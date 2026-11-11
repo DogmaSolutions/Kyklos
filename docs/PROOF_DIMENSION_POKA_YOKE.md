@@ -21,7 +21,7 @@ For every footgun the story's change introduces or touches, the guard sits on th
 2. **Fails loudly at build or start-up.** An analyzer error, a constructor that throws, settings that fail validation unless
    real values are set, a `default:` branch over a closed set that throws instead of dropping the case.
 3. **Fails loudly in a test.** A guard or architecture test that stays green only while the invariant holds.
-4. **Blocked by a hook.** A hook refuses the mistake in the agent's actions or changed files.
+4. **Blocked by a [hook](HOOKS_AND_SKILLS.md#how-a-hook-decides-one-hook-per-event-every-rule-in-the-bridge).** A hook refuses the mistake in the agent's actions or changed files.
 5. **Documented convention** (weakest). Only when rungs 1 to 4 are genuinely not feasible, and then with a note a reviewer
    will see. A guard on rung 5 when rung 1 or 2 was reachable is a latent bug.
 
@@ -56,7 +56,7 @@ In words:
 - **The skill guides the design.** The `kyklos:poka-yoke` skill (see [Skills](HOOKS_AND_SKILLS.md#how-the-agent-knows-what-to-do-skills))
   holds the ladder and a list of design questions per kind of change: identity and selection, values shared across files,
   closed sets, new settings, serialised contracts, destructive actions, resource lifetimes.
-- **The row is checked like every row.** At `proof_set` and at the close, a PROVEN or NOT_PERTINENT row needs real evidence
+- **The row is checked like every row.** At [`proof_set`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) and at the close, a PROVEN or NOT_PERTINENT row needs real evidence
   text, and every specification item the row cites must have evidence behind it (see
   [Configurability](PROOF_DIMENSION_CONFIGURABILITY.md#how-it-is-checked) for the shared checks). The row carries no token
   and no signature.
@@ -71,7 +71,7 @@ In words:
 | Metric | Meaning |
 |--------|---------|
 | `Footguns introduced` | how many easy, damaging mistakes the change created |
-| `Guard rung` (one per footgun) | the rung of its guard: impossible by construction, fails at build or start-up, fails in a test, blocked by a hook, documented |
+| `Guard rung` (one per footgun) | the rung of its guard: impossible by construction, fails at build or start-up, fails in a test, blocked by a [hook](HOOKS_AND_SKILLS.md#how-a-hook-decides-one-hook-per-event-every-rule-in-the-bridge), documented |
 | one metric per specification item the row proves | as for every row; the items of the *Poka-yoke* section often land here |
 
 ## Why it exists
@@ -89,9 +89,9 @@ mounted share) is emptied. The Poka-Yoke row forces the guard up the ladder:
 - a test (rung 3) proves the refusal on a folder without the marker.
 
 **How Kyklos applies it to itself.** Many of its own controls are poka-yoke guards: the story tool is the only writer of
-the story header, so a hand edit cannot drift from the tracker; an unknown value of a Bridge setting stops the Bridge at
+the story header, so a hand edit cannot drift from the tracker; an unknown value of a [Bridge](COMPONENTS.md#kyklos-bridge) setting stops the Bridge at
 start-up; a proof row cannot be filled by typing where a token is required; the destructive `rm` patterns that would stall
-an agent are refused by a hook before they run.
+an agent are refused by a [hook](HOOKS_AND_SKILLS.md#how-a-hook-decides-one-hook-per-event-every-rule-in-the-bridge) before they run.
 
 ## Practical examples
 
@@ -107,7 +107,7 @@ an agent are refused by a hook before they run.
 |---|---|---|---|
 | Poka-Yoke | ❌ UNPROVEN | The README warns that the clean-up folder must be the export folder. | <kbd>Guard rung:</kbd> documented |
 
-The guard sits on the lowest rung while rung 2 was reachable; the adversarial review flags it as a major finding. The fix:
+The guard sits on the lowest rung while rung 2 was reachable; the [adversarial review](ADVERSARIAL_REVIEW.md) flags it as a major finding. The fix:
 make the command refuse a folder without the marker, add the test, set the row again.
 
 **NOT_PERTINENT.**

@@ -33,14 +33,14 @@ flowchart TD
     C -->|"a hand merge was attempted"| X["Refused: an armed request merges itself"]
 ```
 
-- **Resources and secrets.** The Bridge reads pipelines, jobs, logs and test reports with the CI token it holds on the host (`read_api`, or `api` where it also creates and arms merge requests);
+- **Resources and secrets.** The [Bridge](COMPONENTS.md#kyklos-bridge) reads pipelines, jobs, logs and test reports with the CI token it holds on the host (`read_api`, or `api` where it also creates and arms merge requests);
   the agent's container never holds it (see [Secrets](SECRETS.md)). A CI write (retry, cancel, trigger) is limited to work branches and merge-request refs for a project session, and every CI
   write is logged by the Bridge as a `[ci-audit]` line.
 - **When it is checked.** At the push (the arm rule), at every look at the pipeline, at any attempt to merge by hand, and at the close, which wants the cited deliverable merged and, where it has a
   pipeline, that pipeline green (see [The Kyklos workflow](WORKFLOW.md)).
 - **What a failure causes.** A red pipeline sends the work back to the agent; an unarmed request waits for its arm; a merge by hand is refused. The story cannot close until GitLab has merged the
   request on green.
-- **Impact on the user.** None while the loop runs. A pipeline that hangs, or a runner that is missing, needs a person; the agent says so on the story. The `merge-override` label (see
+- **Impact on the user.** None while the loop runs. A pipeline that hangs, or a runner that is missing, needs a person; the agent says so on the story. The [`merge-override`](WORKFLOW.md#the-push-override-and-merge-override-labels) label (see
   [Overrides](WORKFLOW.md#the-push-override-and-merge-override-labels)) is the person's way to accept a merge without a green pipeline.
 
 ## Related pages

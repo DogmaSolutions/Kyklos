@@ -54,16 +54,16 @@ flowchart TD
    [CWE](https://cwe.mitre.org/), [OWASP](https://owasp.org/),
    [IEC 62443](https://www.isa.org/standards-and-publications/isa-standards/isa-iec-62443-series-of-standards) or
    [CAPEC](https://capec.mitre.org/) identifier, never an invented one. The convention is defined once, in the plugin's
-   `ssdlc-cysec` skill; the `ssdlc-cysec-comments` skill backfills it on older code. The annotation is **soft**: a missing one is
+   `ssdlc-cysec` [skill](HOOKS_AND_SKILLS.md#how-the-agent-knows-what-to-do-skills); the `ssdlc-cysec-comments` skill backfills it on older code. The annotation is **soft**: a missing one is
    recorded in the evidence as a missed opportunity, never turned into UNPROVEN. Its value is that `grep -rn "\[CySec\]"` gives a
    standards-mapped inventory of the controls, ready for an audit.
-3. **The mutation link.** The annotation also marks code as security-sensitive for mutation testing. The plugin's
+3. **The mutation link.** The annotation also marks code as security-sensitive for [mutation testing](WORKFLOW.md#glossary). The plugin's
    `mutation-due.sh check` answers whether a story needs a mutation run: it does when a production source line the branch changed
    (in C#, JavaScript or TypeScript, or Scala) lies within ten lines of a `[CySec]` comment. The run happens once, right before the
    push that opens or updates the merge request (or before the close), and stays valid until the measured code changes; its score
    is cited in the [Test Discipline](PROOF_DIMENSION_TEST_DISCIPLINE.md) row. A project that has suspended mutation testing sets
-   `KYKLOS_MUTATION_SUSPENDED=1` in its launcher configuration, and the row then says so.
-4. **The write.** `proof_set` refuses a row with no real evidence text (empty, a dash, a placeholder, `n/a`, `TBD`, `todo`,
+   `KYKLOS_MUTATION_SUSPENDED=1` in its [launcher](COMPONENTS.md#kyklos-launcher) configuration, and the row then says so.
+4. **The write.** [`proof_set`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) refuses a row with no real evidence text (empty, a dash, a placeholder, `n/a`, `TBD`, `todo`,
    `none`) and a row that cites a specification item the signed draft record lists as uncovered. Whether each finding is anchored
    to the change is judged by people and by the reviewer, not by a pattern.
 5. **The review.** The [adversarial review](PROOF_DIMENSION_ADVERSARIAL_REVIEW.md) is the control that tests the findings: a
@@ -71,9 +71,9 @@ flowchart TD
    line) keeps the review row open until it is fixed.
 6. **The close** refuses the story while the row is missing, UNPROVEN or without real evidence.
 
-**Where things are, and the secrets.** The proof note (`<!-- kyklos:story-proof -->`) is written only by the Bridge, with the
-GitLab token it keeps on the host; the agent's container holds no token that can call the GitLab API. The review token and the
-draft record are signed with the proof signing key `KYKLOS_PROOF_HMAC_KEY`, kept in the Windows Credential Manager and handed only
+**Where things are, and the secrets.** The proof note (`<!-- kyklos:story-proof -->`) is written only by the [Bridge](COMPONENTS.md#kyklos-bridge), with the
+GitLab token it keeps on the host; the agent's container holds no token that can call the GitLab API. The [review token](ADVERSARIAL_REVIEW.md#how-the-review-token-is-made-and-checked) and the
+draft record are signed with the [proof signing key](PROOF_DIMENSION_TEST_DISCIPLINE.md#signatures-the-key-and-when-they-are-checked) `KYKLOS_PROOF_HMAC_KEY`, kept in the Windows Credential Manager and handed only
 to the Bridge (see [Secrets](SECRETS.md)).
 
 **What a failure causes, and the user's part.** A refused write or close keeps the story open with the reasons. A person is
@@ -85,21 +85,21 @@ which belongs in the [Risk Assessment](PROOF_DIMENSION_RISK_ASSESSMENT.md) regis
 - The controls added or touched, each with its formal reference: `<kbd>Controls (with reference):</kbd> 2 (CWE-22, CWE-918)`.
 - Where it applies, the absence of a classic leak: `<kbd>Secrets in log lines:</kbd> 0`.
 
-These metrics are the method's; the Bridge's mechanical checks on this row are the evidence text, the citations and the
-closability rules. The `[CySec]` annotations themselves are counted by a search, not by the close.
+These metrics are the method's; the [Bridge](COMPONENTS.md#kyklos-bridge)'s mechanical checks on this row are the evidence text, the citations and the
+closability rules. The [`[CySec]`](#how-it-is-checked) annotations themselves are counted by a search, not by the close.
 
 ## Why it exists
 
 Security reasoning that is not written down did not happen. In an agent's workflow it is the first thing to be dropped: the story
 is about a feature, the tests are about the feature, and nobody asks what the feature lets an attacker do. A row that must hold a
 file, a line and a threat makes the question unavoidable, and the annotations turn the answers into an inventory an auditor can
-read (a NIS2 or IEC 62443 due-diligence question becomes a search).
+read (a [NIS2](KB.md#standards-catalogues-and-references) or IEC 62443 due-diligence question becomes a search).
 
 **A realistic use case.** A story adds "import a project template from a URL". The feature works and is tested. Walking the
 attack surface for the row, the agent asks where the URL is checked, and the honest answer is "nowhere": the importer fetches any
 address, including the cloud metadata address and local services. The control is added (only `https` to an allow-listed host,
 `// [CySec] Prevents CWE-918 "Server-Side Request Forgery (SSRF)"`), with a test that asks for `http://localhost/` and expects a
-refusal. Because the changed lines sit next to a `[CySec]` comment, `mutation-due.sh` asks for one mutation run, which shows that
+refusal. Because the changed lines sit next to a [`[CySec]`](#how-it-is-checked) comment, `mutation-due.sh` asks for one mutation run, which shows that
 the test would catch a removed check.
 
 ## Practical examples
@@ -129,7 +129,7 @@ exactly what the review is told to reject: no file, no line, no threat.
 
 Rarely, and with the search written down: a change of text, layout or naming that crosses no trust boundary. Even then, the
 evidence says what was searched. Not required for analysis and documentation stories. The owner can untick the dimension in the
-story's [Proof Discipline](PROOF.md#the-owners-proof-discipline), or waive a gap at the close with the `proof-override` label and a
+story's [Proof Discipline](PROOF.md#the-owners-proof-discipline), or waive a gap at the close with the [`proof-override`](WORKFLOW.md#the-owners-proof-override-label) label and a
 named cause (see [the workflow](WORKFLOW.md)).
 
 ## Related pages

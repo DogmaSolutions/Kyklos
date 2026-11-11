@@ -21,7 +21,7 @@ development and operations stories.
 ## How it is checked
 
 Resilience is a **judgement row with a mechanical spine**: the fail-open and fail-hard choices are declared in the specification,
-the Bridge looks for evidence of each, and the close demands each one cited in this row.
+the [Bridge](COMPONENTS.md#kyklos-bridge) looks for evidence of each, and the close demands each one cited in this row.
 
 ```mermaid
 flowchart TD
@@ -44,9 +44,9 @@ flowchart TD
    does a line that opens with the label in any letter case (`Fail-hard: ...`). Lower-case prose that merely mentions the words
    ("no fail-open behaviour") declares nothing. A line such as `- **FAIL-OPEN:** none` **does** declare the marker: the row then
    proves that the change really has no fail-open path.
-2. **The draft.** `proof_draft` accepts three kinds of evidence for a marker: a changed test whose running test name or
+2. **The draft.** [`proof_draft`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) accepts three kinds of evidence for a marker: a changed test whose running test name or
    `[Category]`, `[Trait]` or `[Property]` value carries it as a token (`[Property("Spec", "FAIL-HARD")]`), a host tool receipt,
-   or the newest adversarial review whose token the Bridge verifies and whose "Checked" section states the marker holding, with
+   or the newest [adversarial review](ADVERSARIAL_REVIEW.md) whose token the Bridge verifies and whose "Checked" section states the marker holding, with
    no negative wording on that line. It leaves the row open with the prompt *judge that each FAIL-OPEN / FAIL-HARD choice holds;
    name the test of each*, and lists the markers named and not named; the latter go into the signed draft record.
 3. **The write.** `proof_set` refuses a row with no real evidence text and a row that cites a marker the signed record lists as
@@ -59,7 +59,7 @@ flowchart TD
 
 **Where things are, and the key.** The markers are in the story's issue description; the proof is in the note marked
 `<!-- kyklos:story-proof -->`, written by the Bridge with the GitLab token it keeps on the host. The draft record and the review
-token are signed with the proof signing key `KYKLOS_PROOF_HMAC_KEY`, kept in the Windows Credential Manager and handed only to the
+token are signed with the [proof signing key](PROOF_DIMENSION_TEST_DISCIPLINE.md#signatures-the-key-and-when-they-are-checked) `KYKLOS_PROOF_HMAC_KEY`, kept in the Windows Credential Manager and handed only to the
 Bridge process (see [Secrets](SECRETS.md)); a review whose token does not verify covers nothing.
 
 **What a failure causes, and the user's part.** The story stays open with the uncited markers named. The agent injects the failure
@@ -92,7 +92,7 @@ the code makes.
 |-------------------|-----------|------------------------------------------------------------------------------------------------------------------------------------|---------|
 | Resilience        | ✅ PROVEN | The upload retries with growing waits; attempts and back-off are settings, and a test setting disables waits. Tests inject a timeout, a reset connection and a full disk. | <kbd>Failure-injection tests (UploadRetryTests):</kbd> 3 pass<br><kbd>Retry settings covered:</kbd> 2/2<br><kbd>FAIL-HARD (Writes_stop_on_a_full_disk):</kbd> pass |
 
-**UNPROVEN, and what fixes it:** the agent writes `<kbd>FAIL-OPEN (review):</kbd> holds` and `proof_set` answers
+**UNPROVEN, and what fixes it:** the agent writes `<kbd>FAIL-OPEN (review):</kbd> holds` and [`proof_set`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) answers
 `proof_set refused for 'Resilience': it cites FAIL-OPEN, which proof_draft found no evidence for (no test names it, no review covered it)`.
 The review's "Checked" section never mentioned the marker. Fix: add a test carrying `FAIL-OPEN` (or have the review state it as
 checked), then draft again and write the row.
@@ -108,7 +108,7 @@ checked), then draft again and write the row.
 When the change makes no call that can fail for environmental reasons and declares no fail-open or fail-hard choice. If markers
 are declared, they still have to be cited in some PROVEN row, or the close refuses them. Not required for analysis and
 documentation stories. The owner can untick the dimension in the story's [Proof Discipline](PROOF.md#the-owners-proof-discipline),
-or waive a gap at the close with the `proof-override` label and a named cause (see [the workflow](WORKFLOW.md)).
+or waive a gap at the close with the [`proof-override`](WORKFLOW.md#the-owners-proof-override-label) label and a named cause (see [the workflow](WORKFLOW.md)).
 
 ## Related pages
 

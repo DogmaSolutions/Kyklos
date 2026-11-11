@@ -29,7 +29,7 @@ So the source change goes through a person before the close:
 Until the person's push, the four remote rows of the source change stay open, and the agent records the story as waiting on that push instead of closing it. A push into a **public** source is
 refused, for every session, when anything it sends carries an AI or agent artifact.
 
-In the [*Private Sources + Public Artifacts* topology](TOPOLOGIES.md), the public repository is never pushed by hand and never holds stories: the private source follows scenario 1, 2 or 3, and the pipeline publishes
+In the [*Private Sources + Public Artifacts* topology](TOPOLOGIES.md), the public repository is never pushed by hand and never holds stories: the private source follows [scenario 1](WORKFLOW_SCENARIO_1.md), 2 or 3, and the pipeline publishes
 the artifact.  
 
 The diagram below is also available in [Yed GRAPHML format](../assets/workflow/AI-Driven_development_013-4-companion-person-push.graphml).  
@@ -55,8 +55,8 @@ flowchart TD
 ```
 
 - **Files and resources.** The companion holds the backlog and the agent tooling; the nested source (`Repo/` by default) holds the code. Each rule judges the repository the command acts on:
-  a commit in `Repo/` is judged by the source's own settings, read from the companion's `.claude/standards.env`.
-- **Secrets.** The companion push credential reaches only the companion; a source push credential exists only if the project gives one. The Bridge reads both projects on GitLab with its own
+  a commit in `Repo/` is judged by the source's own settings, read from the companion's [`.claude/standards.env`](WORKFLOW.md#greppable-opt-out-switches).
+- **Secrets.** The companion push credential reaches only the companion; a source push credential exists only if the project gives one. The [Bridge](COMPONENTS.md#kyklos-bridge) reads both projects on GitLab with its own
   tokens.
 - **Signatures.** The tokens record the tree they measured (the source, not the companion), and the close checks them against the host's copy of the source as merged.
 - **When the checks run.** At each write (no internal reference or agent file may enter a public source), each commit and push, and at the close.

@@ -9,7 +9,7 @@ the agent:
 - [**Trunk-based**](https://trunkbaseddevelopment.com/): for repositories declared that way (for example a tooling or bookkeeping repository), committing on the trunk is the intended workflow.
 
 ## Where the Git token comes from
-Each project's launch configuration names its push credential; the value lives in the [Windows Credential Manager](https://support.microsoft.com/windows/accessing-credential-manager-1b5c916a-6a16-889f-8581-fc16e8165ac0). At every launch the `Kyklos Launcher` reads it,
+Each project's launch configuration names its push credential; the value lives in the [Windows Credential Manager](https://support.microsoft.com/windows/accessing-credential-manager-1b5c916a-6a16-889f-8581-fc16e8165ac0). At every launch the [`Kyklos Launcher`](COMPONENTS.md#kyklos-launcher) reads it,
 asks [GitLab](https://about.gitlab.com/) what the token is allowed to do, and only then hands it to the container: a token that could also call the GitLab API, or an expired one, stops the launch (see [Secrets](SECRETS.md)). Inside the container the push
 credential is the only Git secret, and the guards decide what it may be used for: the agent pushes only its own `feature/` and `hotfix/` branches, plus the trunk of a repository declared
 trunk-based (such as a companion), and only where the project lets the agent watch its own pipelines, through a dedicated token (see the [least-privilege tokens](SECRETS.md)); never a GitFlow trunk, a tag or a forced update. Where the agent may not push, a person,
@@ -21,7 +21,7 @@ Trunks, release and support branches, tags and force pushes are never pushed by 
 merges itself once the pipeline is green**: the agent creates it already *armed*, never merges it by hand, and deletes its local branch once the merge has happened.  
 Arming is refused unless the branch already contains the trunk's current head, or the trunk's new commits touch none of the branch's files and no build-wide file changed: a merge request pipeline
 tests the branch, so this keeps what was tested equal to what lands.  
-In a repository **without a CI pipeline** an armed request would never merge, so it is created unarmed and merged through the Bridge as soon as the server reports it mergeable.
+In a repository **without a CI pipeline** an armed request would never merge, so it is created unarmed and merged through the [Bridge](COMPONENTS.md#kyklos-bridge) as soon as the server reports it mergeable.
 
 Each repository declares how a finished branch closes (its *close mode*):
 
@@ -69,15 +69,15 @@ flowchart TD
     G -->|"no"| UN["Created unarmed, with the reason, armed once it is fixed"]
 ```
 
-- **Files and resources.** The rules read the repository's own `.claude/standards.env` (its topology and close mode), the git facts of the target repository (branch, commits, remote), and,
-  for the arm, the merge request and the trunk's head on GitLab (read by the Bridge with its own token) and the Bridge's record of passing test runs (the content ledger) or a Test Discipline token.
-- **Secrets.** The push itself uses the push credential the launcher put in the container (write-only, see [Secrets](SECRETS.md)). Every GitLab read the rules need is made by the Bridge on the
+- **Files and resources.** The rules read the repository's own [`.claude/standards.env`](WORKFLOW.md#greppable-opt-out-switches) (its [topology](TOPOLOGIES.md) and close mode), the git facts of the target repository (branch, commits, remote), and,
+  for the arm, the merge request and the trunk's head on GitLab (read by the [Bridge](COMPONENTS.md#kyklos-bridge) with its own token) and the Bridge's record of passing test runs (the [content ledger](PROOF_DIMENSION_TEST_DISCIPLINE.md#the-content-ledger-what-the-bridge-records-after-every-passing-run)) or a [Test Discipline](PROOF_DIMENSION_TEST_DISCIPLINE.md) token.
+- **Secrets.** The push itself uses the push credential the [launcher](COMPONENTS.md#kyklos-launcher) put in the container (write-only, see [Secrets](SECRETS.md)). Every GitLab read the rules need is made by the Bridge on the
   host; the container has no token that could call the API.
 - **When.** Before the command runs. A refused push sends nothing to the remote.
 - **What a failure causes.** The agent fixes what the reason names (a missing `Refs:` footer, an unmerged trunk head, a missing test run) and repeats the push. A merge request created unarmed
   waits until the agent arms it; the [story close](WORKFLOW.md#rule-5-a-merge-request-merges-itself-and-only-on-the-merged-result) needs it merged.
 - **Impact on the user.** None in the normal flow. A person is needed when the session may not push at all (they push the story branch with its merge request), or for a one-time exception
-  (the `push-override` label; see [Overrides](WORKFLOW.md#overrides)). The Git server's own protected-branch settings remain a second layer: protect the branches you care about there too.
+  (the [`push-override`](WORKFLOW.md#the-push-override-and-merge-override-labels) label; see [Overrides](WORKFLOW.md#overrides)). The Git server's own protected-branch settings remain a second layer: protect the branches you care about there too.
 
 ## Related pages
 

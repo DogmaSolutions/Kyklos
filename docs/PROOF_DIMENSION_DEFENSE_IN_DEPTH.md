@@ -42,15 +42,15 @@ flowchart TD
 **Step by step.**
 
 1. **The draft** leaves the row open with the prompt *for each control, what happens when it is bypassed and which inner layer
-   catches it; findings first*. The Bridge never proves this row by itself.
+   catches it; findings first*. The [Bridge](COMPONENTS.md#kyklos-bridge) never proves this row by itself.
 2. **The reasoning.** For each control the agent writes the bypass and the layer behind it. The strongest evidence is a test that
    bypasses the outer layer on purpose (calls the inner component directly with the bad value) and shows that the inner layer
    still refuses; such a test is not required, but it turns a claim into a fact.
 3. **The marking.** The inner layer carries `// [CySec] Hardens <reference> "<title>": <why here>`, the defense-in-depth verb of
-   the `[CySec]` convention (defined in the plugin's `ssdlc-cysec` skill). The annotation is soft: missing, it is recorded as a
+   the [`[CySec]`](PROOF_DIMENSION_SECURITY_POSTURE.md#how-it-is-checked) convention (defined in the plugin's `ssdlc-cysec` [skill](HOOKS_AND_SKILLS.md#how-the-agent-knows-what-to-do-skills)). The annotation is soft: missing, it is recorded as a
    missed opportunity, never as UNPROVEN. A changed line within ten lines of such a comment makes one mutation run due before the
    push or the close (see [Security Posture](PROOF_DIMENSION_SECURITY_POSTURE.md#how-it-is-checked)).
-4. **The write.** `proof_set` refuses a row with no real evidence text and a row citing a specification item the signed draft
+4. **The write.** [`proof_set`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) refuses a row with no real evidence text and a row citing a specification item the signed draft
    record lists as uncovered.
 5. **The review.** The [adversarial review](PROOF_DIMENSION_ADVERSARIAL_REVIEW.md) attacks the bypass itself: it looks for the
    second caller that skips the outer check, the configuration that disables it. A layer that does not hold is a finding that keeps
@@ -58,8 +58,8 @@ flowchart TD
 6. **The close** refuses the story while the row is missing, UNPROVEN or without real evidence.
 
 **Where things are, and the secrets.** The proof is the Bridge-written note marked `<!-- kyklos:story-proof -->`; the annotations
-live in the source code itself, next to the layer they describe. The only key involved is the proof signing key
-`KYKLOS_PROOF_HMAC_KEY` that signs the draft record and the review token, kept in the Windows Credential Manager and handed only
+live in the source code itself, next to the layer they describe. The only key involved is the [proof signing key](PROOF_DIMENSION_TEST_DISCIPLINE.md#signatures-the-key-and-when-they-are-checked)
+`KYKLOS_PROOF_HMAC_KEY` that signs the draft record and the [review token](ADVERSARIAL_REVIEW.md#how-the-review-token-is-made-and-checked), kept in the Windows Credential Manager and handed only
 to the Bridge (see [Secrets](SECRETS.md)).
 
 **What a failure causes, and the user's part.** A refused write or close keeps the story open; the agent adds the reasoning, the
@@ -72,14 +72,14 @@ layer or the test. A person decides only when a missing layer is accepted as a r
   `<kbd>Controls with a fallback layer:</kbd> 1/2 (archive path check: none, the extractor is the last component)`.
 - Where a bypass test exists: `<kbd>Inner layer with the outer bypassed (Extractor_refuses_dotdot_entries_directly):</kbd> pass`.
 
-These are the method's metrics; the Bridge mechanically checks the evidence text, the citations and the closability rules.
+These are the method's metrics; the [Bridge](COMPONENTS.md#kyklos-bridge) mechanically checks the evidence text, the citations and the closability rules.
 
 ## Why it exists
 
 Controls erode quietly. The most common way a security check disappears is not an attack but a cleanup: someone sees the same
 validation twice and removes the "redundant" inner one, and later someone adds a second entry point that skips the outer one. The
 question *"if this were bypassed?"* is hard to measure and easy to skip, which is why it is a row of its own and not a sentence in
-Security Posture.
+[Security Posture](PROOF_DIMENSION_SECURITY_POSTURE.md).
 
 **A realistic use case.** A web endpoint checks that the caller owns the document before it calls `DocumentStore.Delete(id)`.
 The row asks what happens if that check is bypassed; the honest answer is "nothing stops it": the store deletes any id. A month
@@ -101,7 +101,7 @@ user's document and expects a refusal. When the batch job is written, the inner 
 |-------------------|-------------|---------------------------------------------------------------------------------------------------------------------------------|---------|
 | Defense in Depth  | ❌ UNPROVEN | OPEN (proof_draft): judgement row, for each control, what happens when it is bypassed and which inner layer catches it; findings first. | – |
 
-Fix: take each control of the Security Posture row, write its bypass and fallback (or "none, because ..."), mark the inner
+Fix: take each control of the [Security Posture](PROOF_DIMENSION_SECURITY_POSTURE.md) row, write its bypass and fallback (or "none, because ..."), mark the inner
 layers, and write the row.
 
 **NOT_PERTINENT:**
@@ -114,7 +114,7 @@ layers, and write the row.
 
 When the change adds and touches no security control, which the [Security Posture](PROOF_DIMENSION_SECURITY_POSTURE.md) row
 should already show. Not required for analysis and documentation stories. The owner can untick the dimension in the story's
-[Proof Discipline](PROOF.md#the-owners-proof-discipline), or waive a gap at the close with the `proof-override` label and a named
+[Proof Discipline](PROOF.md#the-owners-proof-discipline), or waive a gap at the close with the [`proof-override`](WORKFLOW.md#the-owners-proof-override-label) label and a named
 cause (see [the workflow](WORKFLOW.md)).
 
 ## Related pages

@@ -58,7 +58,7 @@ flowchart TD
 
 In words:
 
-- **Where the row lives.** In the story's proof note on the issue tracker, written by the Bridge's `proof_set` verb (the
+- **Where the row lives.** In the story's proof note on the issue tracker, written by the [Bridge](COMPONENTS.md#kyklos-bridge)'s [`proof_set`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) verb (the
   story tool's `story proof <id> --set` calls it). The agent never edits the note by hand; the Bridge keeps it.
 - **Real evidence.** A PROVEN or NOT_PERTINENT row with an empty evidence cell, a dash, an ellipsis, a bare "n/a", "TBD",
   "todo" or "none", or an unfilled template placeholder is refused, both when it is written and again at the close. The
@@ -71,22 +71,22 @@ In words:
   `proof_set` refuses a row that cites an item the draft found no evidence for: write the test that names it first. With
   the owner's optional hardening switched on, the close repeats that check on the stored rows (see
   [The Proof Table](PROOF.md)).
-- **When the checks run.** At `proof_set` (the row is refused before it is stored) and at the close (`story_close`), where
+- **When the checks run.** At `proof_set` (the row is refused before it is stored) and at the close ([`story_close`](WORKFLOW.md#how-the-close-checks-the-rules)), where
   the Bridge judges the whole table at once and reports every problem in one answer.
 - **No signature.** This row carries no token: it is a judgement backed by named tests, and the [Adversarial
   Review](PROOF_DIMENSION_ADVERSARIAL_REVIEW.md) is where a second agent checks that those tests really prove what the
   row claims.
 
-Two hooks of the [Kyklos Plugin](HOOKS_AND_SKILLS.md) push the code itself toward good configuration before the proof is
+Two [hooks](HOOKS_AND_SKILLS.md#how-a-hook-decides-one-hook-per-event-every-rule-in-the-bridge) of the [Kyklos Plugin](HOOKS_AND_SKILLS.md) push the code itself toward good configuration before the proof is
 ever written:
 
 - **The standard-configuration guard** (`kyklos-standard-config-guard`) refuses an edit that writes a whole,
   credential-bearing database connection string into C# code, or a password into a settings file such as
   `appsettings.json` (environment overlays and local overlays included). The skeleton of a connection string belongs in
   the settings file; the password is supplied at run time from a secrets manager. A key path that holds no secret
-  despite its name can be declared in the project setting `KYKLOS_CONFIG_SECRET_ALLOW_KEYS`, and every use of that
+  despite its name can be declared in the project setting [`KYKLOS_CONFIG_SECRET_ALLOW_KEYS`](WORKFLOW.md#greppable-opt-out-switches), and every use of that
   opt-out is recorded.
-- **The [Poka-Yoke](PROOF_DIMENSION_POKA_YOKE.md) skill** asks, for every new setting, whether a default-constructed
+- **The [Poka-Yoke](PROOF_DIMENSION_POKA_YOKE.md) [skill](HOOKS_AND_SKILLS.md#how-the-agent-knows-what-to-do-skills)** asks, for every new setting, whether a default-constructed
   settings object fails validation, and whether factory defaults live in the settings file rather than in the property.
 
 ## Metrics enforced
@@ -96,7 +96,7 @@ ever written:
 | `Configuration tests (<test class>): N pass (K refusals)` | the named tests that prove the five properties, and how many of them prove a refusal |
 | one metric per specification item the row proves | for example `R2 (RetryOptionsTests.An_attempt_count_of_11_stops_the_start_up): pass` |
 
-The Bridge does not parse the figures of this row: it requires real evidence text, at least the specification items
+The [Bridge](COMPONENTS.md#kyklos-bridge) does not parse the figures of this row: it requires real evidence text, at least the specification items
 the row is responsible for, and no citation without evidence. A row that claims "PROVEN" with no refusal test is a
 finding for the [Adversarial Review](PROOF_DIMENSION_ADVERSARIAL_REVIEW.md).
 
@@ -112,9 +112,9 @@ export is silently skipped. Nothing fails, nothing is logged, and the problem su
 With this row, the story must prove that `0` is either a documented meaning ("one attempt, no retry") or refused at
 start-up with *"Export:MaxAttempts must be between 1 and 10 (was 0)"*. Both are acceptable; silence is not.
 
-Kyklos applies the same rule to itself: every setting of the Bridge and the Launcher is declared once, with its allowed
+Kyklos applies the same rule to itself: every setting of the [Bridge](COMPONENTS.md#kyklos-bridge) and the [Launcher](COMPONENTS.md#kyklos-launcher) is declared once, with its allowed
 values, and a wrong value stops the program at start-up naming the setting. For example the Bridge setting
-`Agile:Proof:TestDisciplineSource` accepts only `ledger` or `token`; anything else stops the Bridge before it serves a
+[`Agile:Proof:TestDisciplineSource`](WORKFLOW.md#bridge-owner-settings) accepts only `ledger` or `token`; anything else stops the Bridge before it serves a
 single request.
 
 ## Practical examples

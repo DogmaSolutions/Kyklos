@@ -24,7 +24,7 @@ and operations stories.
 
 ## How it is checked
 
-Thread Safety is a **judgement row** whose evidence comes from a mechanical tool: the Bridge's `run_tests` verb repeats a test
+Thread Safety is a **judgement row** whose evidence comes from a mechanical tool: the [Bridge](COMPONENTS.md#kyklos-bridge)'s [`run_tests`](PROOF_DIMENSION_TEST_DISCIPLINE.md#how-tests-run-on-the-host) verb repeats a test
 run under a controlled load and reports how many repeats passed under live load.
 
 ```mermaid
@@ -68,7 +68,7 @@ flowchart TD
 3. **Where it runs.** The run is made where the code really runs (for a Windows product, on the Windows host through the Bridge),
    because a development container alone does not show the scheduling, file locking and path behaviour of the real target.
 4. **The write.** The agent cites the concurrency tests and the pass count of each repeated file, and names the files that ran
-   once and why. `proof_set` refuses a row with no real evidence text, or one citing a specification item the signed draft record
+   once and why. [`proof_set`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) refuses a row with no real evidence text, or one citing a specification item the signed draft record
    lists as uncovered.
 5. **The review.** Which test files count as timing-dependent is the agent's call. The
    [adversarial review](PROOF_DIMENSION_ADVERSARIAL_REVIEW.md) checks that call and the shared state of the change; a timing
@@ -78,7 +78,7 @@ flowchart TD
 
 **Where things are, and the secrets.** The rule itself is part of the managed policy every agent loads (its Testing section, which
 the plugin ships as `CLAUDE.kyklos.md`). The test runs happen in the Bridge on the host; the proof is the Bridge-written note marked
-`<!-- kyklos:story-proof -->`. The test processes the Bridge starts never receive the proof signing key or the Bridge's own
+`<!-- kyklos:story-proof -->`. The test processes the Bridge starts never receive the [proof signing key](PROOF_DIMENSION_TEST_DISCIPLINE.md#signatures-the-key-and-when-they-are-checked) or the Bridge's own
 token: the Bridge removes them from their environment (see [Secrets](SECRETS.md)).
 
 **What a failure causes, and the user's part.** A failed repeat keeps the row UNPROVEN until the cause is found and fixed; a
@@ -91,7 +91,7 @@ or to waive the row.
 - The repeat-under-load count of each timing-dependent file: `<kbd>Repeat under load (UploadRetryTests):</kbd> 5/5`.
 - The files that ran once, with the reason: `<kbd>Ran once (pure logic):</kbd> ExportFormatTests, CsvEscapingTests`.
 
-These are the method's metrics, produced by `run_tests`; the Bridge mechanically checks the evidence text, the citations and the
+These are the method's metrics, produced by [`run_tests`](PROOF_DIMENSION_TEST_DISCIPLINE.md#how-tests-run-on-the-host); the [Bridge](COMPONENTS.md#kyklos-bridge) mechanically checks the evidence text, the citations and the
 closability rules of the row.
 
 ## Why it exists
@@ -102,7 +102,7 @@ and the day a real race slips in, it is retried away too. Running timing-depende
 turns "it passed once" into "it passes under pressure", and turns every flaky failure into a defect someone fixes.
 
 **A realistic use case.** A story adds an in-memory cache with a background refresh. The unit tests pass. The test file uses a
-timer, so it is timing-dependent: `run_tests` with `repeat` 5 and `load` 4 passes four times and fails the fifth with a stale value.
+timer, so it is timing-dependent: [`run_tests`](PROOF_DIMENSION_TEST_DISCIPLINE.md#how-tests-run-on-the-host) with `repeat` 5 and `load` 4 passes four times and fails the fifth with a stale value.
 The agent runs it 20 times (three failures), and finds the cause: the refresh replaced the dictionary while a reader iterated it.
 The cache now swaps an immutable snapshot, a new concurrency test runs a hundred readers against a refresh, and the file passes
 20 of 20 under load. On an idle machine the bug would have reached production.
@@ -134,7 +134,7 @@ PROVEN with the new counts.
 
 When the change shares no state between threads, tasks or processes, and adds or changes no timing-dependent test file. The
 reason is required. Not required for analysis and documentation stories. The owner can untick the dimension in the story's
-[Proof Discipline](PROOF.md#the-owners-proof-discipline), or waive a gap at the close with the `proof-override` label and a named
+[Proof Discipline](PROOF.md#the-owners-proof-discipline), or waive a gap at the close with the [`proof-override`](WORKFLOW.md#the-owners-proof-override-label) label and a named
 cause (see [the workflow](WORKFLOW.md)).
 
 ## Related pages

@@ -56,7 +56,7 @@ In words:
 2. **The triage.** Each candidate is judged by meaning. The detector misses renamed or restructured clones; the agent adds
    those it finds by reading the code, and discards coincidental matches with a reason.
 3. **The report.** The detector's output (for example `jscpd-report.json`) is uploaded to the story with the story tool's
-   `story attach`, which calls the Bridge's `story_upload` verb and returns the link to cite. The Bridge recognises the
+   `story attach`, which calls the [Bridge](COMPONENTS.md#kyklos-bridge)'s `story_upload` verb and returns the link to cite. The Bridge recognises the
    newest note on the story that links an upload whose file name names duplication.
 4. **The token.** After a clean pass the skill records a **Non-Duplication token** for the story over the exact source
    files it scanned: `proof-tool-gate.sh emit "Non-Duplication" <files>` (the script ships with the plugin under
@@ -65,7 +65,7 @@ In words:
    lines, so an unrelated trunk edit next to the story's lines does not disturb it. A file the branch did not change is
    recorded by its content hash. Any later edit to the story's change makes the token stale, so the pass must be the last
    thing before the row is set.
-5. **The draft.** `proof_draft` fills the row as PROVEN, with a `Token` and a `Report` metric, when the token holds and a
+5. **The draft.** [`proof_draft`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) fills the row as PROVEN, with a `Token` and a `Report` metric, when the token holds and a
    report is linked. When the change touches no source it drafts the row NOT_PERTINENT; otherwise it leaves the row open
    with what is missing (*"no duplication report is linked on the story"*).
 
@@ -78,7 +78,7 @@ In words:
   [Adversarial Review](PROOF_DIMENSION_ADVERSARIAL_REVIEW.md), which looks for duplication too. The [Test
   Discipline](PROOF_DIMENSION_TEST_DISCIPLINE.md) evidence, in contrast, is produced by the Bridge itself and signed.
 - **When the checks run.** When the row is written (`proof_set` refuses a row that breaks the metric rule), when the
-  agent ends its turn after setting the row, and at the close (`story_close`), judged on the files the story's cited
+  agent ends its turn after setting the row, and at the close ([`story_close`](WORKFLOW.md#how-the-close-checks-the-rules)), judged on the files the story's cited
   deliverables changed, read from the remote.
 - **Which files count as source.** `.cs`, `.ps1`, `.psm1`, `.sh`, `.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.go`, `.java`
   and `.rb`. A change with none of them is not gated.
@@ -143,7 +143,7 @@ is refused at the close.
 
 The project setting `KYKLOS_TOOL_GATE_NON_DUPLICATION=0` accepts a PROVEN verdict without the token (an explicit opt-out;
 the check is on by default). The owner can also untick the dimension in the story's
-[Proof Discipline](PROOF.md#the-owners-proof-discipline), or apply the `proof-override` label naming the cause. All of them are
+[Proof Discipline](PROOF.md#the-owners-proof-discipline), or apply the [`proof-override`](WORKFLOW.md#the-owners-proof-override-label) label naming the cause. All of them are
 described in [Overrides](WORKFLOW.md#overrides).
 
 ## Related pages

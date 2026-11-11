@@ -42,13 +42,13 @@ flowchart TD
 **Step by step.**
 
 1. **The draft** leaves the row open with the prompt *judge that a failure of the change is diagnosable (its messages, logs,
-   answers); findings first*. The Bridge never proves this row by itself.
+   answers); findings first*. The [Bridge](COMPONENTS.md#kyklos-bridge) never proves this row by itself.
 2. **The findings.** For each failure path, the agent cites the line that emits the signal and what it contains, or writes "no new
    failure path, because ...". A test that provokes the failure and asserts the signal (the log line, the error text, the status)
    is the strongest finding, though not required.
-3. **The optional tag.** A deliberate diagnostic point may carry an `[Observability]` comment, a soft marker like `[CySec]`: its
+3. **The optional tag.** A deliberate diagnostic point may carry an `[Observability]` comment, a soft marker like [`[CySec]`](PROOF_DIMENSION_SECURITY_POSTURE.md#how-it-is-checked): its
    absence is a missed opportunity, never UNPROVEN, and a search for it lists the diagnostic points of the code.
-4. **The write.** `proof_set` refuses a row with no real evidence text and a row citing a specification item the signed draft
+4. **The write.** [`proof_set`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) refuses a row with no real evidence text and a row citing a specification item the signed draft
    record lists as uncovered.
 5. **The review.** The [adversarial review](PROOF_DIMENSION_ADVERSARIAL_REVIEW.md) provokes failures and reads what is left
    behind; a silent failure is a finding.
@@ -56,8 +56,8 @@ flowchart TD
 
 **Where things are, and the secrets.** The proof is the Bridge-written note marked `<!-- kyklos:story-proof -->`. A signal must
 never carry a secret: log the name of a setting or a credential, never its value (the same rule Kyklos itself follows, see
-[Secrets](SECRETS.md)). The only key the row's machinery uses is the proof signing key `KYKLOS_PROOF_HMAC_KEY`, which signs the
-draft record and the review token inside the Bridge.
+[Secrets](SECRETS.md)). The only key the row's machinery uses is the [proof signing key](PROOF_DIMENSION_TEST_DISCIPLINE.md#signatures-the-key-and-when-they-are-checked) `KYKLOS_PROOF_HMAC_KEY`, which signs the
+draft record and the [review token](ADVERSARIAL_REVIEW.md#how-the-review-token-is-made-and-checked) inside the Bridge.
 
 **What a failure causes, and the user's part.** A refused write or close keeps the story open; the agent adds the context or the
 log line. No person is needed unless the owner waives the row.
@@ -67,7 +67,7 @@ log line. No person is needed unless the owner waives the row.
 - The failure paths added and the signal each one emits: `<kbd>Failure paths with a signal:</kbd> 3/3`.
 - Where a test asserts a signal: `<kbd>Signal asserted (Upload_failure_logs_attempt_wait_and_cause):</kbd> pass`.
 
-These are the method's metrics; the Bridge mechanically checks the evidence text, the citations and the closability rules.
+These are the method's metrics; the [Bridge](COMPONENTS.md#kyklos-bridge) mechanically checks the evidence text, the citations and the closability rules.
 
 ## Why it exists
 
@@ -109,7 +109,7 @@ Fix: list the failure paths of the diff, give each an actionable signal, and wri
 
 When the change adds no failure path and changes none: renames, pure calculations that cannot fail, text changes. The reason is
 required. Not required for analysis and documentation stories. The owner can untick the dimension in the story's
-[Proof Discipline](PROOF.md#the-owners-proof-discipline), or waive a gap at the close with the `proof-override` label and a named
+[Proof Discipline](PROOF.md#the-owners-proof-discipline), or waive a gap at the close with the [`proof-override`](WORKFLOW.md#the-owners-proof-override-label) label and a named
 cause (see [the workflow](WORKFLOW.md)).
 
 ## Related pages

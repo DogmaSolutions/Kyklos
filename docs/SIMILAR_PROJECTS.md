@@ -14,8 +14,8 @@ Kyklos makes a coding agent ([Claude Code](https://code.claude.com/docs)) follow
 - **Proof.** A story closes only when its [Proof Table](PROOF.md) has a verdict for every quality dimension. The verdicts rest on evidence that tools produced: signed tokens and attached reports.
 - **Review.** An [independent adversarial review](ADVERSARIAL_REVIEW.md) is run and recorded on the story.
 - **Gates.** The [Plugin's hooks](HOOKS_AND_SKILLS.md) refuse a forbidden action at the moment the agent tries it: a commit on a protected branch, a push that is not allowed, a close without proof.
-- **The Bridge.** The `Kyklos Bridge` runs real builds, tests and coverage on the developer's own machine and records coverage facts per file. It holds the issue-tracker and CI tokens, so the agent never does.
-- **The Launcher.** The `Kyklos Launcher` starts one isolated development container per project.
+- **The [Bridge](COMPONENTS.md#kyklos-bridge).** The `Kyklos Bridge` runs real builds, tests and coverage on the developer's own machine and records coverage facts per file. It holds the issue-tracker and CI tokens, so the agent never does.
+- **The [Launcher](COMPONENTS.md#kyklos-launcher).** The `Kyklos Launcher` starts one isolated development container per project.
 
 Kyklos's limits today: it works with Claude Code only, with GitLab as tracker and CI, and with .NET projects for host builds and tests. Windows is its primary platform (see [Current scope](INSTALL_AND_CONFIG.md#current-scope)).
 
@@ -38,12 +38,12 @@ These projects structure *how* an agent turns a request into code: specification
 
 ## Process plugins and modes for coding agents
 
-These projects steer the agent from inside its session, as Kyklos's Plugin does.
+These projects steer the agent from inside its session, as Kyklos's [Plugin](COMPONENTS.md#kyklos-plugin) does.
 
 - **[Superpowers](https://github.com/obra/superpowers)** (MIT). It describes itself as a complete software development methodology for coding agents, built from composable skills.
   - It covers design, planning, test-driven development, one subagent per task, code review between tasks, worktrees, debugging and verification before completion.
   - It installs in about sixteen agent tools, Claude Code among them. It is much lighter and easier to adopt than Kyklos, and it is the project closest to Kyklos in method.
-  - Its workflows are called "mandatory workflows, not suggestions", but its page describes them as instructions to the agent. Its hooks load the instructions at session start, and the page does not describe hooks that refuse an action. It has no proof tokens, no host build server and no launcher.
+  - Its workflows are called "mandatory workflows, not suggestions", but its page describes them as instructions to the agent. Its hooks load the instructions at session start, and the page does not describe hooks that refuse an action. It has no proof tokens, no host build server and no [launcher](COMPONENTS.md#kyklos-launcher).
 - **[Roo Code modes](https://roocodeinc.github.io/Roo-Code/basic-usage/using-modes)**. Roo Code's modes are task-specific personas (Code, Ask, Architect, Debug, Orchestrator, and custom ones).
   - Each mode limits which groups of tools the agent may use (read, edit, command, MCP). That is real enforcement, built into the agent itself.
   - Modes do not cover stories, proofs, reviews or close gates.
@@ -60,7 +60,7 @@ These projects check the *code* an agent writes. They are complements to Kyklos 
 
 - **[Codacy Guardrails](https://www.codacy.com/guardrails)** (commercial; a free tier is offered). It checks code, AI-generated code included, against your rules as the code is generated, through an MCP server and a local command-line tool.
   - It looks for secrets, vulnerable dependencies, security flaws found by static analysis, duplication, complexity and style, in many languages.
-  - Its set of analysers is far broader than what Kyklos runs itself. It is a scanner, not a process: no stories, no proof table, no review step, no builds or tests.
+  - Its set of analysers is far broader than what Kyklos runs itself. It is a scanner, not a process: no stories, no [proof table](PROOF.md#the-proof-table-1), no review step, no builds or tests.
 - **[SonarQube MCP Server](https://github.com/SonarSource/sonarqube-mcp-server)** (SONAR Source-Available License). This is SonarSource's official MCP server, which connects agents to SonarQube Server or SonarQube Cloud.
   - It exposes quality-gate status, issues, security hotspots, coverage, duplication and dependency risks to the agent.
   - SonarQube's quality gates are an industry standard. The server reports results to the agent. It does not stop the agent at commit or close, and it needs a SonarQube instance.
@@ -70,7 +70,7 @@ These projects check the *code* an agent writes. They are complements to Kyklos 
 
 ## Agent sandboxes and development-container tools
 
-These projects isolate the agent's *environment*. They overlap with the Kyklos Launcher, not with the Plugin or the Bridge.
+These projects isolate the agent's *environment*. They overlap with the [Kyklos Launcher](COMPONENTS.md#kyklos-launcher), not with the [Plugin](COMPONENTS.md#kyklos-plugin) or the [Bridge](COMPONENTS.md#kyklos-bridge).
 
 - **[NVIDIA OpenShell](https://github.com/NVIDIA/OpenShell)** (Apache-2.0). A runtime that confines an agent to what a policy allows, with network policy per destination and credentials the agent never sees. It has its own section in [the components page](COMPONENTS.md#what-about-openshell).
 - **[Claude Code development containers](https://code.claude.com/docs/en/devcontainer)** (Anthropic). Anthropic's reference set-up for running Claude Code in a dev container.
@@ -91,7 +91,7 @@ These projects isolate the agent's *environment*. They overlap with the Kyklos L
 
 | Project | Specs and stories | Proof per quality dimension | Independent review | Gates that refuse an action | Real builds and tests on the host | Isolated environment | Agents supported |
 |---|---|---|---|---|---|---|---|
-| **Kyklos** | ✅ | ✅ | ✅ adversarial, recorded and checked at close | ✅ commit, push, merge, close | ✅ through the Bridge | ✅ one container per project | Claude Code |
+| **Kyklos** | ✅ | ✅ | ✅ adversarial, recorded and checked at close | ✅ commit, push, merge, close | ✅ through the [Bridge](COMPONENTS.md#kyklos-bridge) | ✅ one container per project | Claude Code |
 | GitHub Spec Kit | ✅ | ❌ | ❌ | ◐ | ❌ | ❌ | many |
 | Kiro | ✅ | ❌ | ❌ | ◐ | ◐ inside its own environment | ✅ a clone per task | its own |
 | BMad Method | ✅ | ❌ | ◐ a review workflow | ❌ | ❌ | ❌ | many |
@@ -120,9 +120,9 @@ None of the pages we read describes all of the following together, and a secure 
 
 - **Work is traceable.** Every change belongs to a story with requirements, use cases, failure modes and a risk assessment, kept in the issue tracker where people can see it.
 - **Claims are proven, not asserted.** A story closes only with a verdict per quality dimension, and the verdicts rest on tokens and reports that tools produced. The agent's word is not enough.
-- **Someone else looks.** An independent adversarial review is recorded on the story, and the close checks for it.
+- **Someone else looks.** An independent [adversarial review](ADVERSARIAL_REVIEW.md) is recorded on the story, and the close checks for it.
 - **The process cannot be skipped.** Gates refuse the forbidden action when the agent attempts it, instead of reminding it afterwards.
-- **Tests run where the code will live.** The Bridge builds and tests on the developer's real machine, and records coverage facts for each file.
+- **Tests run where the code will live.** The [Bridge](COMPONENTS.md#kyklos-bridge) builds and tests on the developer's real machine, and records coverage facts for each file.
 - **Credentials stay out of reach.** The tokens that act on the tracker and CI stay on the host.
 
 That combination is what standards such as [IEC 62443-4-1](https://www.isa.org/standards-and-publications/isa-standards/isa-iec-62443-series-of-standards) and the [NIST SSDF](https://csrc.nist.gov/pubs/sp/800/218/final) ask a development process to show (see the [Knowledge base](KB.md)). Kyklos is narrower than most of the projects above in what it runs on, and deeper in what it can prove.

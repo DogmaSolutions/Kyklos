@@ -19,7 +19,7 @@ named tests that send the bad input and assert the refusal. It is required for d
 ## How it is checked
 
 Input Validation is a **judgement row**. No program can list every input a change reads, so the agent judges the row, writes it
-with named evidence, and the Bridge and the [adversarial review](PROOF_DIMENSION_ADVERSARIAL_REVIEW.md) hold it to that evidence.
+with named evidence, and the [Bridge](COMPONENTS.md#kyklos-bridge) and the [adversarial review](PROOF_DIMENSION_ADVERSARIAL_REVIEW.md) hold it to that evidence.
 
 ```mermaid
 flowchart TD
@@ -41,7 +41,7 @@ flowchart TD
 1. **The draft** leaves the row open with the prompt *judge that every untrusted input the change reads is validated; name the
    test that rejects bad input*. The row is never drafted as PROVEN: an input list cannot be read reliably from a diff.
 2. **The write.** The agent walks the change's entry points and, for each, names the validation (file and line) and the test
-   that rejects bad input. `story proof <id> --set` (the Bridge verb `proof_set`) refuses a PROVEN or NOT_PERTINENT row with no
+   that rejects bad input. `story proof <id> --set` (the Bridge verb [`proof_set`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked)) refuses a PROVEN or NOT_PERTINENT row with no
    real evidence text (empty, a dash, a placeholder, or only `n/a`, `TBD`, `todo` or `none`), and a row that cites a
    specification item the signed draft record lists as uncovered.
 3. **The tests cannot be quietly disabled.** The plugin refuses, at the moment the agent edits a test file, an unconditional
@@ -51,13 +51,13 @@ flowchart TD
    did not (an empty value, a huge value, a value with path separators or control characters) is part of its brief; what it finds
    is a finding, and the [Adversarial Review](PROOF_DIMENSION_ADVERSARIAL_REVIEW.md) row cannot be PROVEN with an open blocker or
    major finding.
-5. **The close** (`story close`, or the Stop rule that reaches `proof_validate` through `hook_event`) refuses the story while
+5. **The close** ([`story close`](WORKFLOW.md#how-the-close-checks-the-rules), or the [Stop rule](HOOKS_AND_SKILLS.md#forced-productivity) that reaches `proof_validate` through [`hook_event`](HOOKS_AND_SKILLS.md#how-a-hook-decides-one-hook-per-event-every-rule-in-the-bridge)) refuses the story while
    the row is missing, appears twice, is UNPROVEN, or holds no real evidence text.
 
 **Where things are.** The specification is the story's issue description, and the proof is the note marked
 `<!-- kyklos:story-proof -->` that only the Bridge writes, with the GitLab token it keeps on the host. The test-file rule is one of
 the rules the plugin's single hook sends to the Bridge (the `hook_event` verb) before every file edit, so it runs in the Bridge;
-when the Bridge does not answer, the edit is refused rather than let through unjudged. Validation code that exists to stop an attack carries a `[CySec]` annotation
+when the Bridge does not answer, the edit is refused rather than let through unjudged. Validation code that exists to stop an attack carries a [`[CySec]`](PROOF_DIMENSION_SECURITY_POSTURE.md#how-it-is-checked) annotation
 (for example `// [CySec] Prevents CWE-20 "Improper Input Validation": ...`); the annotation is evidence for the reader, not a
 condition of the verdict.
 
@@ -71,7 +71,7 @@ adds the missing check or test. No person is needed unless the owner decides to 
   one metric per entry point: `<kbd>--since (ExportCommandTests.Since_rejects_a_future_date):</kbd> pass`.
 - If the story declares items this row proves, they are cited in `<kbd>` labels, and only items the draft found evidence for.
 
-The metrics of this row are expected by the method and checked by the reviewer; the Bridge's mechanical checks on this row are
+The metrics of this row are expected by the method and checked by the reviewer; the [Bridge](COMPONENTS.md#kyklos-bridge)'s mechanical checks on this row are
 the evidence text, the citations and the closability rules above.
 
 ## Why it exists
@@ -114,7 +114,7 @@ Writing `PROVEN|-|-` is refused: a dash is not evidence.
 When the change adds or changes no entry point and reads no new input: an internal refactor, a rename, a change confined to
 code that only receives values already validated at its boundary (say where). The reason is required. It is not required for
 analysis and documentation stories. The owner can untick it per story in the [Proof Discipline](PROOF.md#the-owners-proof-discipline),
-or waive a gap at the close with the `proof-override` label and a named cause (see [the workflow](WORKFLOW.md)).
+or waive a gap at the close with the [`proof-override`](WORKFLOW.md#the-owners-proof-override-label) label and a named cause (see [the workflow](WORKFLOW.md)).
 
 ## Related pages
 
