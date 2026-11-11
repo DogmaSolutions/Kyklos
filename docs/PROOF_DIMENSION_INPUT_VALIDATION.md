@@ -16,6 +16,10 @@ named tests that send the bad input and assert the refusal. It is required for d
 - **Malformed input never propagates.** Nothing behind the boundary has to guess whether the value is safe.
 - **A test asserts each rejection**: it sends the bad value and checks that it is refused and that nothing else happened.
 
+**Supported languages.** The row is argued by the agent and works for any programming language; the gate checks its
+verdict and evidence. The tests it cites are run and measured by Kyklos only for C# (NUnit, xUnit, MSTest, through the
+Bridge) and bash (in the agent's container). See [Supported languages and tools](SUPPORT_MATRIX.md).
+
 ## How it is checked
 
 Input Validation is a **judgement row**. No program can list every input a change reads, so the agent judges the row, writes it

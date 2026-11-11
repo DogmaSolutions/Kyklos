@@ -21,6 +21,11 @@ Robustness is about wrong or unusual **inputs and states**. Failures of the **en
 belong to [Resilience](PROOF_DIMENSION_RESILIENCE.md); refusing malformed input at the door belongs to
 [Input Validation](PROOF_DIMENSION_INPUT_VALIDATION.md).
 
+**Supported languages.** The row is argued by the agent and works for any programming language; the gate checks its
+verdict, its evidence and the failure-mode numbers (`FM1`, `FM2`, ...) it must name. The tests it cites are run and
+measured by Kyklos only for C# (NUnit, xUnit, MSTest, through the Bridge) and bash (in the agent's container). See
+[Supported languages and tools](SUPPORT_MATRIX.md).
+
 ## How it is checked
 
 Robustness is a **judgement row with a mechanical spine**: the failure modes are numbered in the specification, the [Bridge](COMPONENTS.md#kyklos-bridge)

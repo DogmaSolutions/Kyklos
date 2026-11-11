@@ -18,6 +18,12 @@ The dimensions, one page each: [Completeness](PROOF_DIMENSION_COMPLETENESS.md) Â
 What the checks assume about the agent, and the optional hardening against a deliberately hostile one:
 [What Kyklos assumes about the agent](PROOF_AGENT_ASSUMPTIONS.md).
 
+Languages: the table's headings, dimension names and verdict words are fixed English words the tools read; the evidence
+under them may be in any language. The rows backed by measuring tools (Test Discipline, the i18n scan, the test names that
+cite specification items) read C# on .NET fully and bash scripts for coverage and test names; for other programming
+languages those rows rest on the evidence the agent cites. Each dimension's page says what its own check supports, and
+[Supported languages and tools](SUPPORT_MATRIX.md) has the full list.
+
 ## The Proof Table
 
 Every story ends with a **Proof Table**: one row per quality dimension, in four columns: **Quality Dimension**, **Verdict** (PROVEN, NOT_PERTINENT with a reason, or UNPROVEN), **Evidence** (what was

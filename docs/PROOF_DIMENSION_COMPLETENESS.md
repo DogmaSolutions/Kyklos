@@ -25,6 +25,12 @@ the `Kyklos Bridge` drafts itself from the remote, merged state of the work.
   it refusing what it should refuse. This is the judgement half of the row: no program can tell a positive test from a negative
   one, so the reviewer and the [adversarial review](PROOF_DIMENSION_ADVERSARIAL_REVIEW.md) judge it.
 
+**Supported languages and tools.** The tools find a specification item named by a test in **C#** (the name or the
+`Category`, `Trait` or `Property` tag of a running NUnit, xUnit or MSTest test) and in a **bash** suite (the label of a check
+call), as well as in review notes and in the receipt of a manual built with `doc_build`. A test in any other language names no
+item for the tools. The item numbers (`R1`, `UC2`, `AC3`) and the story's section headings
+are fixed English; the text of each item may be in any language. See [Supported languages and tools](SUPPORT_MATRIX.md).
+
 ## How it is checked
 
 Completeness is an **evidence row**: the [Bridge](COMPONENTS.md#kyklos-bridge) fills it with `proof_draft` (the story tool's `story proof <id> --draft`), and

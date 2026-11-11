@@ -109,13 +109,14 @@ The following sections illustrate how *Kyklos* works and how it helps to keep th
 14. [Manually install and configure Kyklos on Windows](docs/INSTALL_AND_CONFIG.md)
 15. [Installing Kyklos with an agent: step-by-step instructions an agent can follow](docs/AGENT_INSTALL.md)
 16. [Knowledge base](docs/KB.md)
+17. [Supported languages and tools: programming languages, test frameworks, measuring tools and human languages](docs/SUPPORT_MATRIX.md)
 
 
 ## 🚀 Get Started
 
 To get started, follow [Installing and configuring Kyklos on Windows](docs/INSTALL_AND_CONFIG.md): a roadmap from zero to a working agent on a "Hello World" .NET project in GitLab.
 
-Which platforms and features are supported today (Windows, Linux, macOS) is in [Current scope](docs/INSTALL_AND_CONFIG.md#current-scope). The three parts you install, the [Launcher, the Bridge and the Plugin](docs/COMPONENTS.md), keep [secrets](docs/SECRETS.md) out of the agent's hands and enforce the [workflow](docs/WORKFLOW.md) through [proofs](docs/PROOF.md) and [adversarial reviews](docs/ADVERSARIAL_REVIEW.md).
+Which platforms and features are supported today (Windows, Linux, macOS) is in [Current scope](docs/INSTALL_AND_CONFIG.md#current-scope). Every check works for C# on .NET; bash scripts get line coverage; code in other languages is not measured; the agent's instructions and Kyklos's messages are in English. Which programming languages, test frameworks, measuring tools and human languages each check supports is in [Supported languages and tools](docs/SUPPORT_MATRIX.md). The three parts you install, the [Launcher, the Bridge and the Plugin](docs/COMPONENTS.md), keep [secrets](docs/SECRETS.md) out of the agent's hands and enforce the [workflow](docs/WORKFLOW.md) through [proofs](docs/PROOF.md) and [adversarial reviews](docs/ADVERSARIAL_REVIEW.md).
 
 To run without the [Launcher](docs/COMPONENTS.md#kyklos-launcher) (you start the [Bridge](docs/COMPONENTS.md#kyklos-bridge), install the [Plugin](docs/COMPONENTS.md#kyklos-plugin) in Claude Code and connect the two yourself), see [Wiring a project by hand](docs/INSTALL_AND_CONFIG.md#wiring-a-project-by-hand-without-the-launcher); the Plugin itself installs with:
 

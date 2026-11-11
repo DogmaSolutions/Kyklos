@@ -18,6 +18,10 @@ swallowed in silence is the opposite of observable. It is required for developme
 - **The right audience gets it.** An operator reads logs and health values; a caller reads the answer; an agent reads the tool's
   refusal text. A failure is surfaced where the person who must act will look.
 
+**Supported languages.** The row is argued by the agent and works for any programming language and any logging library;
+the gate checks its verdict and evidence. The tests it cites are run and measured by Kyklos only for C# (NUnit, xUnit,
+MSTest, through the Bridge) and bash (in the agent's container). See [Supported languages and tools](SUPPORT_MATRIX.md).
+
 ## How it is checked
 
 Observability is a **judgement row** ("reasoning signal"): the method asks for findings first, one per failure path, then the

@@ -31,6 +31,8 @@ Follow these rules for the whole procedure.
 
 Windows is the primary platform. Linux (x86-64) support is in development and best effort. **macOS is not supported: if the host is macOS, stop and tell the person.** See [Current scope](INSTALL_AND_CONFIG.md#current-scope).
 
+Languages, so that you can set the person's expectations before installing: every check works for **C# on .NET**; bash scripts get line coverage and, with PowerShell and batch files, the script formal check; code in other languages is not measured. The agent's instructions and every Kyklos message are in **English**, and the rules that read the agent's own words match English only. The full list is in [Supported languages and tools](SUPPORT_MATRIX.md).
+
 Inside the steps, an OS-specific part is headed **🪟 Windows** or **🐧 Linux**. Run only the part for the host's system.
 
 | Step | 🪟 Windows | 🐧 Linux | macOS |

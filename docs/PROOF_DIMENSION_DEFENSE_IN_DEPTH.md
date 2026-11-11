@@ -18,6 +18,11 @@ operations stories.
 - **Redundant layers are marked.** The inner check that would still refuse when the outer one is bypassed carries a
   `[CySec] Hardens ...` annotation. That is exactly the line a later reader would otherwise delete as duplicated validation.
 
+**Supported languages and tools.** The row is argued by the agent and works for any programming language; the `[CySec]`
+annotation uses the language's own comment syntax. The mutation run such an annotation can make due is run by the Bridge
+for C# only (Stryker.NET); see [Security Posture](PROOF_DIMENSION_SECURITY_POSTURE.md) and
+[Supported languages and tools](SUPPORT_MATRIX.md).
+
 ## How it is checked
 
 Defense in Depth is a **judgement row** ("reasoning signal"), and its findings have a shape rather than a checklist: per control,

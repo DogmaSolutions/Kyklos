@@ -40,6 +40,10 @@ And its mark in the code:
 for (var attempt = 1; attempt <= options.MaxAttempts; attempt++)
 ```
 
+**Supported languages.** The register works for a project in any programming language, and the `[RiskMitigation RA-##]`
+comment uses the language's own comment syntax. The `## Risk assessment` heading and the `RA-` numbers are fixed English
+that the tools read; the risks themselves may be written in any language. See [Supported languages and tools](SUPPORT_MATRIX.md).
+
 ## How it is checked
 
 ```mermaid

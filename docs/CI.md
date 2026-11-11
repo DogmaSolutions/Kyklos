@@ -15,6 +15,8 @@ The agent does not watch CI dashboards. It talks to CI through the [`Kyklos Brid
 
 How the push, the pipeline and the merge decide when a story can close, in each kind of project, is described in [The Kyklos Workflow](WORKFLOW.md).
 
+**Supported languages and tools.** CI works only with GitLab. The Bridge reads the test reports a pipeline publishes as JUnit XML, from any language (a .NET test project writes them with the `JUnitXml.TestLogger` package), and the coverage reports of the jobs named in its host-side setting `KYKLOS_BRIDGE_CI_COVERAGE_REPORTS`, in the Cobertura format (coverlet for C#). The coverage and complexity rules judge C# lines; the arm rule asks for test evidence when C# files changed. A pipeline's own jobs may build any language, but Kyklos does not measure code in other languages. The full list is in [Supported languages and tools](SUPPORT_MATRIX.md).
+
 ## How the closed loop is checked
 
 ```mermaid

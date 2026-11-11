@@ -16,6 +16,8 @@ guarantee the maximum level of trust in the final result for that specific scena
 > The *(4) Testing*, *(5) Deployment* and *(6) Review* phases are more decision-driven and contain many more steps than *(1) Requirements*, *(2) Design* and *(3) Implementation*.  
 > **This is by design, and it's exactly what an Agile SSDLC workflow entails.**
 
+**Languages.** The workflow itself (stories, phases, branches, merge requests, reviews, the close) works for a project in any programming language. The checks that measure code do not: the host builds and test runs, line coverage, the CRAP score and mutation testing are complete for C# on .NET (NUnit, xUnit or MSTest; coverlet; Stryker.NET), line coverage also covers bash scripts (bashcov), and code in other languages is not measured. Stories and the Proof Table use fixed English headings and words, and the agent's instructions and every message are in English. See [Supported languages and tools](SUPPORT_MATRIX.md).
+
 ## Glossary
 
 Before we start, let's clarify some terms used in the diagrams below:

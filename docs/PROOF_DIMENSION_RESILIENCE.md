@@ -18,6 +18,11 @@ development and operations stories.
 - **A retry is under control.** Where the recovery is a retry, its attempts and back-off are settings, and tests can switch the
   waits off, so a test of the retry does not sleep in real time.
 
+**Supported languages.** The row is argued by the agent and works for any programming language; the gate checks its
+verdict, its evidence and the `FAIL-OPEN` / `FAIL-HARD` markers it must name. The tests it cites are run and measured by
+Kyklos only for C# (NUnit, xUnit, MSTest, through the Bridge) and bash (in the agent's container). See
+[Supported languages and tools](SUPPORT_MATRIX.md).
+
 ## How it is checked
 
 Resilience is a **judgement row with a mechanical spine**: the fail-open and fail-hard choices are declared in the specification,

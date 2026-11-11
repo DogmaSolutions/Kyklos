@@ -29,6 +29,10 @@ Two further questions belong to the same review: **is this freedom necessary?** 
 is a new mistake surface, and the default answer is "no knob"), and **does every destructive action default to a dry
 run**, with an explicit switch to apply it?
 
+**Supported languages.** The row is argued by the agent and works for any programming language; the gate checks its
+verdict and evidence. A guard the story adds is proven by its tests, which Kyklos runs and measures only for C# (NUnit,
+xUnit, MSTest, through the Bridge) and bash (in the agent's container). See [Supported languages and tools](SUPPORT_MATRIX.md).
+
 ## How it is checked
 
 Poka-Yoke is a **judgement** dimension: no tool can decide whether a design is sound, and a blanket "did you think about

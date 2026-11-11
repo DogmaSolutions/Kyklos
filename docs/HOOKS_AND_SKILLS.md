@@ -16,6 +16,10 @@ Hooks run on every action the agent takes, such as running a command, editing a 
 
 A [hook](#how-a-hook-decides-one-hook-per-event-every-rule-in-the-bridge) that blocks always says why, and what the agent should do instead.
 
+**Human languages.** The hooks' messages and the skills are in English. Two rules read the agent's own words, and they match English phrasing only: the stop rule (it refuses a "which one next?" or "should I continue?" question, and counts a turn as waiting for you only when its text ends with `?`) and the rule on questions asked through Claude Code's question tool. Every other rule reads commands, files, branch names, commits and tool calls, so it works whatever language you and the agent use; commit messages keep their fixed English type words (`feat`, `fix`, ...) and `Refs:` footer.
+
+**Programming languages.** The source-control, safety and momentum rules work for any language. Among the quality rules, the failed-test rule reads `dotnet test` and Bridge test runs, the test quality rule reads C# test files, the configuration rule reads C# code, the automatic-merge rule asks for test evidence when C# files changed, and the script formal check reads bash, PowerShell and batch files. The full list is in [Supported languages and tools](SUPPORT_MATRIX.md).
+
 ## How a hook decides: one hook per event, every rule in the Bridge
 
 Claude Code runs hooks at fixed points of the agent's work, called *events*: before a tool call (PreToolUse), after it (PostToolUse, or PostToolUseFailure when it failed), when the agent

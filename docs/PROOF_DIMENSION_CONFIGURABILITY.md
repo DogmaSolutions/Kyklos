@@ -32,6 +32,11 @@ an address), the row must show five things:
 A retry mechanism has an extra duty, shared with the [Resilience](PROOF_DIMENSION_RESILIENCE.md) row: its attempts and
 waits are settings, and tests can switch the waits off so they run fast.
 
+**Supported languages.** The row is argued by the agent and works for any programming language. One hook backs it
+mechanically, for C# only: a database connection string with a credential written in C# code is refused, because .NET
+reads it from `appsettings.json` through `IConfiguration.GetConnectionString`. See
+[Supported languages and tools](SUPPORT_MATRIX.md).
+
 ## How it is checked
 
 Configurability is a **named-test** dimension: the evidence is a set of automated tests, each named after the property it

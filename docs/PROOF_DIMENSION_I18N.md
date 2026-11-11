@@ -33,6 +33,12 @@ proves the row with all three counts at 0, citing the scanner.
   `IStringLocalizer`). When none is recorded or both are present, the agent asks once and records the answer in
   `CLAUDE.md` (`- **i18n technique:** ...`).
 
+**Supported languages and tools.** The scanner reads **C#** only, and the techniques it knows are RESX resources and
+`IStringLocalizer`. A changed file in JavaScript, TypeScript, Python, Java, Kotlin, Go, Visual Basic, F#, Swift, Ruby, PHP,
+Razor, `.cshtml` or XAML stops the scan: the agent first builds a scanner for that language, keeps it in the project's
+tooling and cites it. Scripts are out of scope. The row checks where the texts live, not which human languages they are
+translated into. See [Supported languages and tools](SUPPORT_MATRIX.md).
+
 ## How it is checked
 
 ```mermaid

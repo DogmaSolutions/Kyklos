@@ -28,6 +28,15 @@ not carry it.
 4. **The tests do not depend on an idle machine.** Every changed test file that depends on timing, threads, child
    processes, the network, file locks or a browser runs several times in a row under CPU load before the close.
 
+**Supported languages and tools.** **C# on .NET** is measured completely: the [Bridge](COMPONENTS.md#kyklos-bridge) runs the
+NUnit, xUnit or MSTest tests (on VSTest or Microsoft.Testing.Platform), collects coverage with coverlet (`coverlet.collector`,
+or `coverlet.MTP` / `Microsoft.Testing.Extensions.CodeCoverage` on Microsoft.Testing.Platform), computes the CRAP score from
+it and runs mutation testing with Stryker.NET. **Bash scripts** (`.sh`, `.bash`) get line coverage with bashcov in the agent's
+container, with no CRAP score and no mutation testing. **Every other language** (PowerShell, F#, Visual Basic, JavaScript,
+TypeScript, Python, ...) is not measured: its lines are not story lines, and the row rests on the evidence the agent cites; a
+JavaScript, TypeScript or Scala change near a security annotation still makes a mutation run due, which the agent runs with
+the project's own Stryker tool. The full list is in [Supported languages and tools](SUPPORT_MATRIX.md).
+
 ## How it is checked
 
 ### The content ledger: what the Bridge records after every passing run

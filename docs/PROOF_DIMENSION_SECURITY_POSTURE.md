@@ -22,6 +22,12 @@ For each part of the attack surface the change adds or touches, one **finding**:
 A finding is either *"control at `file:line` handles threat X"*, or *"searched `<the surface>`, found no new threat, because
 ..."*. Both are first-class results. Inventing a finding to fill the row is not.
 
+**Supported languages and tools.** The row is argued by the agent and works for any programming language; a `[CySec]`
+annotation uses the language's own comment syntax. A changed production line within ten lines of a `[CySec]` comment
+(`//`, `/*`, `*` or `#`) makes mutation testing due for C#, JavaScript, TypeScript and Scala; the Bridge runs it for C# with
+Stryker.NET, and the agent runs StrykerJS or Stryker4s itself for the others. See
+[Supported languages and tools](SUPPORT_MATRIX.md).
+
 ## How it is checked
 
 Security Posture is a **judgement row** ("reasoning signal"). The method asks for findings **first**, then the verdict, because

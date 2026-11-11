@@ -25,6 +25,11 @@ this row NOT_PERTINENT.
 - **The review on record is authentic and current**: signed by the [Bridge](COMPONENTS.md#kyklos-bridge) over exactly the posted report, and (for code
   that coverage measures) newer than the last change of that code the remote received.
 
+**Supported languages.** The review reads the diff whatever its programming language, and the signed token covers any file.
+"Code that coverage measures" means C# and bash; the reviewer's breaking test runs through the Bridge for C# on .NET, in the
+agent's container for bash, and with the project's own tools for any other language. See
+[Supported languages and tools](SUPPORT_MATRIX.md).
+
 ## How it is checked
 
 ### Minting, posting and verifying the review token

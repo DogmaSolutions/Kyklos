@@ -22,6 +22,11 @@ and operations stories.
   the cause is fixed, never retried away. A test that passes only when the machine is idle is a defect, in the test or in the code.
   Tests wait for a specific state or use fake timers, never a fixed real-time sleep.
 
+**Supported languages and tools.** The row is argued by the agent and works for any programming language. The repeated
+runs under load go through the Bridge's `run_tests` for C# test projects (NUnit, xUnit, MSTest); a bash suite is repeated in
+the agent's container under the shared load lock; tests in other languages run with the project's own tools, and Kyklos
+does not check their runs. See [Supported languages and tools](SUPPORT_MATRIX.md).
+
 ## How it is checked
 
 Thread Safety is a **judgement row** whose evidence comes from a mechanical tool: the [Bridge](COMPONENTS.md#kyklos-bridge)'s [`run_tests`](PROOF_DIMENSION_TEST_DISCIPLINE.md#how-tests-run-on-the-host) verb repeats a test

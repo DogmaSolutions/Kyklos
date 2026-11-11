@@ -16,6 +16,10 @@ that would fail if the path from the outside to the feature were broken. It is r
 - **Wiring is included.** Registration, routing, argument parsing, configuration binding and permissions are all on the path,
   and they are exactly what a mock skips.
 
+**Supported languages.** The row is argued by the agent and works for any programming language; the gate checks its
+verdict, its evidence and the requirement numbers (`R1`, `R2`, ...) it must name. Where the evidence is a test, the tools
+read C# tests (NUnit, xUnit, MSTest) and bash suites only. See [Supported languages and tools](SUPPORT_MATRIX.md).
+
 ## How it is checked
 
 Feature Availability is a **judgement row with a mechanical spine**. [`proof_draft`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) leaves it open for the agent, with a prompt

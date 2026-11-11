@@ -7,6 +7,8 @@ the author's notes. It looks for correctness errors, mismatches with the require
 performance defects and security holes. It also looks beyond the changed lines: every caller of what changed, other stories that touched the same files, the real behaviour of external systems (not
 what a fake assumes), and behaviour under load. It writes at least one new test meant to break the change.
 
+**Languages.** The reviewer reads the diff whatever its programming language, and the token that binds the review to the change covers any file. Its breaking test runs through the Bridge for C# on .NET, or in the agent's container for a bash suite; in another language it runs with the project's own tools, and Kyklos does not measure it. See [Supported languages and tools](SUPPORT_MATRIX.md).
+
 **Where it sits:** in phases *(5) Deployment* and *(6) Review* of the [workflow diagram](WORKFLOW.md): after the tests, the [coverage receipt](PROOF_DIMENSION_TEST_DISCIPLINE.md#shell-scripts-the-token-and-the-coverage-receipt), the documentation pass and the risk assessment. A review that is not a *clean bill* sends the work back to development (the red path in the diagram). The review is posted on the story with its token,
 and the close verifies that token (see the [Proof Table](PROOF.md)): a story cannot close on a review that never ran, or on a report edited after it was signed.
 

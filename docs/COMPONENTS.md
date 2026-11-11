@@ -110,6 +110,8 @@ For these two advantages, Kyklos could adopt OpenShell in the future as an optio
 | **Windows** | Primary platform | Experimental (WSL 2 with Docker Desktop); native Windows (through Microsoft MXC) built from the project's `windows` branch |
 | **Linux** | In development (a Linux build is released, best effort) | Supported (Debian and Ubuntu, x86-64 and arm64; Linux 6.2 or later for Landlock) |
 | **macOS** | Not supported (only a Bridge build is published, not tested) | Supported (Apple silicon, with Docker Desktop) |
+| **Programming languages its checks read** | Every check for C# on .NET; line coverage and a script formal check for bash; the formal check for PowerShell and batch; other languages not measured (see [Supported languages and tools](SUPPORT_MATRIX.md)) | Not applicable: it does not check the agent's code |
+| **Human languages** | English for the agent's instructions, every message and the rules that read the agent's words; any language in story text | Not compared here |
 | **Maturity** | Young: 0.x releases | Young: 0.1 releases, about every week; moving to the CNCF |
 | **License** | MIT, with an end-user licence agreement | Apache-2.0 |
 | **Telemetry** | None: the code collects no usage data (the Launcher's update check only reads the public release page) | Anonymous operational counts, built in by default, with a documented way to turn them off |

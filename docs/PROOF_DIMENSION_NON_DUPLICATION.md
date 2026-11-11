@@ -23,6 +23,11 @@ It is mandatory for development and ops stories. Analysis and documentation stor
   code, a defect of its own.
 - **Behaviour preserved.** Deduplication is a refactor: the tests stay green before and after.
 
+**Supported languages and tools.** A change that adds source in C#, PowerShell, bash, Python, JavaScript, TypeScript, Go,
+Java or Ruby needs a fresh de-duplication pass; other languages do not make it required. Kyklos ships no clone detector:
+the agent uses one that fits the stack (for example jscpd, PMD-CPD or a Roslyn analyzer) or a search it keeps in the
+project's tooling, then judges each candidate by meaning. See [Supported languages and tools](SUPPORT_MATRIX.md).
+
 ## How it is checked
 
 The doer is the `kyklos:ssdlc-deduplicate` skill (see [Skills](HOOKS_AND_SKILLS.md#how-the-agent-knows-what-to-do-skills)); the

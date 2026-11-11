@@ -27,6 +27,13 @@ runbook, a command's `--help`, a configuration reference, a changelog, a user ma
 
 Documents describing a change go in **the same commit** as the change, never in a later one.
 
+**Supported languages and tools.** The row accepts any document format and any human language. The manual builder
+`doc_build` reads Markdown pages with Mermaid diagrams and PNG, JPEG, GIF, WebP or SVG images, builds one manual per
+language code, and prints with Microsoft Edge on Windows (Edge, Google Chrome or Chromium on Linux); the cover and contents
+titles it adds exist in English and Italian, and other languages get the English ones. The audience lint's patterns for
+addresses, story numbers, dates and secret locations work in any language; a few phrase patterns are English. See
+[Supported languages and tools](SUPPORT_MATRIX.md).
+
 ## How it is checked
 
 The doer is the `kyklos:update-docs` skill (see [Skills](HOOKS_AND_SKILLS.md#how-the-agent-knows-what-to-do-skills)); the row
