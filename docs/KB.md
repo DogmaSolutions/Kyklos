@@ -10,7 +10,7 @@ The public knowledge bases behind the security annotations, risk registers and r
 
 **Weaknesses, vulnerabilities and attacks**
 
-- [CWE – Common Weakness Enumeration](https://cwe.mitre.org/): the catalogue of software weakness types that [`[CySec]`](PROOF_DIMENSION_SECURITY_POSTURE.md#how-it-is-checked) annotations cite.
+- [CWE – Common Weakness Enumeration](https://cwe.mitre.org/): the catalogue of software weakness types that `[CySec]` annotations cite.
 - [CVE – Common Vulnerabilities and Exposures](https://www.cve.org/): identifiers for publicly known vulnerabilities.
 - [NVD – National Vulnerability Database](https://nvd.nist.gov/): CVE records enriched with severity scores and affected products.
 - [CAPEC – Common Attack Pattern Enumeration and Classification](https://capec.mitre.org/): how weaknesses are attacked.

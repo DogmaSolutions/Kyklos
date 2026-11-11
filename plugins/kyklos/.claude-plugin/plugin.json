@@ -1,7 +1,7 @@
 {
   "name": "kyklos",
   "description": "Engineering discipline for AI coding agents: enforcement hooks and skills that check tests, reviews, branching and proof before work counts as done. Per-project values live in .claude/standards.env.",
-  "version": "0.2.23233",
+  "version": "0.2.23269",
   "author": {
     "name": "Dogma Solutions",
     "email": "info@dogmasolutions.com"

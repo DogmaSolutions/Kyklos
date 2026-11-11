@@ -6,10 +6,10 @@ A project declares **one** topology, once, with the `kyklos:ssdlc-repo-model` [s
 
 | Topology                                | Purpose                                                                                                                                                 | Advantages                                                                                                          | Disadvantages                                                                                                                                                                          |
 |---------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **[Private Standalone](#private-standalone)**                  | one private repository holds everything: source, agent tooling, backlog                                                                                 | simplest set-up; one place to look                                                                                  | the repository can never be made public, because it contains the agent's tooling and history                                                                                           |
-| **[Private Companion + Public Sources](#private-companion--public-sources)**  | a private *companion* repository holds the agent tooling, backlog and pipeline; the public source is cloned **nested** inside it, as its own repository | the public source stays free of any AI or agent artifact, by construction; the tooling and its history stay private | two repositories to keep in step; two workflows (the companion is trunk-based, the source uses [GitFlow](https://nvie.com/posts/a-successful-git-branching-model/); see [Git](GIT.md)) |
-| **[Private Companion + Private Sources](#private-companion--private-sources)** | as above, but the nested sources are private and may be several (for example a customer's repositories)                                                 | the same separation, for code that is not published; several source repositories under one backlog                  | the same two-repository overhead                                                                                                                                                       |
-| **[Private Sources + Public Artifacts](#private-sources--public-artifacts)**  | the source is private; only build artifacts (a package, a plugin catalogue) are published to a separate public repository that is never cloned          | no source exposure at all; the public side only ever receives built, checked output                                 | the public repository carries no history to inspect; a story can never be filed against it (the guards refuse)                                                                         |
+| **Private Standalone**                  | one private repository holds everything: source, agent tooling, backlog                                                                                 | simplest set-up; one place to look                                                                                  | the repository can never be made public, because it contains the agent's tooling and history                                                                                           |
+| **Private Companion + Public Sources**  | a private *companion* repository holds the agent tooling, backlog and pipeline; the public source is cloned **nested** inside it, as its own repository | the public source stays free of any AI or agent artifact, by construction; the tooling and its history stay private | two repositories to keep in step; two workflows (the companion is trunk-based, the source uses [GitFlow](https://nvie.com/posts/a-successful-git-branching-model/); see [Git](GIT.md)) |
+| **Private Companion + Private Sources** | as above, but the nested sources are private and may be several (for example a customer's repositories)                                                 | the same separation, for code that is not published; several source repositories under one backlog                  | the same two-repository overhead                                                                                                                                                       |
+| **Private Sources + Public Artifacts**  | the source is private; only build artifacts (a package, a plugin catalogue) are published to a separate public repository that is never cloned          | no source exposure at all; the public side only ever receives built, checked output                                 | the public repository carries no history to inspect; a story can never be filed against it (the guards refuse)                                                                         |
 
 In every topology, a public source repository must contain **zero** AI or agent artifacts: no agent instructions, settings, backlog or agent-facing documents. A push into a public source is
 refused when anything it sends carries one.
@@ -17,35 +17,6 @@ refused when anything it sends carries one.
 In the companion topologies the story's change lives in the nested source, so the close checks the **source** repository: the deliverable must be merged on the source's trunk on the remote, and
 no commit naming the story may be left in the source checkout. When the agent may not push the source (the source is declared read-only for the agent, or its push credential does not reach it), a
 person pushes it, and the story cannot close before that push. See [The Kyklos Workflow](WORKFLOW.md).
-
-## How the topology is enforced
-
-The topology is declared once, in the project's [`.claude/standards.env`](WORKFLOW.md#greppable-opt-out-switches) (written by the [`kyklos:ssdlc-repo-model`](HOOKS_AND_SKILLS.md#how-the-agent-knows-what-to-do-skills) skill). Every rule reads it from the repository a command acts on.
-
-```mermaid
-flowchart TD
-    W["Agent writes a file"] --> B1{"Target is another repository than the session's own, or the public nested source?"}
-    B1 -->|"yes, and the text adds an internal reference or an organisation name"| X1["Refused before the write lands"]
-    B1 -->|"no"| OK1["Write allowed"]
-    C["git commit or branch"] --> M{"Repository declares a topology?"}
-    M -->|"no"| X2["Refused: declare it first"]
-    M -->|"yes"| WF{"Its workflow: GitFlow, trunk-based, or read-only for the agent"}
-    WF -->|"read-only source"| X3["Commit refused: a person commits there"]
-    WF -->|"GitFlow, on a trunk"| X4["Refused: branch first"]
-    WF -->|"allowed"| OK2["Commit allowed"]
-    P["git push into a public source"] --> A{"Any pushed tree or new commit adds Stories, CLAUDE.md, AGENTS.md, .claude, .codex or .devcontainer?"}
-    A -->|"yes"| X5["Refused, for every session"]
-    A -->|"no"| OK3["Push goes on to the push rules"]
-    S["story new against the public artifact repository"] --> X6["Refused: no story is filed against it"]
-```
-
-- **What is read.** The topology and workflow keys of the repository's own `.claude/standards.env` (in a companion, the nested source's keys live in the companion's file), the git facts of the
-  target repository, and, for a push, every tree and commit it sends that the remote does not have yet: a file added in one commit and removed in a later one is still refused, because the history
-  would publish it.
-- **When.** Before each write, commit or push. Nothing reaches the public remote before these checks pass.
-- **What a failure causes.** The write, commit or push does not happen; the agent removes the artifact (from the history too), or moves the work to the right repository.
-- **Impact on the user.** None in normal work. Pushing a public source the agent may not push stays the person's job (see [Scenario 4 of the workflow](WORKFLOW_SCENARIO_4.md)). A project whose public
-  source must carry its own product names lists them in the [launcher](COMPONENTS.md#kyklos-launcher) setting [`KYKLOS_OWN_NAMES`](WORKFLOW.md#launcher-opt-outs); the opt-out switches are listed in [Overrides](WORKFLOW.md#greppable-opt-out-switches).
 
 ## Private Standalone
 Everything is in one private repository.

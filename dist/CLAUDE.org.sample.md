@@ -1,23 +1,23 @@
 <!--
-  ORGANISATION LAYER (sample / template).
+  CORPORATE POLICY (Level 1, sample / template).
 
-  kyklos ships a GENERIC engineering policy in dist/CLAUDE.kyklos.md. Your organisation supplies this
-  overlay with the organisation-specific facts the generic policy refers to — the name of your push-authorised
-  session, the repositories it owns, your secrets manager, and any house rules that do not weaken the baseline.
+  Kyklos ships its rules in dist/CLAUDE.kyklos.md (Level 0, Kyklos). Your organisation supplies this file (Level 1,
+  Corporate) with the organisation-specific facts the Kyklos rules refer to: the name of your push-authorised
+  session, the repositories it owns, your secrets manager, and your house rules. Each project adds its own rules in
+  its CLAUDE.md (Level 2, Project).
 
-  Copy this file, fill in every <placeholder>, keep it in YOUR OWN private configuration (never in a public-bound
-  repository), and compose it onto the baseline to produce the managed /etc/claude-code/CLAUDE.md:
+  Keep it in YOUR OWN private Git repository (never in a public-bound one). KyklosLauncher reads it from that
+  repository on the host at every launch (settings KYKLOS_CORPORATE_POLICY_URL, _BRANCH, _PATH and _TOKEN_NAME) and
+  composes the managed /etc/claude-code/CLAUDE.md from Level 0 and this file. Plain UTF-8, at most 256 KB; nothing in
+  it is expanded or run.
 
-      render-managed-policy.sh --product dist/CLAUDE.kyklos.md --org <your-org-layer>.md --out /etc/claude-code/CLAUDE.md
-
-  The generic baseline and this overlay are the ONLY two inputs to the managed policy; there is no hand-maintained
-  managed copy to drift. Re-render whenever either input changes.
+  Everything in this file is added after the Kyklos rules. To replace or remove a Kyklos rule, see the last section.
 -->
 
-# Organisation layer — <Your Organisation>
+# Corporate policy — <Your Organisation>
 
-Organisation-specific baseline that composes onto the generic kyklos engineering policy. It fills in the
-concrete facts the baseline leaves abstract. It never softens a baseline rule; it only adds specifics.
+Organisation-specific rules (Level 1, Corporate) composed onto the Kyklos rules (Level 0). They fill in the concrete
+facts the Kyklos rules leave abstract; a rule they replace is named and marked, never changed silently.
 
 ## Roles
 
@@ -38,4 +38,21 @@ concrete facts the baseline leaves abstract. It never softens a baseline rule; i
 
 ## House rules (optional)
 
-- Add any organisation-specific conventions here. They extend the baseline; they cannot weaken a Tier-0 rule.
+- Add any organisation-specific conventions here. They extend the Kyklos rules; to change one, replace it by its identifier (see the header).
+
+## Replacing or removing a Kyklos rule (delete this section in your copy)
+
+Name the rule or section by its permanent identifier (the `kyklos:rule` comment just before it in
+`dist/CLAUDE.kyklos.md`) and give a reason. Each block starts at the beginning of a line:
+
+```
+<!-- kyklos:replace tier1.commit-after-each-change reason="Our projects commit once per reviewed task" -->
+- **Commit after every reviewed task.** <your rule>
+<!-- kyklos:end -->
+
+<!-- kyklos:remove testing.repeat-under-load reason="No timing-dependent code in our projects" -->
+```
+
+The reason is required, and an unknown identifier refuses the launch, naming the closest valid ones. Every override is
+marked where the rule stood and listed under "Overrides in force" at the top of the composed policy. Replacing a rule's
+text leaves its Kyklos hook on: the hook keeps its own off-switch, which the launcher names for each override.

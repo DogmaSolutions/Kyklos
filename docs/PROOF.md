@@ -2,76 +2,45 @@
 
 [← Back to the README](../README.md)
 
-On this page: [The Proof Table](#the-proof-table-1) · [The owner's Proof Discipline](#the-owners-proof-discipline) ·
-[The Bridge's signed copy of the section](#the-bridges-signed-copy-of-the-section) · [Example](#example)
-
-The dimensions, one page each: [Completeness](PROOF_DIMENSION_COMPLETENESS.md) ·
-[Feature Availability](PROOF_DIMENSION_FEATURE_AVAILABILITY.md) · [Input Validation](PROOF_DIMENSION_INPUT_VALIDATION.md) ·
-[Robustness](PROOF_DIMENSION_ROBUSTNESS.md) · [Resilience](PROOF_DIMENSION_RESILIENCE.md) ·
-[Security Posture](PROOF_DIMENSION_SECURITY_POSTURE.md) · [Defense in Depth](PROOF_DIMENSION_DEFENSE_IN_DEPTH.md) ·
-[Observability](PROOF_DIMENSION_OBSERVABILITY.md) · [Thread Safety](PROOF_DIMENSION_THREAD_SAFETY.md) ·
-[Configurability](PROOF_DIMENSION_CONFIGURABILITY.md) · [Test Discipline](PROOF_DIMENSION_TEST_DISCIPLINE.md) ·
-[Non-Duplication](PROOF_DIMENSION_NON_DUPLICATION.md) · [Documentation](PROOF_DIMENSION_DOCUMENTATION.md) ·
-[Poka-Yoke](PROOF_DIMENSION_POKA_YOKE.md) · [Risk Assessment](PROOF_DIMENSION_RISK_ASSESSMENT.md) ·
-[i18n](PROOF_DIMENSION_I18N.md) · [Adversarial Review](PROOF_DIMENSION_ADVERSARIAL_REVIEW.md)
-
-What the checks assume about the agent, and the optional hardening against a deliberately hostile one:
-[What Kyklos assumes about the agent](PROOF_AGENT_ASSUMPTIONS.md).
-
-Languages: the table's headings, dimension names and verdict words are fixed English words the tools read; the evidence
-under them may be in any language. The rows backed by measuring tools (Test Discipline, the i18n scan, the test names that
-cite specification items) read C# on .NET fully and bash scripts for coverage and test names; for other programming
-languages those rows rest on the evidence the agent cites. Each dimension's page says what its own check supports, and
-[Supported languages and tools](SUPPORT_MATRIX.md) has the full list.
-
-## The Proof Table
-
 Every story ends with a **Proof Table**: one row per quality dimension, in four columns: **Quality Dimension**, **Verdict** (PROVEN, NOT_PERTINENT with a reason, or UNPROVEN), **Evidence** (what was
-checked, where, and how) and **Metrics**. The table lives on the story, where reviewers can read it. The agent cannot close a story while any required row is UNPROVEN; only a person can [override](WORKFLOW.md#overrides) that,
+checked, where, and how) and **Metrics**. The table lives on the story, where reviewers can read it. The agent cannot close a story while any required row is UNPROVEN; only a person can override that,
 and the override is recorded.
 
-**Every dimension carries metrics**: short, labelled figures, each naming the tool that produced it, for example `Story lines (ledger): covered or limited 42 of 42 story lines` or `Duplication (jscpd): 0 clones`. On the tool-gated rows
-([Test Discipline](PROOF_DIMENSION_TEST_DISCIPLINE.md), [Non-Duplication](PROOF_DIMENSION_NON_DUPLICATION.md), [Documentation](PROOF_DIMENSION_DOCUMENTATION.md), [Risk Assessment](PROOF_DIMENSION_RISK_ASSESSMENT.md), [i18n](PROOF_DIMENSION_I18N.md), [Adversarial Review](PROOF_DIMENSION_ADVERSARIAL_REVIEW.md)) a PROVEN verdict without them is refused; on every row a verdict without evidence text is refused (a
-NOT_PERTINENT row carries its reason instead). Every item of the story's specification (each requirement, use case, failure mode and acceptance criterion) must also appear as its own metric in the row
-that proves it, so nothing in the specification can be left silently unproven. Each dimension's page says exactly what its row must carry and which program checks it.
+**Every dimension carries metrics**: short, labelled figures, each naming the tool that produced it, for example `Coverage (host run): 96.4%` or `Duplication (jscpd): 0 clones`. A verdict without them
+is refused (a NOT_PERTINENT row carries its reason instead). Every item of the story's specification (each requirement, use case, failure mode and acceptance criterion) must also appear as its own metric in the row that proves it, so nothing in the
+specification can be left silently unproven.
 
-**Four rows are drafted from the remote, merged state**: [Completeness](PROOF_DIMENSION_COMPLETENESS.md), Test Discipline, Non-Duplication and Documentation read the cited deliverable on the remote (its changed files, its commit,
+**Four rows are drafted from the remote, merged state**: Completeness, Test Discipline, Non-Duplication and Documentation read the cited deliverable on the remote (its changed files, its commit,
 its pipeline), so they cannot be proven while the change exists only on the agent's machine. The close then certifies the **merged result**: the deliverable merged into the trunk, every commit
-naming the story on the trunk, the signed evidence judged where the story landed. See [The Kyklos Workflow](WORKFLOW.md).
+naming the story on the trunk, the tokens judged where the story landed. See [The Kyklos Workflow](WORKFLOW.md).
 
-**Which rows are mandatory depends on the story's kind**, its [`kind::`](STORAGES.md#gitlab-storage-the-ssot-for-team-projects) label (see [Storages](STORAGES.md)); the `type::` label is informational and plays no part. A row outside a kind's set is not required, and a lighter table can never be used for a development story. When the kind
+**Which rows are mandatory depends on the story's kind**, its `kind::` label (see [Storages](STORAGES.md)); the `type::` label is informational and plays no part. A row outside a kind's set is not required, and a lighter table can never be used for a development story. When the kind
 cannot be read, the full development set applies (and a story adopted without a kind is given `development`, see [Storages](STORAGES.md#adoption-of-existing-issues)): an error can only raise the bar.
 
 The table below lists, for every dimension, the **metrics** its row must carry, and for every story kind whether those metrics are **mandatory**:
 ✅ = the row and all its metrics are mandatory; 🟡 = the row is mandatory, the marked metrics are optional; – = the row is not required for that kind.
 
-| Dimension                                                         | Metrics the row must carry                                                                                                | Development |                                                       Ops                                                       | Analysis | Documentation |
-|-------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------|:-----------:|:---------------------------------------------------------------------------------------------------------------:|:--------:|:-------------:|
-| [Completeness](PROOF_DIMENSION_COMPLETENESS.md)                   | one metric per requirement, use case, failure mode and acceptance criterion, naming the test (or document) that proves it |     ✅      |                                                       ✅                                                        |    ✅    |      ✅       |
-| [Feature Availability](PROOF_DIMENSION_FEATURE_AVAILABILITY.md)   | one metric per requirement, naming the end-to-end test that reaches it through the public interface                       |     ✅      |                                                       ✅                                                        |    –     |       –       |
-| [Input Validation](PROOF_DIMENSION_INPUT_VALIDATION.md)           | the rejection tests of each entry point                                                                                   |     ✅      |                                                       ✅                                                        |    –     |       –       |
-| [Robustness](PROOF_DIMENSION_ROBUSTNESS.md)                       | one metric per failure mode, plus the boundary and edge-case tests                                                        |     ✅      |                                                       ✅                                                        |    –     |       –       |
-| [Resilience](PROOF_DIMENSION_RESILIENCE.md)                       | the failure-injection tests and the retry or recovery settings they cover                                                 |     ✅      |                                                       ✅                                                        |    –     |       –       |
-| [Security Posture](PROOF_DIMENSION_SECURITY_POSTURE.md)           | the controls added or touched, each with its formal reference ([CWE](KB.md#standards-catalogues-and-references), OWASP, IEC 62443, CAPEC)                              |     ✅      |                                                       ✅                                                        |    –     |       –       |
-| [Defense in Depth](PROOF_DIMENSION_DEFENSE_IN_DEPTH.md)           | for each control, the fallback layer (or the reason there is none)                                                        |     ✅      |                                                       ✅                                                        |    –     |       –       |
-| [Observability](PROOF_DIMENSION_OBSERVABILITY.md)                 | the failure paths added and the signal each one emits                                                                     |     ✅      |                                                       ✅                                                        |    –     |       –       |
-| [Thread Safety](PROOF_DIMENSION_THREAD_SAFETY.md)                 | the concurrency tests, and the repeat-under-load count of each timing-dependent test file                                 |     ✅      |                                                       ✅                                                        |    –     |       –       |
-| [Configurability](PROOF_DIMENSION_CONFIGURABILITY.md)             | the configuration tests, including the refusal of invalid configuration                                                   |     ✅      |                                                       ✅                                                        |    –     |       –       |
-| [Test Discipline](PROOF_DIMENSION_TEST_DISCIPLINE.md)             | the share of changed lines a passing [Bridge](COMPONENTS.md#kyklos-bridge) run executed (`Story lines`: from the Bridge's signed [content ledger](PROOF_DIMENSION_TEST_DISCIPLINE.md#the-content-ledger-what-the-bridge-records-after-every-passing-run) for C#, from the [coverage receipt](PROOF_DIMENSION_TEST_DISCIPLINE.md#shell-scripts-the-token-and-the-coverage-receipt) for shell scripts, with **the attached receipt archive** linked), highest [CRAP score](WORKFLOW.md#glossary) when C# changed, the mutation statement (whether mutation testing ran, or why it was not required) |     ✅      | 🟡 coverage and CRAP figures optional when the deliverable cannot be tested, or testing it would be destructive |    –     |       –       |
-| [Non-Duplication](PROOF_DIMENSION_NON_DUPLICATION.md)             | clones found and duplicated share, **the attached duplication report**                                                    |     ✅      |                                                       ✅                                                        |    –     |       –       |
-| [Documentation](PROOF_DIMENSION_DOCUMENTATION.md)                 | the documents updated, the audience-lint findings                                                                         |     ✅      |                                                       ✅                                                        |    –     |      ✅       |
-| [Poka-Yoke](PROOF_DIMENSION_POKA_YOKE.md)                         | each footgun introduced and the rung of its guard                                                                         |     ✅      |                                                       ✅                                                        |    –     |       –       |
-| [Risk Assessment](PROOF_DIMENSION_RISK_ASSESSMENT.md)             | the register items (at least one for every story type except `docs` and `test`; a waiver line alone does not satisfy the close), and the mitigations marked in code against those claimed (a missing `[RiskMitigation RA-nn]` marker is reported as a warning) |     ✅      |                                                       ✅                                                        |    –     |       –       |
-| [i18n](PROOF_DIMENSION_I18N.md)                                   | candidates, promoted and ignored texts (promoted + ignored = candidates)                                                  |     ✅      |                                                        –                                                        |    –     |       –       |
-| [Adversarial Review](PROOF_DIMENSION_ADVERSARIAL_REVIEW.md)       | the rounds run, the open blocker and major findings (must be 0), the review note; the review is the control relied on against a deliberately hostile change ([what Kyklos assumes about the agent](PROOF_AGENT_ASSUMPTIONS.md)) |     ✅      |                                                       ✅                                                        |    ✅    |      ✅       |
+| Dimension            | Metrics the row must carry                                                                                                | Development |                                                       Ops                                                       | Analysis | Documentation |
+|----------------------|---------------------------------------------------------------------------------------------------------------------------|:-----------:|:---------------------------------------------------------------------------------------------------------------:|:--------:|:-------------:|
+| Completeness         | one metric per requirement, use case, failure mode and acceptance criterion, naming the test (or document) that proves it |     ✅      |                                                       ✅                                                        |    ✅    |      ✅       |
+| Feature Availability | one metric per requirement, naming the end-to-end test that reaches it through the public interface                       |     ✅      |                                                       ✅                                                        |    –     |       –       |
+| Input Validation     | the rejection tests of each entry point                                                                                   |     ✅      |                                                       ✅                                                        |    –     |       –       |
+| Robustness           | one metric per failure mode, plus the boundary and edge-case tests                                                        |     ✅      |                                                       ✅                                                        |    –     |       –       |
+| Resilience           | the failure-injection tests and the retry or recovery settings they cover                                                 |     ✅      |                                                       ✅                                                        |    –     |       –       |
+| Security Posture     | the controls added or touched, each with its formal reference (CWE, OWASP, IEC 62443, CAPEC)                              |     ✅      |                                                       ✅                                                        |    –     |       –       |
+| Defense in Depth     | for each control, the fallback layer (or the reason there is none)                                                        |     ✅      |                                                       ✅                                                        |    –     |       –       |
+| Observability        | the failure paths added and the signal each one emits                                                                     |     ✅      |                                                       ✅                                                        |    –     |       –       |
+| Thread Safety        | the concurrency tests, and the repeat-under-load count of each timing-dependent test file                                 |     ✅      |                                                       ✅                                                        |    –     |       –       |
+| Configurability      | the configuration tests, including the refusal of invalid configuration                                                   |     ✅      |                                                       ✅                                                        |    –     |       –       |
+| Test Discipline      | changed-line coverage from the host receipt, highest CRAP score, **the attached receipt archive**, the mutation statement (whether mutation testing ran, or why it was not required) |     ✅      | 🟡 coverage and CRAP figures optional when the deliverable cannot be tested, or testing it would be destructive |    –     |       –       |
+| Non-Duplication      | clones found and duplicated share, **the attached duplication report**                                                    |     ✅      |                                                       ✅                                                        |    –     |       –       |
+| Documentation        | the documents updated, the audience-lint findings                                                                         |     ✅      |                                                       ✅                                                        |    –     |      ✅       |
+| Poka-Yoke            | each footgun introduced and the rung of its guard                                                                         |     ✅      |                                                       ✅                                                        |    –     |       –       |
+| Risk Assessment      | the register items, and the mitigations marked in code against those claimed                                              |     ✅      |                                                       ✅                                                        |    –     |       –       |
+| i18n                 | candidates, promoted and ignored texts (promoted + ignored = candidates)                                                  |     ✅      |                                                        –                                                        |    –     |       –       |
+| Adversarial Review   | the rounds run, the open blocker and major findings (must be 0), the review note                                          |     ✅      |                                                       ✅                                                        |    ✅    |      ✅       |
 
-Adversarial Review is in every kind's set and the agent can never waive it. As for every row, only a person can override it, and the override is recorded. Why the review, and not signing alone, is
-what Kyklos relies on against an agent acting deliberately against you is explained in [What Kyklos assumes about the agent](PROOF_AGENT_ASSUMPTIONS.md).
-
-**What makes the table trustworthy:** the mechanical rows cannot be filled by typing. Their evidence (the content ledger facts and the tokens of Test Discipline, the tool tokens, the
-[review token](ADVERSARIAL_REVIEW.md#how-the-review-token-is-made-and-checked)) is signed by the `Kyklos Bridge` with a key the agent cannot read and bound to the exact content it judged, so a later change makes it stale and a forged one does not verify. Where a
-row needs an **attached file** (the coverage receipt archive of a shell-script Test Discipline row, the duplication report for Non-Duplication), the row must link exactly that attachment. How
-the Test Discipline evidence is recorded and checked, for C# and for shell scripts, is on its [page](PROOF_DIMENSION_TEST_DISCIPLINE.md).
+Adversarial Review is in every kind's set and the agent can never waive it. As for every row, only a person can override it, and the override is recorded.
 
 ## The owner's Proof Discipline
 
@@ -89,7 +58,7 @@ values in force:
 ```
 
 The section belongs to the owner of the project, and it applies to that one story. Unticking a dimension disables it, ticking one
-requires it, and writing a number changes a threshold, relaxed or tightened. The [Bridge](COMPONENTS.md#kyklos-bridge) alone reads it. An agent can read it and
+requires it, and writing a number changes a threshold, relaxed or tightened. The Bridge alone reads it. An agent can read it and
 ask for a change, and cannot change it: an edit by the agent's own account is no change, and the section is restored.
 
 A disabled dimension needs no evidence. A threshold relaxed past the last measured result satisfies the dimension at once, with
@@ -97,46 +66,9 @@ no new run, as long as the code is still the code that was measured. Every chang
 original value, the new value, who decided and when, so a reader never takes it for a measured pass. A change that cannot be
 verified counts as no change.
 
-### How a change of the section is judged
-
-The issue tracker records **who** edited a story's description, but not **which part** of it. So the [Bridge](COMPONENTS.md#kyklos-bridge) judges the section by
-comparing it with its own signed copy (next section) and by reading the tracker's list of description edits:
-
-```mermaid
-flowchart TD
-    A["A verb reads the story: proof_get, proof_validate, proof_draft, story_close, proof_discipline_get"] --> B{"Signing key present, edits and the Bridge's own account readable?"}
-    B -->|"no"| N["No change counts: the story owes the strictest of creation values, signed copy and section"]
-    B -->|"yes"| C{"Section equal to the signed copy?"}
-    C -->|"yes"| U["Section in force as signed"]
-    C -->|"no, or removed"| D{"Every description edit since the copy made by a configured owner account?"}
-    D -->|"yes"| O["Owner's change: in force, recorded with original value, new value, who and when; a new signed copy is written"]
-    D -->|"no"| R["Refused: what asks less than the copy is put back, what asks more stays; one notice on the story names why"]
-    U --> G["The close gates judge the table through this ruling"]
-    O --> G
-    R --> G
-    N --> G
-```
-
-- **Who counts as the owner:** the accounts listed in the Bridge setting [`Agile:Acceptance:OwnerAccounts`](WORKFLOW.md#bridge-owner-settings). With the list empty,
-  no change of the section is the owner's, and every change is refused.
-- **What the agent can do:** read the section with `proof_discipline_get` (it says whether the reading is verified and lists the
-  owner's decisions), and ask with `proof_discipline_ask`, which posts one tickable comment on the story naming what is asked,
-  the measured value, the value wanted and why. A tick changes nothing by itself: only the owner's edit of the section decides.
-  No verb writes the section, and a specification text that carries it is refused.
-- **When it is judged:** every time a verb that judges or shows the proof loads the story, and again before every save of the
-  story, which puts the section back exactly as the ruling says, so no write of the story can change it.
-- **A refusal never loosens anything.** When the change cannot be told to be the owner's, the Bridge keeps whatever asks more:
-  a tightening that sits in the section stays in force, and only what asks less than the copy is undone.
-- **What the user does.** Nothing, in the normal case. To relax or tighten one story, the owner edits the section in the story's
-  header from an account listed in `Agile:Acceptance:OwnerAccounts`. When the Bridge says an owner's last word cannot be read
-  (an owner edited, then the agent's account edited after the copy was made), the close is refused until an owner edits the
-  section again.
-
-The logic lives in the Bridge, in `ProofDisciplineJudge` (the ruling) and `ProofDisciplineDesk` (reading, keeping and signing it).
-
 ### The Bridge's signed copy of the section
 
-Next to each story, the [Bridge](COMPONENTS.md#kyklos-bridge) keeps one **note** that holds a signed copy of its Proof Discipline section. You will see it in the
+Next to each story, the Bridge keeps one **note** that holds a signed copy of its Proof Discipline section. You will see it in the
 story's notes: it opens with a sentence saying what it is, and the data it holds is folded away under a small
 "Signed record" heading.
 
@@ -148,45 +80,218 @@ story's notes: it opens with a sentence saying what it is, and the data it holds
   above. A note that only looks like the copy, or an old copy posted again, is ignored: only a copy that carries the Bridge's
   signature for this story counts, and when several do, the newest one counts.
 
-**How the signature works.**
+## What Kyklos assumes about the agent
 
-```mermaid
-flowchart LR
-    K["Credential Manager on the host: KYKLOS_PROOF_HMAC_KEY"] -->|"Launcher hands it to the Bridge process only"| BR["Kyklos Bridge"]
-    S["Story header: Proof Discipline section"] --> BR
-    E["Tracker: list of description edits, with account"] --> BR
-    BR -->|"HMAC-SHA256 over 'proof-discipline:' + the copy's data"| N["Note on the story, marked kyklos:proof-discipline, data plus mac field"]
-    N -->|"read back and verified on every judged load"| BR
-```
+Kyklos protects you from an agent that **makes mistakes**: it forgets a step, trusts a claim it did not check, edits a file after
+its proof was taken, or cites evidence that does not exist. It is **not** designed to withstand an agent that is **acting
+deliberately against you**, one that sets out to defeat the checks. No tooling around a language model can promise that, and a
+design that tried would also get in the way of an honest agent.
 
-- **Where the key lives.** The signing key is the [proof signing key](PROOF_DIMENSION_TEST_DISCIPLINE.md#signatures-the-key-and-when-they-are-checked), `KYKLOS_PROOF_HMAC_KEY`. The [`Kyklos Launcher`](COMPONENTS.md#kyklos-launcher) creates it on
-  the first launch that needs it (32 random bytes), stores it in the **Windows Credential Manager** under that name, verifies it
-  by reading it back, and hands it only to the Bridge process through its environment. It never reaches the agent's container,
-  and the Bridge removes it from the environment of every build and test it starts. The Bridge reads it from the environment
-  variable named by the setting `Agile:Proof:HmacKeyEnvironmentVariableName` (default `KYKLOS_PROOF_HMAC_KEY`). If the
-  credential store cannot keep the key, the launch is refused, because a key that changes at every launch would make every
-  ledger fact, token and copy signed before it unverifiable; the one way past is the project's explicit, logged launch parameter
-  [`KYKLOS_ALLOW_UNPERSISTED_HMAC`](WORKFLOW.md#launcher-opt-outs). See [Secrets](SECRETS.md).
-- **What is signed.** The copy's data is one JSON object: the story, the project, an **anchor** (the number of the newest
-  description edit the copy accounts for), the section as it was at creation, the section last accepted, and the owner's
-  decisions (each with subject, original value, new value, who and when). The Bridge computes HMAC-SHA256, keyed with the
-  signing key, over the text `proof-discipline:` followed by that JSON, and stores the result as the object's `mac` field. The
-  prefix makes sure a signed record of another kind (a proof draft record, a [review token](ADVERSARIAL_REVIEW.md#how-the-review-token-is-made-and-checked)) never verifies as a copy.
-- **When it is checked.** Every time the Bridge judges the section (see the diagram above): the Bridge reads the story's notes,
-  keeps only the copies whose `mac` verifies under its key **and** that name this story of this project, and takes the one
-  with the highest anchor. The comparison of the signature is made in constant time.
-- **What a failed check causes.** A copy that does not verify is no copy: it is ignored, never trusted. If no valid copy is left,
-  the Bridge judges the section against the values the story had at creation and treats any difference as unverified, so it
-  counts as no change: the story owes the strictest values it can find, and no dimension is relaxed. A replayed older copy
-  loses to the current one, because its anchor is lower. Without a signing key, nothing verifies, and the same strict reading
-  applies.
-- **How it affects the workflow and the user.** An honest workflow never notices it. The only effect a person can see is that
-  a change made from the wrong account, or a section an agent edited, is put back, with one notice on the story naming why. No
-  override is needed or offered: the owner simply makes the change again from an owner account.
+Signing is the clearest example. The Bridge signs the facts it records after a passing test run (which changed lines the tests
+ran) with a key the agent never sees:
 
-## Example
+- **What the signing stops:** a plain write to those records, by accident or by a test that does not go after the key, and a
+  record that was changed or copied from somewhere else. Such a record reads as absent and is named in the answer.
+- **What it does not stop:** a test written to steal the key. Tests run as the same user on the same machine as the Bridge,
+  and a program running as that user can read the key from the credential store or from the Bridge's own memory. Starting
+  the tests without the key in their environment does not change that. Only running tests under another account or on
+  another machine would, and Kyklos does not do that.
 
-A realistic, complete [Proof Table](#the-proof-table-1) of a small development story ("Retry Export": a failed upload is retried with growing waits):
+The control Kyklos relies on for a deliberately hostile change is the one a person would use: the
+[adversarial review](ADVERSARIAL_REVIEW.md) of the tests and the code, and your own reading of it.
+
+### An optional hardening: `Agile:Proof:AdversarialAgentHardening`
+
+For an owner who wants some extra defence anyway, the Bridge has one switch, **off by default**.
+It is the one exception to the rule that every new check of Kyklos ships switched on: these checks add friction for an honest
+agent and buy protection only against a deliberate one, so the choice is yours.
+
+- `off` (the default): nothing changes.
+- `on`: both of the following apply.
+
+When it is `on`:
+
+1. **Reserved markers.** The Bridge keeps several sections of a story (the proof table, the risk register, its signed records) in
+   notes that begin with a marker line such as `<!-- kyklos:story-proof -->` or `<!-- kyklos:proof-discipline -->`. The Bridge's
+   comment verbs (the coordination reply, and the comment given when closing or reopening a conversation) then refuse a note that
+   begins with such a marker, and the answer points to the story tool, which is how those sections are meant to change. Without
+   the switch, an agent could post a note that looks like one of those sections.
+2. **The close checks the citations.** `proof_draft` records which items of the specification it found no evidence for, and
+   `proof_set` already refuses a row that cites one of them. With the switch on, closing a story applies the same check to the
+   rows already stored, using that record (which the Bridge signs). Without it, a row written another way could cite an item
+   that was never covered and still pass the close.
+
+With the Launcher, set the project's launch parameter `KYKLOS_BRIDGE_ADVERSARIAL_AGENT_HARDENING` to `on` in its configuration (the
+default is `off`); the Launcher passes it to the Bridge it starts, when the project has the story tools switched on (without them there is nothing to harden, and the parameter does nothing). The Bridge itself reads it as the setting
+`Agile:Proof:AdversarialAgentHardening`, which a Bridge you start by hand takes from the environment variable
+`Agile__Proof__AdversarialAgentHardening=on`. A value placed in the project's Bridge settings file or in the launch environment is
+dropped, because the Launcher builds that section itself.
+
+Any value other than `off` or `on` stops the Bridge at start-up and names the setting. The owner's exception label on a story
+still waives the close check, as it does for every other proof check.
+
+## The dimensions, one by one
+
+Each dimension below says **what** it checks, **how** the check is made, **how its metrics are enforced**, and **why**.
+
+### Completeness
+
+- **What:** every behaviour the story adds has at least one *named* automated test that shows it working and one that shows it refusing what it should refuse; every acceptance criterion is shown.
+- **How:** the specification's items (requirements, use cases, failure modes, acceptance criteria) are matched to the tests that name or tag them. A documentation, analysis or operations story has no tests by its kind, so an adversarial review with no finding covers any item its "Checked, no finding" section names, risk items included, unless the bullet naming it says that item was left unchecked; for a development story a review never replaces a test for a use case or a failure mode.
+- **Metrics enforced:** one metric per item, naming its test. The close compares the specification with the metrics: an item with no metric is reported as uncovered and the row stays UNPROVEN.
+- **Why:** a requirement nobody tested is a requirement nobody knows is met.
+
+### Feature Availability
+
+- **What:** every feature is reachable through its real public interface (the command, the endpoint, the tool call).
+- **How:** an end-to-end test drives the public interface; a unit test against a mock does not count.
+- **Metrics enforced:** one metric per requirement, naming its end-to-end test.
+- **Why:** a feature that only exists behind an internal call is not delivered.
+
+### Input Validation
+
+- **What:** every public entry point rejects malformed input at the boundary.
+- **How:** a test sends the malformed input and asserts the rejection.
+- **Metrics enforced:** the rejection tests of each entry point.
+- **Why:** bad input that travels inward fails later, far from its cause, and is the root of most injection flaws.
+
+### Robustness
+
+- **What:** boundary, rare, improbable and unexpected inputs and states are handled, not only the happy path.
+- **How:** tests at the limits (empty, maximum, zero, duplicates, interruptions).
+- **Metrics enforced:** one metric per failure mode of the specification, plus the boundary tests.
+- **Why:** production traffic finds the corners that a happy-path test never visits.
+
+### Resilience
+
+- **What:** network, disk and dependency failures are handled and recovered from.
+- **How:** a test injects the failure and asserts the recovery; where the mechanism is a retry, it must be configurable (attempts, back-off) and disableable for tests.
+- **Metrics enforced:** the failure-injection tests and the settings they cover.
+- **Why:** transient failures are normal; an unhandled one becomes an outage.
+
+### Security Posture
+
+- **What:** the change's attack surface (inputs and trust boundaries, secret handling, deserialisation, authentication paths, dependencies, least privilege).
+- **How:** each control is cited at its file and line with the threat it handles; security code carries a `[CySec]` annotation with a formal reference.
+- **Metrics enforced:** the controls, each with its reference ([CWE](https://cwe.mitre.org/), [OWASP](https://owasp.org/), [IEC 62443](https://www.isa.org/standards-and-publications/isa-standards/isa-iec-62443-series-of-standards), [CAPEC](https://capec.mitre.org/)). A row with no concrete, change-anchored finding is refused.
+- **Why:** security reasoning that is not written down did not happen; the annotations also make the control inventory searchable for audits.
+
+### Defense in Depth
+
+- **What:** for each control, "if this were bypassed, what still stops the attack?"
+- **How:** the fallback layer is named, or the absence of one is justified; redundant layers are annotated so nobody removes them as "already validated upstream".
+- **Metrics enforced:** one fallback per control.
+- **Why:** a single control is a single point of failure.
+
+### Observability
+
+- **What:** when this breaks in production, can an operator tell why?
+- **How:** each failure path the change adds is cited with the signal it emits: an error with actionable context (operation, input summary, cause), never a silently swallowed exception.
+- **Metrics enforced:** the failure paths and their signals.
+- **Why:** an incident you cannot diagnose is an incident you cannot report or fix in time (a [NIS2](https://eur-lex.europa.eu/eli/dir/2022/2555/oj) concern).
+
+### Thread Safety
+
+- **What:** behaviour under parallel calls, concurrent access and shared state.
+- **How:** concurrency tests; and every test file that depends on timing, threads, processes, the network or files runs several times in a row **under CPU load** before the close.
+- **Metrics enforced:** the concurrency tests and the repeat-under-load count per file (for example 5/5).
+- **Why:** a test that passes only on an idle machine is a defect, in the test or in the code.
+
+### Configurability
+
+- **What:** configuration is defaulted, loaded, validated and overridable.
+- **How:** tests prove each, including that invalid configuration is refused at start-up.
+- **Metrics enforced:** the configuration tests, including the refusal case.
+- **Why:** a wrong setting must stop the program loudly, not make it misbehave quietly.
+
+### Test Discipline
+
+- **What:** the lines the story changed meet the coverage floor in a **real host run**, every method stays under the CRAP ceiling, and the tests can actually fail.
+- **How:** the [`Kyklos Bridge`](COMPONENTS.md) runs the tests with coverage on the host, posts a **coverage receipt** on the story (a summary, the changed files' line-by-line coverage and the full compressed report
+  set) and issues a **Test Discipline token**.
+- **Metrics enforced:** changed-line coverage and the highest CRAP score from the receipt, the mutation statement, the repeat-under-load counts, and **a link to the attached receipt archive**. The
+  close refuses a row that links any other archive than the one the token records.
+- **The token cannot be faked:** the token is computed by the Bridge with a **signing key the agent never sees**: the key is stored in the Windows Credential Manager (see [Secrets](SECRETS.md)) and loaded only into the Bridge
+  process, never into the container or the test processes. The token is bound to the exact content of the changed files and to the receipt's fingerprint, so editing a file afterwards makes it stale,
+  and no token can be produced by hand.
+- **Why:** "the tests pass" is the claim agents fake most often; a signed, content-bound receipt makes it checkable.
+
+#### Where the evidence lives, and what a team shares
+
+A coverage run leaves three things behind, in three places. Only the first is evidence other people need to read.
+
+| What | Where | Shared? | What it is for |
+|------|-------|---------|----------------|
+| **Coverage receipt** | A comment on the story in the issue tracker, with the compressed report set attached; the comment records the archive's SHA-256 | Yes, by construction: everyone who can open the story sees it | The evidence itself: the figures, the changed files' line-by-line coverage and the full reports. The close downloads the archive again and checks it still matches its fingerprint. |
+| **Test Discipline token** | A small file in the token folder of the working copy, by default `<solution root>/.kyklos/proof-tokens` (setting `KYKLOS_PROOF_TOKEN_DIR`) | No: it belongs to the machine whose Bridge signed it | The link between one run and one receipt: it records the receipt's fingerprint and the content of the changed files, signed with the Bridge's signing key from that machine's credential store. The close reads it through the Bridge to know which receipt is the right one, and that the files did not change since. |
+| **Trunk-base cache** | The Bridge's state folder, by default `%LOCALAPPDATA%\KyklosBridge\base-coverage` (setting `KYKLOS_BRIDGE_STATE_DIR`) | No, on purpose | Not evidence and not a token: a cache of coverage runs of the trunk commit a story started from, used to compare each changed file with its coverage before the story and to tell which failing tests already failed at that commit. It is rebuilt when missing (at most 24 entries, each kept 14 days). Sharing it would let one machine's broken base run (a database or host that was down) judge every developer's stories. |
+
+**What this means for a team today.** The receipt is shared, the token is not. A story measured on one developer's
+machine closes from that machine. Closed from another machine, the close finds no token for the story and that developer
+measures again, which posts a new receipt. The work is never lost, since the receipt stays on the story for everyone to
+read, but the second measurement costs time.
+
+**Could the tokens live in a shared folder, such as a companion repository?** The folder is a setting, so technically
+yes, but a shared folder alone does not make tokens portable:
+
+- A token verifies only with the key that signed it. Sharing tokens means every developer's Bridge holds the **same**
+  signing key, read from a shared secrets manager instead of each machine's credential store. That keeps the guarantee
+  that matters (the agent never sees the key) and adds an organisational one: everyone who holds the key can sign.
+- A companion repository is a folder the agent writes to. A forged token there still fails verification without the key,
+  so integrity holds, but committed tokens add commits and merge conflicts on every measurement.
+- The cleaner direction is to put the signature **into the receipt comment** itself, so the issue tracker becomes the one
+  shared store and no file has to travel between machines. It still needs the one team signing key described above.
+  This is a design direction, not yet built.
+
+### Non-Duplication
+
+- **What:** the story copies no logic or constant, and removes duplication its work exposes.
+- **How:** a duplication detector (for example [jscpd](https://github.com/kucherenko/jscpd)) scans the changed code; candidates are triaged by meaning, not by text, and real duplicates are centralised.
+- **Metrics enforced:** the clone count and duplicated share, a **tool token** over the scanned files, and **a link to the attached duplication report**; a summary without the attachment is refused.
+- **Why:** duplicated logic is fixed in one copy and stays broken in the other.
+
+### Documentation
+
+- **What:** every document the change affects exists, agrees with the shipped behaviour, is complete, and suits its audience.
+- **How:** the documentation pass (`kyklos:update-docs`, see [Skills](HOOKS_AND_SKILLS.md#how-the-agent-knows-what-to-do-skills)) updates the documents and runs the audience lint (no internal hostnames, history or scaffolding in a public document).
+- **Metrics enforced:** the documents updated and the lint findings, backed by a **tool token** bound to the files judged.
+- **Why:** a document that disagrees with the code is worse than no document.
+
+### Poka-Yoke
+
+- **What:** every new footgun (an easy, damaging mistake) gets the highest feasible guard.
+- **How:** the ladder, best first: impossible by design, refused at the boundary, a loud failure at run time, and only as a last resort a documented convention.
+- **Metrics enforced:** each footgun with the rung of its guard.
+- **Why:** a rule people must remember will eventually be forgotten; a design that makes the mistake impossible will not.
+
+### Risk Assessment
+
+- **What:** the change is measured against the story's numbered risk register, cited to the project's declared regulations.
+- **How:** a new or raised risk must be added to the register; every mitigated risk must have its mitigating code marked `[RiskMitigation RA-nn]`.
+- **Metrics enforced:** the register items and the mitigations marked against those claimed; the row stays UNPROVEN until the register exists and every claimed code mitigation carries its marker.
+- **Why:** regulations ask for evidence that risks were identified and treated; the markers turn that into a search.
+
+### i18n
+
+- **What:** every user-facing text the story added or changed (labels, validation and error messages, API messages) is in the project's localisation resources, without duplicates.
+- **How:** a scanner lists the candidate texts; each one is moved or excluded with a reason (log lines and agent-facing messages are excluded by rule).
+- **Metrics enforced:** candidates, promoted and ignored counts, which must add up (promoted + ignored = candidates); on a development story the row can never be waved away, even when all three are 0.
+- **Why:** a text left in the code cannot be translated, and a duplicated one drifts.
+
+### Adversarial Review
+
+- **What:** an independent reviewer tried to break the change (see [Adversarial reviews](ADVERSARIAL_REVIEW.md)).
+- **How:** the review report is posted on the story; the Bridge signs a token bound to its exact content with the same host-only key, and refuses a report that does not follow the template.
+- **Metrics enforced:** the rounds, the open blocker and major findings (must be 0), the review note; the close verifies the token.
+- **Why:** the author is the worst judge of their own work; a tamper-proof review on record makes the second opinion real.
+
+**What makes the table trustworthy:** the mechanical rows cannot be filled by typing. Their tokens are computed by the `Kyklos Bridge` with a key the agent cannot read, bound to the exact content
+they judged, so a later change makes them stale and a forged one does not verify. Where a row needs an **attached file** (the coverage receipt archive for Test Discipline, the duplication report
+for Non-Duplication), the row must link exactly that attachment.
+
+### Example
+
+A realistic, complete Proof Table of a small development story ("Retry Export": a failed upload is retried with growing waits):
 
 | Quality Dimension    | Verdict          | Evidence                                                                                                                                                                                                    | Metrics                                                                                                                                                                                                                        |
 |----------------------|------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -200,7 +305,7 @@ A realistic, complete [Proof Table](#the-proof-table-1) of a small development s
 | Observability        | ✅ PROVEN        | Each failed attempt logs the attempt number, the wait and the cause; the final failure is surfaced with the export id.                                                                                      | <kbd>Failure paths with a signal:</kbd> 2/2                                                                                                                                                                                    |
 | Thread Safety        | ⬜ NOT_PERTINENT | The retry runs inside one export; no shared state is added.                                                                                                                                                 | –                                                                                                                                                                                                                              |
 | Configurability      | ✅ PROVEN        | `MaxAttempts` and `FirstWait` have defaults, are validated, and can be overridden per environment; an invalid value stops the start-up.                                                                     | <kbd>Configuration tests:</kbd> 5 pass (2 refusals)                                                                                                                                                                            |
-| Test Discipline      | ✅ PROVEN        | Content ledger at the merged result: every changed C# line ran under a passing Bridge run. The timing-dependent test file ran 5 times under CPU load (`run_tests` repeat 5, load 4). Mutation: not required (no security-sensitive code changed). | <kbd>Story lines (ledger):</kbd> covered or limited 42 of 42 story lines<br><kbd>CRAP (max, get_coverage):</kbd> 12.0<br><kbd>Repeat under load (UploadRetryTests):</kbd> 5/5<br><kbd>Mutation:</kbd> not required (no security-sensitive code changed) |
+| Test Discipline      | ✅ PROVEN        | Host run on the merged result issued the token; the receipt is attached. The timing-dependent test file ran 5 times under CPU load. Mutation: not required (no security-sensitive code changed).            | <kbd>Coverage (receipt, changed lines):</kbd> 97.6% (41/42)<br><kbd>CRAP (max, receipt):</kbd> 12.0<br><kbd>Repeat under load (UploadRetryTests):</kbd> 5/5<br><kbd>Receipt:</kbd> `coverage-receipt-dotnet.zip` (attached)    |
 | Non-Duplication      | ✅ PROVEN        | jscpd over the 3 changed files: no clone; the existing back-off helper was reused instead of a new one.                                                                                                     | <kbd>Duplication (jscpd):</kbd> 0 clones, 0%<br><kbd>Report:</kbd> `jscpd-report.json` (attached)                                                                                                                              |
 | Documentation        | ✅ PROVEN        | The README's export section documents the two new settings; the audience lint is clean.                                                                                                                     | <kbd>Docs updated (update-docs):</kbd> 1<br><kbd>Audience lint:</kbd> 0 findings                                                                                                                                               |
 | Poka-Yoke            | ✅ PROVEN        | Footgun: a retry loop with no limit. Guard: the attempts are a validated range, so an unbounded loop cannot be configured (rung: refused at the boundary).                                                  | <kbd>Footguns introduced:</kbd> 1<br><kbd>Guard rung:</kbd> refused at the boundary                                                                                                                                            |
@@ -212,5 +317,4 @@ A realistic, complete [Proof Table](#the-proof-table-1) of a small development s
 
 ## Related pages
 
-[What Kyklos assumes about the agent](PROOF_AGENT_ASSUMPTIONS.md), [Adversarial reviews](ADVERSARIAL_REVIEW.md), [The Kyklos workflow](WORKFLOW.md), [Hooks and skills](HOOKS_AND_SKILLS.md),
-[Stories and epics](AGILE.md), [Secrets](SECRETS.md), and [the README](../README.md) for the full list.
+[Adversarial reviews](ADVERSARIAL_REVIEW.md), [The Kyklos workflow](WORKFLOW.md), [Hooks and skills](HOOKS_AND_SKILLS.md), [Stories and epics](AGILE.md), and [the README](../README.md) for the full list.
