@@ -28,6 +28,34 @@ Only issues carrying the `story` label are treated as SSDLC stories. When Kyklos
 
 An issue without the `story` label is not adopted: it is not treated as a story, it is not expected to have a `kind::` label, and Kyklos ignores it, unless a person triggers its adoption explicitly with the corresponding skill or by asking the agent.
 
+### How writes to the GitLab storage are checked
+
+```mermaid
+flowchart TD
+    A["Agent: story, agent-msg or proof command"] --> B["Bridge verb, with the story token held on the host"]
+    R["Agent: raw curl, glab or script on the issues or milestones API"] --> G{"Rules before the command runs"}
+    G -->|"creates an issue"| X1["Refused, no override"]
+    G -->|"changes a story's lifecycle labels, a milestone, a proof note"| X2["Refused: use the tool, a one-shot marker exists for a genuine repair"]
+    B --> T{"Free text written by the agent?"}
+    T -->|"a line that is a GitLab quick action, for example /close"| X3["Refused, naming the line"]
+    T -->|"clean"| D["One GitLab writer in the Bridge"]
+    D --> GL["GitLab issue, labels, notes"]
+    GL --> RD["Reads come back in three states: open, closed, or unknown with its cause"]
+    RD --> M["Local mirror under Stories/ regenerated"]
+    E["Agent edits a mirror file by hand"] --> X4["Refused: mirror files are generated"]
+```
+
+- **One writer.** Every write to GitLab goes through one place in the Bridge, with typed operations, so a label, a state or a note is always written the same way. The agent's container has no
+  token that can call the GitLab API.
+- **Free text is checked per poster.** GitLab runs *quick actions*: a line that starts with `/` and a letter (for example `/close` or `/label`), outside a fenced code block, changes the issue when
+  the note is posted. Text the agent wrote (a message, a reply, a review report, a block reason, a story description) is refused when such a line is in it, naming the line, so the agent rewrites
+  it. Text the Bridge builds itself (receipts, proofs, signed records) is composed so that no line can start that way.
+- **Three-state reads.** A fact the Bridge reads (an issue's state, a story's status, a blocker) is open, closed, or **unknown**, with the field or the error that made it unknown; an unknown
+  fact is never read as "closed" or "done", and the gate that needs it refuses.
+- **The mirror.** The files under `Stories/` are projections, regenerated from GitLab; a hand edit is refused, and a backlog that disagrees with the stories stops the agent's turn.
+- **Impact on the user.** None: these refusals send the agent to the right tool. A genuine repair of a mirror file or a milestone uses the one-shot markers listed in
+  [Overrides](WORKFLOW.md#one-shot-override-markers).
+
 ## File-system storage (for standalone and offline use)
 
 Each story is a folder; its `requirements.md` starts with a **header** that plays the role of the labels: the story tool reads and writes it, and the guards act on it.

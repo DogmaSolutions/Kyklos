@@ -18,6 +18,35 @@ In the companion topologies the story's change lives in the nested source, so th
 no commit naming the story may be left in the source checkout. When the agent may not push the source (the source is declared read-only for the agent, or its push credential does not reach it), a
 person pushes it, and the story cannot close before that push. See [The Kyklos Workflow](WORKFLOW.md).
 
+## How the topology is enforced
+
+The topology is declared once, in the project's `.claude/standards.env` (written by the `kyklos:ssdlc-repo-model` skill). Every rule reads it from the repository a command acts on.
+
+```mermaid
+flowchart TD
+    W["Agent writes a file"] --> B1{"Target is another repository than the session's own, or the public nested source?"}
+    B1 -->|"yes, and the text adds an internal reference or an organisation name"| X1["Refused before the write lands"]
+    B1 -->|"no"| OK1["Write allowed"]
+    C["git commit or branch"] --> M{"Repository declares a topology?"}
+    M -->|"no"| X2["Refused: declare it first"]
+    M -->|"yes"| WF{"Its workflow: GitFlow, trunk-based, or read-only for the agent"}
+    WF -->|"read-only source"| X3["Commit refused: a person commits there"]
+    WF -->|"GitFlow, on a trunk"| X4["Refused: branch first"]
+    WF -->|"allowed"| OK2["Commit allowed"]
+    P["git push into a public source"] --> A{"Any pushed tree or new commit adds Stories, CLAUDE.md, AGENTS.md, .claude, .codex or .devcontainer?"}
+    A -->|"yes"| X5["Refused, for every session"]
+    A -->|"no"| OK3["Push goes on to the push rules"]
+    S["story new against the public artifact repository"] --> X6["Refused: no story is filed against it"]
+```
+
+- **What is read.** The topology and workflow keys of the repository's own `.claude/standards.env` (in a companion, the nested source's keys live in the companion's file), the git facts of the
+  target repository, and, for a push, every tree and commit it sends that the remote does not have yet: a file added in one commit and removed in a later one is still refused, because the history
+  would publish it.
+- **When.** Before each write, commit or push. Nothing reaches the public remote before these checks pass.
+- **What a failure causes.** The write, commit or push does not happen; the agent removes the artifact (from the history too), or moves the work to the right repository.
+- **Impact on the user.** None in normal work. Pushing a public source the agent may not push stays the person's job (see [Scenario 4 of the workflow](WORKFLOW_SCENARIO_4.md)). A project whose public
+  source must carry its own product names lists them in the launcher setting `KYKLOS_OWN_NAMES`; the opt-out switches are listed in [Overrides](WORKFLOW.md#greppable-opt-out-switches).
+
 ## Private Standalone
 Everything is in one private repository.
 

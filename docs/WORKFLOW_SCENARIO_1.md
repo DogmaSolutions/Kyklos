@@ -28,6 +28,33 @@ The diagram below is also available in [Yed GRAPHML format](../assets/workflow/A
 <img src="../assets/workflow/AI-Driven_development_013-1-ci-agent-push.png" alt="Closing flow: project with CI, the agent pushes" width="800"/>
 </p>
 
+## How the checks work in this scenario
+
+```mermaid
+flowchart TD
+    C["Commit on the story branch: Refs footer, story in progress"] --> T["Bridge runs builds, tests and coverage on the host"]
+    T --> K["Bridge records the evidence and signs the tokens"]
+    K --> P{"Push: own feature or hotfix branch, KYKLOS_CI_MONITOR=1, armed merge request admitted?"}
+    P -->|"no"| X1["Push refused, or request created unarmed with the reason"]
+    P -->|"yes"| R["Adversarial review on the pushed change, token signed"]
+    R --> PL{"Pipeline"}
+    PL -->|"red"| C
+    PL -->|"green"| M["GitLab merges the armed request"]
+    M --> CL{"story close: rules 1 to 5, tokens re-computed on the merged files"}
+    CL -->|"pass"| D["Closed"]
+    CL -->|"fail"| X2["Refused, findings listed"]
+```
+
+- **Files and resources.** The story branch in the agent's repository; the host's copy of the project, where the Bridge builds, tests and measures; the story, its notes and the merge request
+  on GitLab; the pipeline of the merge request.
+- **Secrets.** The container holds only the write-only push credential. The Bridge holds the story and CI tokens and the proof signing key on the host (see [Secrets](SECRETS.md)).
+- **Signatures.** The Test Discipline evidence, the Non-Duplication and Documentation tokens and the review token are keyed hashes (HMAC-SHA256) over what was measured; they are made by the Bridge
+  and checked again at the close against the merged files (see [The Proof Table](PROOF.md)).
+- **When the checks run.** At each commit and push (the [hook rules](HOOKS_AND_SKILLS.md)), at the arm, at the close, and at every Stop.
+- **What a failure causes.** A refused push or arm, a red pipeline, or a refused close sends the agent back to the step that failed; the story stays open.
+- **Impact on the user.** None in the normal flow: this is the scenario where the agent closes on its own. A hung pipeline is reported, and only a genuine exception needs a person
+  (see [Overrides](WORKFLOW.md#overrides)).
+
 ## Related pages
 
 The other scenarios: [Scenario 2](WORKFLOW_SCENARIO_2.md) · [Scenario 3](WORKFLOW_SCENARIO_3.md) · [Scenario 4](WORKFLOW_SCENARIO_4.md) · [Scenario 5](WORKFLOW_SCENARIO_5.md). See also [The Proof Table](PROOF.md) and [CI](CI.md).

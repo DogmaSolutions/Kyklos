@@ -16,6 +16,40 @@ Hooks run on every action the agent takes, such as running a command, editing a 
 
 A hook that blocks always says why, and what the agent should do instead.
 
+## How a hook decides: one hook per event, every rule in the Bridge
+
+Claude Code runs hooks at fixed points of the agent's work, called *events*: before a tool call (PreToolUse), after it (PostToolUse, or PostToolUseFailure when it failed), when the agent
+wants to end its turn (Stop), when a session starts (SessionStart) and when the person sends a prompt (UserPromptSubmit). The `Kyklos Plugin` registers **one** hook for each of these events,
+`plugins/kyklos/hooks/kyklos-event.sh`, and that hook holds no rule of its own. Every rule (the families in the table above) lives once, in the [`Kyklos Bridge`](COMPONENTS.md), and is judged
+there.
+
+```mermaid
+flowchart TD
+    E["Claude Code event: tool call, stop, session start, prompt"] --> H["kyklos-event.sh reads the event"]
+    H --> F["Collects container facts: branch, status, remotes, standards.env, switch values, never a secret"]
+    F --> B["Calls the Bridge verb hook_event over the session's MCP address"]
+    B -->|"no answer, wrong project, too old, unreadable"| D["Bridge did not answer"]
+    D -->|"tool call"| D1["Refused: nothing runs"]
+    D -->|"Stop"| D2["Let through with a message, recorded as an unjudged Stop"]
+    D -->|"session start or prompt"| D3["A notice: every tool call will be refused until the Bridge answers"]
+    B --> P["Bridge parses the command once into a command tree"]
+    P --> R["Runs every rule whose condition matches, in parallel, each under a deadline"]
+    R -->|"needs a fact only the container has"| NF["Asks for it once, the hook sends it"]
+    NF --> R
+    R --> V["Combines the verdicts: any deny or block refuses, ask only when nobody refuses"]
+    V --> O["Spends overrides only if the final verdict lets the call through"]
+    O --> A["Answer: allow, ask, deny or block, every reason listed, rules in a fixed order"]
+    A --> C["The hook prints it in Claude Code's format"]
+```
+
+- **Files and resources.** The hook is the plugin's `hooks/kyklos-event.sh`; the plugin's `hooks/hooks.json` holds exactly one entry per event, and that entry refuses by itself when the script is missing, so a broken install never runs a tool call unchecked. The facts are collected by `hooks/lib/repo-facts.sh`. The answer comes from the Bridge process on the host.
+- **Secrets.** The hook sends no secret: the list of variables it may send is fixed, and a name ending in `TOKEN`, `SECRET`, `KEY` or `PASSWORD` is never on it. The Bridge reads the tracker and CI with the tokens it holds on the host (see [Secrets](SECRETS.md)). The call to the Bridge carries the session's local authentication value from the session's MCP settings, and the hook checks that the answer comes from **this** project's Bridge.
+- **When it runs.** At every event. The time limits are fixed: 10 seconds for a tool event, 15 seconds for a prompt, 60 seconds at session start, 120 seconds at Stop. A rule that needs a build or a test run never waits for it: it says what to run first, or reads the finished result.
+- **The order of rules.** The rules run in parallel, and only their messages are ordered: rules on the command text first, then rules on git facts, then rules on stored records, then rules that read the tracker. So the same command always gets the same message. A rule whose condition does not match does not run (a plain `ls` reads neither git nor the tracker). A rule that fails or runs out of time counts as a refusal ("rule failed"); the others still answer, so one answer lists every reason.
+- **Which repository a rule judges.** The repository the command acts on (`git -C <dir>`, a `cd` in the command, a push of a nested source), not the folder the session started in. When the Bridge does not serve that repository, its story rules are reported as **not judgeable** and skipped by name; the local checks still run.
+- **What a refusal causes.** A refused tool call does not run; the agent reads the reasons and changes its approach. A refused Stop sends the agent back to work. Most refusals need nothing from the user; the few that a person must settle are described in [Overrides](WORKFLOW.md#overrides).
+- **When the Bridge is down.** Every tool call is refused until it is back; the person starts or updates it in the `Kyklos Launcher`. The Bridge is required: there is no switch that turns the hook off.
+
 <p align="center">
 <img src="../assets/workflow/AI-Driven_development_012.png" alt="Skills and hooks keep the agent on the SSDLC workflow" width="900"/>
 </p>
@@ -35,6 +69,31 @@ queue. Messages addressed to the agent (from a person or another agent) must be 
 What counts as open work: every open issue is classified from its labels. A `story` issue and a plain, unlabeled issue both force work (an unlabeled issue must be triaged: adopted under a story kind, routed to another agent as a message, parked, or closed with a disposition label). Four states are excluded: messages to another agent (their reply is tracked separately), parked stories, blocked stories (a story that records what it waits on and why; the guard re-checks that record on every stop, so a block on an issue or merge request lifts by itself when it closes or merges, while a block on the user or on something external stays until it is changed by hand), and issues closed out by a `wontfix`, `duplicate` or `invalid` label. The only valid reasons to stop are *all work complete* (verified against the tracker, so it cannot be faked) or *awaiting the user* on a genuine question. There is no marker the agent can create to excuse a stop. If the agent is wedged, a stuck-breaker releases the stop after a few consecutive stops with no change and no new tool calls, so the guard can never spin forever. A guard that cannot judge a blocked story names it in a warning instead of counting it as work, so the stop gate is never impossible to pass.
 
 One exception follows the "arm a watch" rule: while a background command or a background agent the agent started is still running, work it already owns is not counted as actionable, and the agent is blocked only once for work that is new. A worker counts as running only while its newest event is younger than `CONTINUE_GUARD_WATCH_TTL_MINUTES` (default 30); silence past that bound means it is not running. Set `CONTINUE_GUARD_WATCH_HOLD=off` to disable the exception, and `KYKLOS_BLOCKER_CHECK=off` to disable the re-check of blocked stories.
+
+How the Stop is judged:
+
+```mermaid
+flowchart TD
+    S["Agent tries to end its turn"] --> B{"Bridge answers?"}
+    B -->|"no"| U["Stop let through with the bridge-down message, recorded as unjudged and judged at the next answered Stop"]
+    B -->|"yes"| M{"A message from a person or agent waits for a reply?"}
+    M -->|"yes"| X1["Blocked: answer it first"]
+    M -->|"no"| W{"Open in-scope work, from the tracker?"}
+    W -->|"none"| OK["Stop allowed: all work done"]
+    W -->|"only blocked, parked or messages"| OK
+    W -->|"work that is actionable"| Q{"Did the agent just ask the user a real question?"}
+    Q -->|"yes"| OK2["Stop allowed: awaiting the user"]
+    Q -->|"no"| R{"A background run it started is still active?"}
+    R -->|"yes, and the work is its own"| OK3["Stop allowed while it waits"]
+    R -->|"no"| K{"Same open set, no new tool calls, several Stops in a row?"}
+    K -->|"yes"| OK4["Stuck-breaker releases the Stop"]
+    K -->|"no"| X2["Blocked: names the next item to work on"]
+```
+
+The open work is read from the tracker by the Bridge with its own token, never from the agent's word or a local file it can edit; a blocked story's recorded blocker is re-checked at each Stop
+(a block on an issue or merge request lifts by itself when that closes or merges). A blocked Stop only sends the agent back to work: the user sees nothing unless the agent then asks a real
+question. The number of identical Stops before the stuck-breaker releases is `CONTINUE_GUARD_STUCK_TURNS` (default 3). The switches above are opt-outs of the person (see
+[Overrides](WORKFLOW.md#greppable-opt-out-switches)); no marker excuses the open-work check.
 
 The next item is not the agent's choice. The [`Kyklos Bridge`](COMPONENTS.md) computes it, in this order (the same rule as in [Stories and Epics](AGILE.md)):
 

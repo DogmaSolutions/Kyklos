@@ -47,6 +47,51 @@ to 4 seconds. Verdict: findings
 
 *Expected to FAIL* means the test reproduces a finding: it fails until the fix is made, and then keeps the fix from regressing (T1 above). *Expected to PASS* means it checks behaviour that must already work.
 
+## How the review token is made and checked
+
+A review only counts when the close can tell that it really ran, on this story, and that its report was not edited afterwards. That is the job of the **review token**, and the
+[Adversarial Review](PROOF_DIMENSION_ADVERSARIAL_REVIEW.md) row of the [Proof Table](PROOF.md) presents it.
+
+```mermaid
+sequenceDiagram
+    participant Reviewer as Fresh reviewer
+    participant Agent
+    participant Bridge
+    participant Tracker as Tracker, for example GitLab
+    Reviewer->>Agent: report in the template above
+    Agent->>Bridge: advreview_mint: story and report
+    Bridge->>Bridge: checks the template line by line, refuses a quick-action line
+    Bridge-->>Agent: token = HMAC-SHA256 of "advreview:story:SHA-256 of the report", host key
+    Agent->>Bridge: advreview_post: story, report and token
+    Bridge->>Tracker: posts the round note with the report and its token, as the Bridge's account
+    Note over Tracker: the server records when the note was posted
+    Agent->>Bridge: story close
+    Bridge->>Tracker: reads the newest review note and the times the remote received the code
+    Bridge->>Bridge: re-computes the token from the note's report and compares
+    alt token matches, review newer than the last covered code, no open blocker or major
+        Bridge-->>Agent: the review gate passes
+    else edited report, old review, or open findings
+        Bridge-->>Agent: close refused, naming which
+    end
+```
+
+- **Where things are.** The report is posted as a numbered note on the story (`Adversarial review (round N)`), by the Bridge's own account: the verb `advreview_mint` signs the report, and `advreview_post` posts it with its token; the skill
+  `kyklos:ssdlc-adversarial-review` drives it. A note that only quotes the marker of a review note does not count.
+- **The secret.** The token is a keyed hash (HMAC-SHA256) under the proof signing key `KYKLOS_PROOF_HMAC_KEY`. The `Kyklos Launcher` creates that key on first use, keeps it in the operating
+  system's credential store and hands it only to the Bridge process; the agent's container and the builds the Bridge runs never receive it (see [Secrets](SECRETS.md)). Without the key no token is
+  made and none verifies.
+- **How the signature is computed.** The Bridge hashes the report text with SHA-256 and signs the text `advreview:<story>:<that hash>`. Changing one character of the report, or presenting the
+  token on another story, gives a different value. The computation lives in `bridge/src/DogmaSolutions.ProjectManagement.Agile.Ssdlc/ProofTokenBinding.cs`.
+- **When it is checked.** When the proof is written (`proof_set` and the proof check), at the close, and by the Stop rule that re-grades a story closed in the session. The close also checks the
+  timing of rule 4 of [the workflow](WORKFLOW.md#rule-4-the-review-saw-the-finished-code): for a development story, the review must be newer than the moment the remote received the last change of
+  the code coverage measures.
+- **Free text is checked before it is posted.** A line of the report that would run a tracker command (on GitLab a *quick action*: a line starting with `/` and a letter, such as `/close`,
+  outside a fenced code block) is refused, naming the line, because posting it would change the issue. Text the Bridge composes itself never starts a line that way.
+- **What a failed check causes.** The close is refused and names the cause: no review on record, a report that no longer matches its token, a review older than the last pushed code, or open
+  blocker or major findings. The fix is a new review round (or the fix, then a review), not an edit of the note.
+- **Impact on the user.** None while the loop converges. After the third round with blockers or majors still open, the story cannot close on its own: a person decides, either allowing more rounds
+  or accepting the residual risk, and only the owner's [`proof-override` label](WORKFLOW.md#the-owners-proof-override-label), with a named cause, waives the row.
+
 ## Related pages
 
 [The Proof Table](PROOF.md), [The Kyklos workflow](WORKFLOW.md), [Hooks and skills](HOOKS_AND_SKILLS.md), and [the README](../README.md) for the full list.

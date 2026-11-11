@@ -286,6 +286,26 @@ test -x DogmaSolutions.Kyklos.Launcher && echo executable
 - **A download answers 404.** The release may not carry that file. Open `https://github.com/DogmaSolutions/Kyklos/releases` and tell the person what you see.
 - **Keep the unpacked folder intact.** The program needs the files beside it (`appsettings.json`, `engine/`, `Parameters/`), so do not move it out of the folder.
 
+**What these checks prove, and what follows.**
+
+```mermaid
+flowchart TD
+    D["Downloaded zip and SHA256SUMS.txt from the same release"] --> H{"SHA-256 of the zip equals its line?"}
+    H -->|"no"| R["Download once more"]
+    R --> H2{"Equal now?"}
+    H2 -->|"no"| S["STOP: tell the person, do not unpack"]
+    H2 -->|"yes"| U
+    H -->|"yes"| U["Unpack"]
+    U --> W{"Windows: signature Valid?"}
+    W -->|"no"| S
+    W -->|"yes, or Linux"| N["Go on to step 6"]
+```
+
+The checksum proves the file is the one the release published (not cut short, not changed on the way); the code signature on Windows proves who built the program. Neither needs a secret.
+From here on, the Launcher checks the `Kyklos Bridge` it downloads the same way, by itself, at every launch (see "How the Launcher checks the Bridge it starts" in
+[Installing and configuring](INSTALL_AND_CONFIG.md)), and refuses a file whose checksum does not match. A failed check here stops the installation until the person decides; there is no override,
+because running an unverified program is the risk the check exists for.
+
 **Note: the Bridge from NuGet.org (🪟 Windows and 🐧 Linux, optional).** The Launcher downloads the `Kyklos Bridge` itself from the public release, so this procedure does not need anything else. If the person wants the Bridge as a .NET tool too (for example to run it by hand), it is published on NuGet.org as `DogmaSolutions.Kyklos.Bridge`, command `kyklos-bridge`, and needs the .NET 10 SDK. Ask first, then run `dotnet tool install --global DogmaSolutions.Kyklos.Bridge`. **Check:** `dotnet tool list --global`. **Expected:** a line for `dogmasolutions.kyklos.bridge` with the command `kyklos-bridge`. See [Getting the Bridge from NuGet.org](INSTALL_AND_CONFIG.md#getting-the-bridge-from-nugetorg). To check a Bridge started by hand (`kyklos-bridge --port <port> --solution <solution>`), run `curl -s -X POST http://127.0.0.1:<port>/mcp -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'`. **Expected:** `"serverInfo":{"name":"KyklosBridge","version":"<version>"}` in the answer. The whole set-up without the Launcher is in [Wiring a project by hand](INSTALL_AND_CONFIG.md#wiring-a-project-by-hand-without-the-launcher).
 
 ---
@@ -331,6 +351,9 @@ git -C <settings-root> log '@{u}' -1 --oneline
 ```
 
 **Expected:** `status` prints nothing, and the remote branch (`@{u}`) shows your commit.
+
+This matters because the Launcher checks the file at every launch: it must lie outside every folder the agent's container can write, be tracked, unchanged since its commit and identical to
+its remote branch, otherwise the launch is refused. The check and its diagram are in "The Bridge settings, reviewed" of [Installing and configuring](INSTALL_AND_CONFIG.md).
 
 **If it fails:**
 

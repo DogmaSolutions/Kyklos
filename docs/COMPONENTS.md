@@ -25,6 +25,32 @@ Specifically, the actions and roles of the three components are these:
 **Why three parts:** the agent works in a sealed container and never holds a token that could act on the issue tracker or CI directly. Anything with consequences goes through the `Kyklos Bridge`,
 where it is checked, logged and attributed. Logic lives once, in the `Kyklos Bridge`. The Plugin only guides the agent there and makes sure the `Kyklos Bridge` is used.
 
+### How a request crosses the three parts
+
+```mermaid
+flowchart LR
+    subgraph Container["Agent's container"]
+        AG["Agent"] --> PL["Kyklos Plugin: one hook per event"]
+    end
+    subgraph Host["Developer's machine"]
+        LA["Kyklos Launcher"] -->|"starts, with its settings and secrets"| BR["Kyklos Bridge"]
+        CS[("Credential store")] --> LA
+        RS[("Reviewed Bridge settings, committed and pushed, outside the container")] --> LA
+    end
+    PL -->|"hook_event, authenticated, project checked"| BR
+    AG -->|"tool calls: build, run_tests, story, CI"| BR
+    BR -->|"its own tokens"| GL["GitLab: tracker and CI"]
+    BR -->|"builds and tests with a clean environment"| SRC["The project's source"]
+```
+
+- **The settings the Bridge runs with are reviewed.** Before it starts a project's Bridge, the Launcher checks that the project's settings file (`projects/<project>/bridge.appsettings.json` under
+  the settings root) lies outside every folder the container can write, is tracked in git, is unchanged since its commit and is identical to its remote branch. Otherwise the launch is refused,
+  so an agent can never widen its own Bridge. The check lives in `launcher/src/KyklosLauncher/Bridge/BridgeSettingsGate.cs`.
+- **The Bridge binary is verified.** The Launcher downloads the Bridge release, hashes it while it streams, and keeps it only when the SHA-256 equals the checksum published with the release; a
+  cached copy is re-checked before every start (see [Installing and configuring](INSTALL_AND_CONFIG.md)).
+- **The session talks only to its own Bridge.** Every answer carries the Bridge's project name and solution root, and the Plugin refuses an answer from another project's Bridge.
+- **When a part is missing.** Without the Bridge, every tool call is refused (see [Hooks and skills](HOOKS_AND_SKILLS.md)); without a reviewed settings file, no launch.
+
 All components are available in the Kyklos marketplace, published in the [Kyklos GitHub repository](https://github.com/DogmaSolutions/Kyklos).  
 Through [Docker Desktop](https://www.docker.com/products/docker-desktop/), the `Kyklos Launcher` builds a container and injects into it, from the marketplace, the `Kyklos Plugin` and the `Kyklos Bridge`. Without the Launcher, the same three steps are done by hand: see [Wiring a project by hand](INSTALL_AND_CONFIG.md#wiring-a-project-by-hand-without-the-launcher) (the Plugin installs with `claude plugin marketplace add https://github.com/DogmaSolutions/Kyklos.git`, then `claude plugin install kyklos@dogmasolutions`).
 

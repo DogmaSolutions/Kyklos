@@ -36,6 +36,30 @@ Each capability is a separate switch. A session gets only the ones you turn on, 
 
 Two things are **not** part of the role. No bridge can widen the folders it serves by itself: a bridge restart may only narrow them, and a wider folder is a change to the project's launcher configuration, which only a launcher operator or the person at the launcher can make. And the overrides that only a person may grant (see below) stay the person's.
 
+How each switch is checked, and by whom:
+
+```mermaid
+flowchart TD
+    A["A privileged action"] --> K{"Which action?"}
+    K -->|"CI administration, CI write on a trunk, full process view"| B{"Bridge role read from the reviewed settings file is Infrastructure?"}
+    B -->|"no"| X1["The Bridge does not list the tool, and refuses it by name"]
+    B -->|"yes"| W{"Ref allowed by ContinuousIntegration:WriteRefs?"}
+    W -->|"no"| X2["Refused, logged as a ci-audit line"]
+    W -->|"yes"| OK1["Done, logged as a ci-audit line with the role"]
+    K -->|"launcher_request"| L{"Launcher set KYKLOS_BRIDGE_LAUNCHER_OPERATOR for this Bridge?"}
+    L -->|"no"| X3["Refused"]
+    L -->|"yes"| OK2["Done"]
+    K -->|"git push of a trunk or another session's branch"| P{"KYKLOS_ALLOW_PUSH=1 in the launch configuration?"}
+    P -->|"no"| X4["Refused by the push rule"]
+    P -->|"yes"| F{"Force or delete of a trunk, release, support or tag?"}
+    F -->|"yes"| X5["Refused"]
+    F -->|"no"| OK3["Pushed"]
+```
+
+The role comes only from the reviewed, committed Bridge settings file (any value the launch environment brings is removed first), the operator flag only from the launcher's own settings, and
+the push flag only from the launch configuration: none of them is something the session can set for itself. A refused action changes nothing and names the missing switch; granting it is the
+person's decision. The overrides a person may grant to project sessions are described in [Overrides](WORKFLOW.md#overrides).
+
 ## How to set it up, end to end
 
 The steps assume GitLab as issue tracker and CI, as in the rest of this documentation.
@@ -68,7 +92,7 @@ The steps assume GitLab as issue tracker and CI, as in the rest of this document
 
 - **Messages.** Agents talk through GitLab issues labelled `kind::communication`, addressed by their **assignee**. A project session writes to the Infrastructure session with the `kyklos:ssdlc-agent-msg` skill (recipient `infra`); the bridge sends it with its own token, so the sender cannot pretend to be someone else. A recipient that is not a member of the project is refused; the Infrastructure user, a member everywhere, is the usual way to reach across projects. The Infrastructure session's inbox gathers every open message assigned to it in its scopes.
 - **Push and merge-request hand-off.** A project session commits on its own story branch. With `KYKLOS_CI_MONITOR=1` it may push that `feature/*` or `hotfix/*` branch itself and watch its pipeline; without it, it pushes nothing. Then the push-authorised session (or a person) pushes the **story branch** with its merge request, never a trunk the story was merged into locally, because the story's close needs the time the remote received the work, and only the merge request records it. See [How the agent uses Git](GIT.md).
-- **Overrides belong to a person.** The labels that waive a gate, `push-override` on a story's issue and `proof-override` on a story that cannot meet a close gate, count only when the **latest** time the label was added was by a GitLab user other than the agent that relies on it; `proof-override` must also name the open item that removes the cause of the gap. An agent cannot grant either one to itself.
+- **Overrides belong to a person.** The labels that waive a gate, `push-override` on a story's issue and `proof-override` on a story that cannot meet a close gate, count only when the **latest** time the label was added was by a GitLab user other than the agent that relies on it; `proof-override` must also name the open item that removes the cause of the gap. An agent cannot grant either one to itself. Every kind of override is described in [Overrides](WORKFLOW.md#overrides).
 
 ## Advantages
 

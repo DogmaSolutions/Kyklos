@@ -38,6 +38,31 @@ The diagram below is also available in [Yed GRAPHML format](../assets/workflow/A
 <img src="../assets/workflow/AI-Driven_development_013-4-companion-person-push.png" alt="Closing flow: companion topology, the source is pushed by a person" width="800"/>
 </p>
 
+## How the checks work in this scenario
+
+```mermaid
+flowchart TD
+    S["Story in the companion"] --> C{"Commit in the nested source"}
+    C -->|"source read-only for the agent"| X1["Refused: the person commits there"]
+    C -->|"allowed"| T["Bridge builds and tests the source on the host"]
+    T --> P{"Push of the source"}
+    P -->|"agent may not push it"| H["A person pushes the source branch with its armed merge request"]
+    P -->|"public source carrying an agent artifact"| X2["Refused, for every session"]
+    H --> PL["Source pipeline green, GitLab merges"]
+    PL --> CL{"story close: deliverable in the source project merged, every Refs commit on its trunk, in the companion and the source"}
+    CL -->|"pass"| D["Closed"]
+    CL -->|"fail"| X3["Refused, findings listed"]
+```
+
+- **Files and resources.** The companion holds the backlog and the agent tooling; the nested source (`Repo/` by default) holds the code. Each rule judges the repository the command acts on:
+  a commit in `Repo/` is judged by the source's own settings, read from the companion's `.claude/standards.env`.
+- **Secrets.** The companion push credential reaches only the companion; a source push credential exists only if the project gives one. The Bridge reads both projects on GitLab with its own
+  tokens.
+- **Signatures.** The tokens record the tree they measured (the source, not the companion), and the close checks them against the host's copy of the source as merged.
+- **When the checks run.** At each write (no internal reference or agent file may enter a public source), each commit and push, and at the close.
+- **What a failure causes.** A commit left in the source checkout, or a source change not merged on the source's trunk, keeps the story open.
+- **Impact on the user.** The person commits or pushes in the source when the agent may not, and the story waits for them (it is recorded as blocked on the person).
+
 ## Related pages
 
 The other scenarios: [Scenario 1](WORKFLOW_SCENARIO_1.md) · [Scenario 2](WORKFLOW_SCENARIO_2.md) · [Scenario 3](WORKFLOW_SCENARIO_3.md) · [Scenario 5](WORKFLOW_SCENARIO_5.md). See also [The Proof Table](PROOF.md) and [CI](CI.md).

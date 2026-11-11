@@ -21,8 +21,8 @@ The story's kind decides which rows it must prove (see the [Proof Table](PROOF.m
 - An **analysis** story proves Completeness and Adversarial Review. When it changes no files, the close has no deliverable to check on the remote; the Bridge leaves Completeness open, and the agent
   fills it with evidence of where each item of the specification is answered.
 
-Both kinds (and *ops* stories) carry **no coverage receipt**, and the review timing of rule 4 does not apply to them. T 
-hey still need an adversarial review, and they must have moved past the
+Both kinds (and *ops* stories) carry **no coverage receipt**, and the review timing of rule 4 does not apply to them.
+They still need an adversarial review, and they must have moved past the
 Design phase before they can close.  
 
 The diagram below is also available in [Yed GRAPHML format](../assets/workflow/AI-Driven_development_013-5-no-testable-code.graphml).  
@@ -30,6 +30,29 @@ The diagram below is also available in [Yed GRAPHML format](../assets/workflow/A
 <p align="center">
 <img src="../assets/workflow/AI-Driven_development_013-5-no-testable-code.png" alt="Closing flow: story without testable code" width="800"/>
 </p>
+
+## How the checks work in this scenario
+
+```mermaid
+flowchart TD
+    K{"Story kind"} -->|"documentation"| DOC["Documents changed on the story branch"]
+    K -->|"analysis"| AN["Analysis recorded on the story"]
+    DOC --> L["Documentation pass and audience lint: no internal details in a public document"]
+    L --> P["Pushed and merged like code"]
+    AN --> R
+    P --> R["Adversarial review, token signed"]
+    R --> CL{"story close: phase past Design, review token valid, Completeness, for documents: merged on the remote, Refs commits on the trunk, Documentation row links each document"}
+    CL -->|"pass"| D["Closed"]
+    CL -->|"fail"| X["Refused, findings listed"]
+```
+
+- **Files and resources.** The documents in the repository, or the story's own notes for an analysis.
+- **Secrets.** As in the other scenarios; nothing specific to these kinds.
+- **Signatures.** The review token is checked as for every story. A Documentation token is needed only when source code changed too; no coverage receipt exists for these kinds.
+- **When the checks run.** At the push and merge of the documents, and at the close. Rule 4's review timing does not apply.
+- **What a failure causes.** A public document that carries internal details is refused by the lint; the close is refused until the documents are merged.
+- **Impact on the user.** None in the normal flow. See the [Documentation](PROOF_DIMENSION_DOCUMENTATION.md), [Completeness](PROOF_DIMENSION_COMPLETENESS.md) and
+  [Adversarial Review](PROOF_DIMENSION_ADVERSARIAL_REVIEW.md) dimension pages for what each row needs.
 
 ## Related pages
 

@@ -36,6 +36,49 @@ Whatever the mode, a story closes only once its change is **merged into the trun
 it has been pushed. Code that coverage measures must reach the trunk through a merge request. See [The Kyklos Workflow](WORKFLOW.md).  
 Every commit follows [Conventional Commits](https://www.conventionalcommits.org/) and carries a reference to its [story](AGILE.md). Repository layouts are described in [Project topologies](TOPOLOGIES.md).
 
+## How a push and an arm are checked
+
+Every `git push`, every merge request the agent creates and every arm ("merge when the pipeline succeeds") passes through the rules of the [Kyklos hooks](HOOKS_AND_SKILLS.md#how-a-hook-decides-one-hook-per-event-every-rule-in-the-bridge)
+before it runs. The rules read the command once (one command parser, so `git -C <dir> push`, a `cd` before the push, a refspec or a push option are all understood the same way) and judge the
+repository the push goes to, not the folder the session started in.
+
+```mermaid
+flowchart TD
+    P["git push"] --> T{"Target repository served by this Bridge?"}
+    T -->|"no"| NJ["Story rules not judgeable here: named and skipped, local checks still run"]
+    T -->|"yes"| A{"Who may push this?"}
+    NJ --> A
+    A -->|"KYKLOS_ALLOW_PUSH=1"| A1{"Force or delete of a trunk, release, support or tag?"}
+    A1 -->|"yes"| X1["Refused"]
+    A1 -->|"no"| CHK
+    A -->|"KYKLOS_CI_MONITOR=1, own feature or hotfix branch, no force, no tag"| CHK
+    A -->|"push-override label applied by a person on the story"| CHK
+    A -->|"anything else"| X2["Refused: a person or the push-authorised session pushes"]
+    CHK["Content checks"] --> C1{"Every pushed commit has its Refs footer, one branch one item?"}
+    C1 -->|"no"| X3["Refused, naming the commit"]
+    C1 -->|"yes"| C2{"Public source and an agent artifact in the pushed tree or history?"}
+    C2 -->|"yes"| X4["Refused"]
+    C2 -->|"no"| C3{"Scripts pass the formal check, full-solution build recorded green?"}
+    C3 -->|"no"| X5["Refused, naming the finding"]
+    C3 -->|"yes"| M{"Creates a merge request?"}
+    M -->|"no"| OK["Push runs"]
+    M -->|"yes"| AR{"Created armed?"}
+    AR -->|"no, and the repository has a pipeline"| X6["Refused: the same command, armed, is shown"]
+    AR -->|"yes"| G{"Arm admitted: branch holds the trunk's head or no overlap, and the C Sharp change covered by test evidence?"}
+    G -->|"yes"| OK2["Push runs, GitLab merges on green"]
+    G -->|"no"| UN["Created unarmed, with the reason, armed once it is fixed"]
+```
+
+- **Files and resources.** The rules read the repository's own `.claude/standards.env` (its topology and close mode), the git facts of the target repository (branch, commits, remote), and,
+  for the arm, the merge request and the trunk's head on GitLab (read by the Bridge with its own token) and the Bridge's record of passing test runs (the content ledger) or a Test Discipline token.
+- **Secrets.** The push itself uses the push credential the launcher put in the container (write-only, see [Secrets](SECRETS.md)). Every GitLab read the rules need is made by the Bridge on the
+  host; the container has no token that could call the API.
+- **When.** Before the command runs. A refused push sends nothing to the remote.
+- **What a failure causes.** The agent fixes what the reason names (a missing `Refs:` footer, an unmerged trunk head, a missing test run) and repeats the push. A merge request created unarmed
+  waits until the agent arms it; the [story close](WORKFLOW.md#rule-5-a-merge-request-merges-itself-and-only-on-the-merged-result) needs it merged.
+- **Impact on the user.** None in the normal flow. A person is needed when the session may not push at all (they push the story branch with its merge request), or for a one-time exception
+  (the `push-override` label; see [Overrides](WORKFLOW.md#overrides)). The Git server's own protected-branch settings remain a second layer: protect the branches you care about there too.
+
 ## Related pages
 
 [CI](CI.md), [Project topologies](TOPOLOGIES.md), [The Kyklos workflow](WORKFLOW.md), [Hooks and skills](HOOKS_AND_SKILLS.md), and [the README](../README.md) for the full list.

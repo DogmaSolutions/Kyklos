@@ -108,6 +108,8 @@ Kyklos splits credentials by purpose (see [Secrets](SECRETS.md)): the agent can 
 | **Companion push token** | the companion project | `write_repository` only | The agent pushes its changes to the companion (instructions, settings, documents). |
 | **Distribution read token** | wherever the Kyklos components are published for you | `read_api`, `read_repository` | The Launcher downloads the `Kyklos Bridge`, and installs the `Kyklos Plugin` from a preview marketplace on a GitLab server. Not needed when they come from the public Kyklos repository: the public marketplace on GitHub is freely accessible, without a token. |
 
+How the Launcher checks each token at every launch, and where each one goes, is shown in [Secrets](SECRETS.md#how-the-secrets-travel-and-where-they-are-checked).
+
 Keep each value only until the next step, where it goes into your machine's credential store; you will not see it again in GitLab. Never put a token value in a file, a repository or a chat.
 
 ### 1.5 A runner for the CI
@@ -235,6 +237,33 @@ The normal route is the one above: the Launcher downloads the Bridge from the [K
 
 Write the two paths as **absolute** paths (in JSON, every `\` is written `\\`). A relative path is never read from the folder you start the Launcher in: a relative `Projects:SettingsRoot` is read from the Launcher's own folder, and a relative `Projects:PolicyOrganisationLayer` from the settings root (or from the Launcher's own folder when no settings root is set). An absolute path leaves no doubt. A path written for Windows (with a drive letter, or a `\\server\share` path) is taken as it is written on every operating system: on a Linux or macOS host it is never joined under another folder, so such a file is reported as missing, naming the path exactly as you wrote it.
 
+**How the Launcher checks the Bridge it starts.**
+
+```mermaid
+flowchart TD
+    S["Launch needs Bridge version V"] --> C{"Cached copy of V?"}
+    C -->|"yes"| H{"Its SHA-256 equals the published checksum?"}
+    H -->|"yes"| SIG
+    H -->|"no"| D
+    C -->|"no"| D["Download, hashing while it streams into a temporary file"]
+    D --> P{"Release publishes a checksum?"}
+    P -->|"no"| E{"Launcher:Bridge:AllowUnverifiedBinary on?"}
+    E -->|"no"| X1["Refused"]
+    E -->|"yes"| W["Kept, with a warning in the log"]
+    P -->|"yes"| Q{"Hash equals it?"}
+    Q -->|"no"| X2["Refused: the file is never moved into place"]
+    Q -->|"yes"| K["Moved into the cache, hash kept beside it"]
+    K --> SIG{"Launcher:Bridge:RequireAuthenticode on, on Windows?"}
+    W --> SIG
+    SIG -->|"yes, and the code signature is not valid"| X3["Refused"]
+    SIG -->|"no, or valid"| R["Bridge started"]
+```
+
+The release checksums are the `SHA256SUMS.txt` file of the release page; a launch that cannot reach the release page uses the cached copy only when its hash still equals the one recorded
+beside it. A truncated, changed or planted file is never run. The code signature check is an extra layer you switch on with `Launcher:Bridge:RequireAuthenticode` (off by default); with or
+without it, you can check the Windows program's signature yourself as [the agent install steps](AGENT_INSTALL.md) show. A refused Bridge means no launch: download the release again, or report a
+checksum that does not match. The verification lives in `launcher/src/KyklosLauncher/Bridge/BridgeBinaryCache.cs`.
+
 #### Getting the Bridge from NuGet.org
 
 The `Kyklos Bridge` is also published on NuGet.org as the .NET tool package `DogmaSolutions.Kyklos.Bridge` (command name `kyklos-bridge`), the same version as the public release. It needs the .NET 10 SDK, no feed and no token. NuGet.org signs every package it serves (check it with `dotnet nuget verify --all`), and the Bridge's own assemblies inside it carry Dogma Solutions' code signature.
@@ -340,6 +369,23 @@ Each project's `Kyklos Bridge` runs with its own settings file. Because those se
    ```
 
 3. Commit it and push it. After any later change, commit and push again before the next launch.
+
+How the Launcher checks the file at every launch:
+
+```mermaid
+flowchart TD
+    L["Launch of project N"] --> F{"projects/N/bridge.appsettings.json exists under the settings root?"}
+    F -->|"no"| X1["Refused: file missing, or its folder name differs from the project name"]
+    F -->|"yes"| O{"Outside the workspace and every extra mount the container can write?"}
+    O -->|"no"| X2["Refused"]
+    O -->|"yes"| T{"Tracked in git, unchanged since its commit, identical to its remote branch?"}
+    T -->|"no"| X3["Refused: commit and push it first"]
+    T -->|"yes"| B["Bridge started with exactly the reviewed settings"]
+```
+
+The settings decide what the agent may reach (its role, the projects it serves, the CI refs it may write), so only a version a person committed and pushed counts: an edit nobody committed, or a
+file the agent could write, is refused. The check needs `git` on the host; a missing `git` refuses too. The refusal names the file and what to do. The check lives in
+`launcher/src/KyklosLauncher/Bridge/BridgeSettingsGate.cs`.
 
 ### 2.7 The secrets
 

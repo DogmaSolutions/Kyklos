@@ -25,6 +25,27 @@ The diagram below is also available in [Yed GRAPHML format](../assets/workflow/A
 <img src="../assets/workflow/AI-Driven_development_013-3-no-ci-pipeline.png" alt="Closing flow: project without a CI pipeline" width="800"/>
 </p>
 
+## How the checks work in this scenario
+
+```mermaid
+flowchart TD
+    C["Commit and measure on the host"] --> P["Push the branch, merge request created unarmed"]
+    P --> Q{"GitLab reports the request mergeable, and the branch holds the trunk's head or no overlap?"}
+    Q -->|"no"| W["Agent merges the trunk into the branch, or waits"]
+    W --> Q
+    Q -->|"yes"| M["Agent merges it through the Bridge"]
+    M --> CL{"story close: rules 1 to 5, no pipeline evidence"}
+    CL -->|"pass"| D["Closed"]
+    CL -->|"fail"| X["Refused, findings listed"]
+```
+
+- **Files and resources.** The story branch, the host's copy where all tests run, and the merge request on GitLab. There is no pipeline to read.
+- **Secrets.** The merge is made by the Bridge with the token it holds on the host; the container never holds an API token.
+- **Signatures.** The tokens made from the host runs are the only test evidence; the close re-computes them on the merged files.
+- **When the checks run.** At the push, at the merge (the merged-result rule), and at the close.
+- **What a failure causes.** A merge refused for a moved trunk needs the trunk merged into the branch and the tests run again on the result.
+- **Impact on the user.** None in the normal flow. The project accepts that no independent build on a clean machine exists; adding a pipeline moves it to [Scenario 1](WORKFLOW_SCENARIO_1.md).
+
 ## Related pages
 
 The other scenarios: [Scenario 1](WORKFLOW_SCENARIO_1.md) · [Scenario 2](WORKFLOW_SCENARIO_2.md) · [Scenario 4](WORKFLOW_SCENARIO_4.md) · [Scenario 5](WORKFLOW_SCENARIO_5.md). See also [The Proof Table](PROOF.md) and [CI](CI.md).

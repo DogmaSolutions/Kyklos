@@ -40,6 +40,22 @@ The primary purpose of **Kyklos** is to make the agent stick to the steps and pr
 7. **The human decides what matters.** Kyklos keeps a short, explicit list of actions that always stop for a person: publishing outward, deleting shared things, introducing a new blocking gate.
    Everything else, the agent drives on its own, within the rules.
 
+### How "proven, not asserted" works
+
+```mermaid
+flowchart LR
+    W["Agent's work"] --> T["A tool measures it on the host: tests and coverage, duplication scan, documentation pass, adversarial review"]
+    T --> S["The Kyklos Bridge signs the result with a key only it holds"]
+    S --> N["Token and report attached to the story"]
+    N --> C{"At the close: token re-computed over the current files, change merged on the remote?"}
+    C -->|"yes"| D["Story closed"]
+    C -->|"no"| X["Close refused, reasons listed"]
+```
+
+Each token is a keyed hash (HMAC-SHA256) of what the tool measured, made with a key kept in the operating system's credential store and given only to the Bridge, so the agent cannot produce
+one by hand, and a file changed after its measurement no longer matches. The rules of the close are in [the workflow](docs/WORKFLOW.md), the rows in [the Proof Table](docs/PROOF.md), and the rare
+exceptions a person may grant in [Overrides](docs/WORKFLOW.md#overrides).
+
 ## 🎯 Who it is for
 
 - **Tech leads and developers** who want AI agents in their teams without lowering the bar, and who need evidence they can audit rather than a promise.
