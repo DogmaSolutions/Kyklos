@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # merged-result.sh - the one rule for "may a branch behind its target arm auto-merge or be merged through the API".
 # Source it; it defines functions only.
+# shellcheck source=/dev/null
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/branch-trunk.sh"   # branch_trunk_kind / branch_trunk_integration
 #
 # GitLab CE has no merged-results pipelines: a merge request pipeline tests the branch head, not the merge into the
 # current target. A branch that contains the target's current head lands exactly what its pipeline tested. A branch
@@ -117,13 +119,15 @@ _merged_result_names() {
 #   strict:  the target cannot be told apart among the refs that follow; the branch must contain the head of each.
 #   Order: a known target; the explicit KYKLOS_CHANGE_BASE_REF or CI_MERGE_REQUEST_TARGET_BRANCH_NAME; the default
 #   branch of a merge request this push creates; GitFlow naming (hotfix/* and release/* land on the production trunk,
-#   feature/* on develop, else on the production trunk); the only trunk the clone has. A tie is never broken by a guess.
+#   feature/* on the integration trunk, else on the production trunk: lib/branch-trunk.sh, the one mapping); the only
+#   trunk the clone has. A tie is never broken by a guess.
 # [RiskMitigation RA-03] [CySec] A target that cannot be named exactly is never guessed (CWE-636, not failing
 # securely): judging against the wrong trunk would admit a change the real target overlaps.
 merged_result_target_choice() {
-    local r="$1" br="$2" known="$3" amb="${4:-0}" creating="${5:-0}" def="${6:-}" t ref
+    local r="$1" br="$2" known="$3" amb="${4:-0}" creating="${5:-0}" def="${6:-}" t ref integ
     local -a cands=() prod=() strict=()
-    for ref in origin/develop origin/main origin/master; do
+    integ="$(branch_trunk_integration "$r")"
+    for ref in "origin/$integ" origin/main origin/master; do
         git -C "$r" rev-parse --verify -q "$ref^{commit}" >/dev/null 2>&1 && cands+=("$ref")
     done
     for ref in origin/main origin/master; do
@@ -152,14 +156,16 @@ merged_result_target_choice() {
     if [ "$creating" = 1 ]; then
         [ -n "$def" ] && { printf 'decided\norigin/%s\n' "$def"; return 0; }
     else
-        case "$br" in
-            hotfix/*|release/*)
-                [ "${#prod[@]}" -eq 1 ] && { printf 'decided\n%s\n' "${prod[0]}"; return 0; }
-                [ "${#prod[@]}" -gt 1 ] && { printf 'strict\n'; printf '%s\n' "${prod[@]}"; return 0; } ;;
-            feature/*)
-                git -C "$r" rev-parse --verify -q "origin/develop^{commit}" >/dev/null 2>&1 && { printf 'decided\norigin/develop\n'; return 0; }
-                [ "${#prod[@]}" -eq 1 ] && { printf 'decided\n%s\n' "${prod[0]}"; return 0; } ;;
-        esac
+        if [ "$(branch_trunk_kind "$br" "$r")" = integration ]; then
+            git -C "$r" rev-parse --verify -q "origin/$integ^{commit}" >/dev/null 2>&1 && { printf 'decided\norigin/%s\n' "$integ"; return 0; }
+            [ "${#prod[@]}" -eq 1 ] && { printf 'decided\n%s\n' "${prod[0]}"; return 0; }
+        else
+            case "$br" in
+                hotfix/*|release/*)
+                    [ "${#prod[@]}" -eq 1 ] && { printf 'decided\n%s\n' "${prod[0]}"; return 0; }
+                    [ "${#prod[@]}" -gt 1 ] && { printf 'strict\n'; printf '%s\n' "${prod[@]}"; return 0; } ;;
+            esac
+        fi
     fi
     [ "${#cands[@]}" -eq 1 ] && { printf 'decided\n%s\n' "${cands[0]}"; return 0; }
     printf 'strict\n'; printf '%s\n' "${cands[@]}"

@@ -181,7 +181,7 @@
         ]
       },
       {
-        "matcher": "mcp__KyklosBridge__mr_auto_merge",
+        "matcher": "mcp__KyklosBridge__(mr_auto_merge|mr_create|mr_update|mr_merge)",
         "hooks": [
           {
             "type": "command",

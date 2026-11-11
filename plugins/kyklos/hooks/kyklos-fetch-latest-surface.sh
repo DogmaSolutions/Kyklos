@@ -2,15 +2,16 @@
 # kyklos-fetch-latest-surface.sh (Kyklos, SessionStart) -- fetch every remote at session start and SURFACE any
 # branch that is behind, so the agent never begins coding against STALE code.
 #
-# PROBLEM: an agent starts editing on a branch that is behind its upstream, or off a
-# `develop` that trails `main` (a prior non-GitFlow session committed straight to main). The fix was written
-# against dead code and only caught by luck (a "file modified since read" Edit error). A repo can also have
-# MULTIPLE remotes (origin/GitHub/...) and nothing forced a fetch across them before work began.
+# PROBLEM: an agent starts editing on a branch that is behind its upstream. The fix was written against dead code and
+# only caught by luck (a "file modified since read" Edit error). A repo can also have MULTIPLE remotes
+# (origin/GitHub/...) and nothing forced a fetch across them before work began.
 #
 # WHAT IT DOES -- at session start, for every git repo in the workspace (the project + the nested source at
 # KYKLOS_SOURCE_DIR for the companion model): `git fetch --all --prune` (bounded, best-effort), then flag
-#   * the current branch behind its upstream (@{u}), and
-#   * cross-branch drift: origin/develop behind origin/main|master.
+#   * the current branch behind its upstream (@{u}).
+# develop trailing main is NOT flagged: with two trunks, main receives promotion merges and hotfixes that reach develop
+# only on the next back-merge, so develop is routinely behind main by a few commits and the warning would always fire.
+# The fetch also brings origin/develop into the clone, which the story merge-request target check reads.
 # It SURFACES a warning via additionalContext (nudge, never a block) -- SessionStart can add context but not
 # gate; the point is the agent sees "you are behind, pull first" before the first edit.
 #
@@ -58,14 +59,6 @@ for repo in $repos; do
     fi
   fi
 
-  # (2) cross-branch drift: origin/develop behind origin/main|master (a non-gitflow commit went straight to trunk).
-  for _hi in main master; do
-    git -C "$repo" rev-parse --verify -q "refs/remotes/origin/develop" >/dev/null 2>&1 || continue
-    git -C "$repo" rev-parse --verify -q "refs/remotes/origin/$_hi"    >/dev/null 2>&1 || continue
-    _d="$(git -C "$repo" rev-list --count "origin/develop..origin/$_hi" 2>/dev/null || echo 0)"
-    _isnum "$_d" || _d=0
-    [ "$_d" -gt 0 ] && warn="${warn}${_name}: origin/develop is ${_d} commit(s) BEHIND origin/${_hi} (a non-gitflow commit went straight to ${_hi}?) -- reconcile before branching off develop. "
-  done
 done
 
 if [ -n "$warn" ]; then

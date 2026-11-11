@@ -56,12 +56,16 @@ _AC_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$_AC_HERE/lib/mr-hands-off.sh"     # the text-or-call matcher (mr_push_arms, mr_only_text_commands) + mr_hand_merge_explain, shared with the hands-off guard
 . "$_AC_HERE/lib/merged-result.sh"    # merged_result_git_verdict: the one rule for a branch behind its target
 . "$_AC_HERE/lib/push-refspec.sh"     # push_positionals / push_refspec_src: the commit a push actually sends
+. "$_AC_HERE/lib/story-mr-target.sh"  # story_mr_target_refusal: a story branch's request lands on develop
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 INPUT="$(cat || true)"
 TOOL_NAME="$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null || true)"
 CMD_REAL="$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null || true)"
-[ -n "$CMD_REAL" ] || [ "$TOOL_NAME" = "mcp__KyklosBridge__mr_auto_merge" ] || CMD_REAL="${INPUT//\\\"/\"}"
+case "$TOOL_NAME" in
+    mcp__KyklosBridge__mr_auto_merge|mcp__KyklosBridge__mr_create|mcp__KyklosBridge__mr_update|mcp__KyklosBridge__mr_merge) ;;
+    *) [ -n "$CMD_REAL" ] || CMD_REAL="${INPUT//\\\"/\"}" ;;
+esac
 # Shell comments are dropped before anything below reads the command (the one step shared with the hands-off guard and
 # the push parser): a trailing note is neither an arm, an option nor an extra refspec for the merged-result check.
 # [CySec] [RiskMitigation RA-01] CWE-184: words the shell never runs do not change the verdict.
@@ -117,6 +121,13 @@ if [ "$TOOL_NAME" = "mcp__KyklosBridge__mr_auto_merge" ]; then
     _mode=bridge
     _bridge_proj="$(printf '%s' "$INPUT" | jq -r '.tool_input.project // empty' 2>/dev/null || true)"
 fi
+# Creating, editing or merging a request through the bridge: only the merge-request target rule (section 1a) applies;
+# the coverage and merged-result rules judge the arm and the bridge's own merge.
+case "$TOOL_NAME" in
+    mcp__KyklosBridge__mr_create|mcp__KyklosBridge__mr_update|mcp__KyklosBridge__mr_merge)
+        _mode=bridge-target
+        _bridge_proj="$(printf '%s' "$INPUT" | jq -r '.tool_input.project // empty' 2>/dev/null || true)" ;;
+esac
 # Arming written inside a local script the command runs (bash|sh|python3 <file>, ./<file>): apply the same test.
 if [ -z "$_mode" ] && [ -n "$CMD_REAL" ]; then
     set -f   # split the command into words WITHOUT glob expansion: `rm *.sh` must not read every script in the folder
@@ -148,6 +159,117 @@ block() {
 # tree), which the create shares, so there the create is refused too. [CySec] Fail closed: an unmarked refusal is a
 # shape refusal (CWE-636).
 block_state() { _AC_REFUSAL=state; block "$1"; }
+
+# ---- 1a. Story merge-request target (default ON) -----------------------------------------------------------------
+# story_target_check <repo> <source-branch> <choice> -> returns when the request may land where <choice> says; else
+# blocks. Only in a repository that declares its integration trunk (lib/story-mr-target.sh): a feature/* branch lands
+# there; aimed at main (or anywhere else), or with a target that cannot be read, its arm or create is refused (a SHAPE
+# refusal, so the hands-off probe refuses the unarmed create as well). In a repository that declares none, the whole
+# section is inert (_story_check_off): the guard behaves exactly as it did before the rule existed.
+# Off switch KYKLOS_STORY_MR_TARGET=off and the one-shot override
+# story-mr-target-ok, both audited; the probe never spends the override.
+# [CySec] [RiskMitigation RA-01] Integrity of the release trunk (CWE-841): a story cannot skip the full CI tier by
+# merging straight into main.
+story_target_check() {
+    local why
+    why="$(story_mr_target_refusal "$1" "$2" "$3")" || return 0
+    if kyklos_control_off "${KYKLOS_STORY_MR_TARGET:-}"; then
+        [ "$_AC_PROBE" = 1 ] && return 0
+        command -v escape_audit >/dev/null 2>&1 && escape_audit "story-mr-target-off" "mode=$_mode branch=$2" 2>/dev/null || true
+        echo "[kyklos] story merge-request target check: OFF (KYKLOS_STORY_MR_TARGET=off). Refusal it replaced: $why" >&2
+        return 0
+    fi
+    if [ "$_AC_PROBE" != 1 ] && override_take "$STORY_MR_TARGET_OK_NAME" "$(override_scope_of "$1")" "$INPUT"; then
+        command -v escape_audit >/dev/null 2>&1 && escape_audit "$STORY_MR_TARGET_OK_NAME" "mode=$_mode branch=$2 repo=$1" 2>/dev/null || true
+        echo "[kyklos] story merge-request target check: OVERRIDDEN once ($STORY_MR_TARGET_OK_NAME spent) for $2. Refusal it replaced: $why" >&2
+        return 0
+    fi
+    block "$why One-shot override, only when the owner decides so: bash $OVERRIDE_MARKER_CLI set $STORY_MR_TARGET_OK_NAME <repo-dir> (a separate command). Off switch: KYKLOS_STORY_MR_TARGET=off (audited)."
+}
+# The repository a merge request named by its API address belongs to, for the develop check: the work tree the call
+# runs in (its origin is the project in every agent setup); empty outside a work tree, which the check reads as unknown.
+# _story_check_off -> rc 0 when the check does not apply, and the request is then not even read: the work tree's
+# repository declares no integration trunk (the rule is opt-in by that declaration; silent, nothing to audit), or the
+# check is switched off (audited once here).
+_story_check_off() {
+    branch_trunk_integration "$(_story_repo_of_cwd)" >/dev/null || return 0
+    kyklos_control_off "${KYKLOS_STORY_MR_TARGET:-}" || return 1
+    [ "$_AC_PROBE" = 1 ] || { command -v escape_audit >/dev/null 2>&1 && escape_audit "story-mr-target-off" "mode=$_mode not read" 2>/dev/null || true; }
+    return 0
+}
+_story_repo_of_cwd() { git -C "$HOOK_CWD" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$HOOK_CWD"; }
+# _story_project_path <origin url | request url | project path> -> the project path, lower case, without scheme, host,
+# user, '.git', the '/-/...' tail of a request address or surrounding slashes ('%2F' read as '/').
+_story_project_path() {
+    printf '%s' "$1" | sed -E 's#%2[Ff]#/#g; s#^[a-z]+://[^/]+/##; s#^[^@/]+@[^:]+:##; s#/-/.*$##; s#\.git$##; s#^/+##; s#/+$##' | tr '[:upper:]' '[:lower:]'
+}
+# story_target_check_named <named project> <request url> <source-branch> <choice> -> the target rule for a request a call
+# names by its project (a bridge verb, an API address). The rule judges with the repository model of the work tree the
+# call runs in, which is the right model only for that work tree's own project. When the call is KNOWN to concern
+# another project (the request's address, or a project named by path, differs from the work tree's origin), that
+# project's model is not known here: the rule is skipped with a notice instead of judging with the wrong model. A
+# project named only by number, with no address to compare, is judged as before.
+story_target_check_named() {
+    local named="$1" url="$2" wd other=""
+    wd="$(_story_project_path "$(git -C "$(_story_repo_of_cwd)" remote get-url origin 2>/dev/null)")"
+    if [ -n "$url" ]; then
+        other="$(_story_project_path "$url")"
+    elif [ -n "$named" ] && ! [[ "$named" =~ ^[0-9]+$ ]]; then
+        other="$(_story_project_path "$named")"
+    fi
+    if [ -n "$wd" ] && [ -n "$other" ] && [ "$other" != "$wd" ]; then
+        echo "[kyklos] story merge-request target check: skipped for '$3' of project '$other': this work tree is '$wd', so the repository model of that project is not known here and judging with this one could refuse or admit wrongly." >&2
+        return 0
+    fi
+    story_target_check "$(_story_repo_of_cwd)" "$3" "$4"
+}
+
+# _story_bridge_check -> the target rule on the merge request a bridge call names, as the bridge's own mr_get describes
+# it (an older bridge without mr_get: the container token reads it). Blocks when it cannot be described (fail closed).
+_story_bridge_check() {
+    . "$_AC_HERE/lib/coordination-read.sh" 2>/dev/null || true
+    _b_mr="$(printf '%s' "$INPUT" | jq -r '.tool_input.merge_request // empty' 2>/dev/null)"
+    _b_repo="$(printf '%s' "$INPUT" | jq -r '.tool_input.repository // empty' 2>/dev/null)"
+    _b_args="$(jq -cn --arg p "${_bridge_proj:-}" --arg r "$_b_repo" --arg n "$_b_mr" '{merge_request:$n} + (if $p != "" then {project:$p} else {} end) + (if $r != "" then {repository:$r} else {} end)')"
+    _b_text=""; _b_rc=3
+    command -v coordination_read >/dev/null 2>&1 && { _b_text="$(coordination_read mr_get "$_b_args" 2>/dev/null)"; _b_rc=$?; }
+    # An older bridge without mr_get: the container token reads the request of the work tree's project (transition path).
+    if [ "$_b_rc" -eq 4 ] && [[ "$_b_mr" =~ ^[0-9]+$ ]]; then
+        . "$_AC_HERE/lib/gitlab-api-base.sh" 2>/dev/null || true
+        . "$_AC_HERE/lib/gitlab-curl.sh" 2>/dev/null || true
+        _api="$(gitlab_api_base STORY_GITLAB_API 2>/dev/null || true)"
+        _tok=""; command -v gitlab_pick_token >/dev/null 2>&1 && gitlab_pick_token _tok "${KYKLOS_STORY_TOKEN_ENV:-}" "${STORY_GITLAB_TOKEN_ENV:-}" "${KYKLOS_ISSUES_TOKEN_ENV:-}" GITLAB_TOKEN KYKLOS_ISSUES_TOKEN || true
+        _b_proj="$(git -C "$(_story_repo_of_cwd)" remote get-url origin 2>/dev/null | sed -E 's#^[a-z]+://[^/]+/##; s#^[^@]+@[^:]+:##; s#\.git$##; s#/#%2F#g')"
+        [ -n "$_b_proj" ] || _b_proj="${STORY_GITLAB_PROJECT:-}"
+        if [ -n "$_api" ] && [ -n "$_tok" ] && [ -n "$_b_proj" ]; then
+            command -v coordination_read_fallback >/dev/null 2>&1 && coordination_read_fallback automerge-guard "the bridge has no mr_get verb"
+            _b_text="$(gitlab_curl "$_tok" -s --max-time 12 "$_api/projects/$_b_proj/merge_requests/$_b_mr" 2>/dev/null || true)"
+            _b_rc=0
+        fi
+    fi
+    _b_src="$(printf '%s' "$_b_text" | jq -r 'select(type == "object") | .source_branch // empty' 2>/dev/null)"
+    _b_url="$(printf '%s' "$_b_text" | jq -r 'select(type == "object") | (.url // .web_url) // empty' 2>/dev/null)"
+    _b_tgt="$(printf '%s' "$_b_text" | jq -r 'select(type == "object") | .target_branch // empty' 2>/dev/null)"
+    { [ "$_b_rc" -eq 0 ] && [ -n "$_b_src" ] && [ -n "$_b_tgt" ]; } \
+        || block "Merge BLOCKED: the bridge could not describe merge request !${_b_mr:-?} (its source and target branch), so the guard cannot tell whether it is a story branch that must land on develop. Retry once the bridge answers."
+    story_target_check_named "${_bridge_proj:-$_b_repo}" "$_b_url" "$_b_src" "$(printf 'decided\n%s' "$_b_tgt")"
+}
+
+# Creating, editing or merging a request through the bridge (mr_create, mr_update, mr_merge): the target rule only.
+# mr_create names its branches; the other two name a request, read through the bridge.
+if [ "$_mode" = "bridge-target" ]; then
+    _story_check_off && exit 0
+    if [ "$TOOL_NAME" = "mcp__KyklosBridge__mr_create" ]; then
+        _c_src="$(printf '%s' "$INPUT" | jq -r '.tool_input.source_branch // empty' 2>/dev/null)"
+        _c_tgt="$(printf '%s' "$INPUT" | jq -r '.tool_input.target_branch // empty' 2>/dev/null)"
+        { [ -n "$_c_src" ] && [ -n "$_c_tgt" ]; } \
+            || block "Merge request BLOCKED: the merge request to create names no source or target branch, so the guard cannot tell whether it lands on the trunk its branch merges into."
+        story_target_check_named "${_bridge_proj:-$(printf '%s' "$INPUT" | jq -r '.tool_input.repository // empty' 2>/dev/null)}" "" "$_c_src" "$(printf 'decided\n%s' "$_c_tgt")"
+    else
+        _story_bridge_check
+    fi
+    exit 0
+fi
 
 # [CySec] [RiskMitigation RA-01] [RiskMitigation RA-02] Bounds the only per-arm way past the coverage verdict (CWE-863):
 # one arm, one repository, expiring, audited; it never lifts the merged-result check (RA-03).
@@ -199,7 +321,7 @@ if [ "$_mode" = "api" ] || [ "$_mode" = "apimerge" ]; then
         # The project goes as the API address names it (a numeric id or a path); the bridge resolves either to the
         # configured project it is, and refuses one it does not serve. The request's state, arm and the project's CI
         # state travel along, so the hand-merge and no-CI rules below judge the bridge's answer as they judge GitLab's.
-        [ "$_mrrc" -eq 0 ] && _mr_json="$(printf '%s' "$_mr_text" | jq -c '{diverged_commits_count: .behind_target, target_branch: .target_branch, merged_result_ok: .merged_result_ok, overlap_files: .overlap_files, merged_result_refusal: .merged_result_refusal, state: .state, auto_merge: .auto_merge, merge_request: .merge_request, sha: .sha, project_ci: .project_ci}' 2>/dev/null || true)"
+        [ "$_mrrc" -eq 0 ] && _mr_json="$(printf '%s' "$_mr_text" | jq -c '{diverged_commits_count: .behind_target, target_branch: .target_branch, merged_result_ok: .merged_result_ok, overlap_files: .overlap_files, merged_result_refusal: .merged_result_refusal, state: .state, auto_merge: .auto_merge, merge_request: .merge_request, sha: .sha, project_ci: .project_ci, source_branch: .source_branch, url: .url}' 2>/dev/null || true)"
         [ "$_mrrc" -eq 3 ] && block_state "Merge BLOCKED: the bridge could not read merge request !$_mr_iid, so the guard cannot check that it contains its target's current head. It never lets a merge through unchecked; retry once the bridge answers."
     fi
     if [ "$_mrrc" -ne 0 ]; then
@@ -209,6 +331,13 @@ if [ "$_mode" = "api" ] || [ "$_mode" = "apimerge" ]; then
     fi
     _behind="$(printf '%s' "$_mr_json" | jq -r '.diverged_commits_count // empty' 2>/dev/null || true)"
     _target="$(printf '%s' "$_mr_json" | jq -r '.target_branch // "its target"' 2>/dev/null || echo 'its target')"
+    # The story target rule, on the request as GitLab (or the bridge) describes it. A request whose target is read but
+    # whose source branch is not cannot be told apart from a story's, so it is refused.
+    if ! _story_check_off && printf '%s' "$_mr_json" | json_test 'type == "object" and (.target_branch | type) == "string"'; then
+        _mr_src="$(printf '%s' "$_mr_json" | jq -r '.source_branch // empty' 2>/dev/null)"
+        [ -n "$_mr_src" ] || block "Merge BLOCKED: the source branch of merge request !$_mr_iid could not be read, so the guard cannot tell whether it is a story branch that must land on develop. Retry once GitLab answers."
+        story_target_check_named "$_mr_proj" "$(printf '%s' "$_mr_json" | jq -r '(.url // .web_url) // empty' 2>/dev/null)" "$_mr_src" "$(printf 'decided\n%s' "$(printf '%s' "$_mr_json" | jq -r '.target_branch')")"
+    fi
     # A hand merge (or an arm) of a merge request GitLab already merged, closed, or (for a hand merge) will merge on its
     # own is refused with the reason, before any other check: there is nothing for the agent to merge.
     _mr_row="$(mr_row_of "$_mr_json")"
@@ -247,7 +376,9 @@ if [ "$_mode" = "api" ] || [ "$_mode" = "apimerge" ]; then
         fi
     fi
 elif [ "$_mode" = "bridge" ]; then
-    :   # mr_auto_merge applies the merged-result rule (lib/merged-result.sh's twin) in the bridge itself
+    # mr_auto_merge applies the merged-result rule (lib/merged-result.sh's twin) in the bridge itself; the story target
+    # rule is read here from the bridge's own mr_get. An unreadable request is refused (fail closed).
+    _story_check_off || _story_bridge_check
 else
     if [ "$_mode" = "push" ]; then _mrr="$(git_target_repo_dir "$CMD_REAL" "$HOOK_CWD" "$PROJECT_DIR" push)"
     else
@@ -370,6 +501,7 @@ else
             && block_state "Merge BLOCKED: '$_mrr' is a shallow clone whose history does not reach the point where this branch forked from its target, so the guard cannot check that the branch contains the target's current head. Run 'git fetch --unshallow' (or deepen the fetch), then arm again."
         block_state "Merge BLOCKED: the target this branch forked from cannot be resolved in '$_mrr' (no origin/develop, origin/main or origin/master, or KYKLOS_CHANGE_BASE_REF='${KYKLOS_CHANGE_BASE_REF:-}' does not exist), so the guard cannot check that the branch contains the target's current head. Fetch it ('git fetch origin'), or set KYKLOS_CHANGE_BASE_REF to the branch's target (e.g. origin/develop), then arm again."
     fi
+    story_target_check "$_mrr" "$_mrbr" "$_choice"
     # _target_head <ref> -> sets _tsha, _rsha and _where for the target <ref>. The local trunk ref may be stale (last
     # fetched before the target moved); when GitLab can be asked, its answer about the branch's real head decides.
     _target_head() {
