@@ -21,18 +21,18 @@ How the push, the pipeline and the merge decide when a story can close, in each 
 
 ```mermaid
 flowchart TD
-    A["Agent pushes its story branch with the merge request, armed"] --> B{"Arm admitted?"}
-    B -->|"no: trunk moved under the branch, or a C Sharp change without test evidence"| U["Merge request created unarmed, reason shown"]
-    U --> F["Agent merges the trunk in or measures, then arms"]
+    A["Agent pushes its story branch<br/>with the merge request, armed"] --> B{"Arm admitted?"}
+    B -->|"no: trunk moved under the<br/>branch, or a C Sharp change<br/>without test evidence"| U["Merge request created<br/>unarmed, reason shown"]
+    U --> F["Agent merges the trunk in or<br/>measures, then arms"]
     F --> B
     B -->|"yes"| P["Pipeline runs on GitLab"]
-    P --> W["Agent watches it through the Bridge's CI verbs"]
-    W -->|"red"| R["Agent reads the failing job's log, fixes, commits, pushes"]
+    P --> W["Agent watches it through<br/>the Bridge's CI verbs"]
+    W -->|"red"| R["Agent reads the failing job's<br/>log, fixes, commits, pushes"]
     R --> P
-    W -->|"hung"| H["Story stays open, the agent reports it, never waits in silence"]
+    W -->|"hung"| H["Story stays open, the<br/>agent reports it, never<br/>waits in silence"]
     W -->|"green"| M["GitLab merges the armed request"]
-    M --> C["Agent deletes its local branch, the Bridge drafts the proof from the merged state, story close"]
-    C -->|"a hand merge was attempted"| X["Refused: an armed request merges itself"]
+    M --> C["Agent deletes its local<br/>branch, the Bridge drafts<br/>the proof from the merged<br/>state, story close"]
+    C -->|"a hand merge was attempted"| X["Refused: an armed<br/>request merges itself"]
 ```
 
 - **Resources and secrets.** The [Bridge](COMPONENTS.md#kyklos-bridge) reads pipelines, jobs, logs and test reports with the CI token it holds on the host (`read_api`, or `api` where it also creates and arms merge requests);

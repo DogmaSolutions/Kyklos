@@ -28,16 +28,16 @@ at the close.
 
 ```mermaid
 flowchart TD
-    A["Bridge proof_draft"] --> B["Row left OPEN: judge that each requirement is delivered and reachable by its user; evidence names R1 by a test; no evidence names R2"]
-    B --> C["Agent writes the row: story proof id --set"]
+    A["Bridge proof_draft"] --> B["Row left OPEN: judge that each<br/>requirement is delivered and<br/>reachable by its user;<br/>evidence names R1 by a test;<br/>no evidence names R2"]
+    B --> C["Agent writes the row:<br/>story proof id --set"]
     C --> D{"proof_set checks"}
-    D -->|"evidence text empty, a dash, a placeholder, n/a"| X1["Refused, nothing written"]
-    D -->|"cites an R item the signed draft record lists as uncovered"| X2["Refused: add the evidence, draft again"]
+    D -->|"evidence text empty, a<br/>dash, a placeholder, n/a"| X1["Refused, nothing written"]
+    D -->|"cites an R item the signed draft<br/>record lists as uncovered"| X2["Refused: add the<br/>evidence, draft again"]
     D -->|"ok"| S["Row stored in the proof note"]
-    S --> E["Close: story_close, or the Stop rule through proof_validate"]
-    E --> F{"Row PROVEN: is every R item of Requirements cited inside a kbd label of this row?"}
-    F -->|"no"| X3["Close refused: item R2 is not cited inside a formal kbd metric group"]
-    F -->|"yes"| OK["Gate passes; the reviewer judges that the cited tests are end-to-end"]
+    S --> E["Close: story_close, or the Stop<br/>rule through proof_validate"]
+    E --> F{"Row PROVEN: is every R item of<br/>Requirements cited inside a kbd<br/>label of this row?"}
+    F -->|"no"| X3["Close refused: item R2 is<br/>not cited inside a formal<br/>kbd metric group"]
+    F -->|"yes"| OK["Gate passes; the reviewer<br/>judges that the cited<br/>tests are end-to-end"]
 ```
 
 **Step by step.**

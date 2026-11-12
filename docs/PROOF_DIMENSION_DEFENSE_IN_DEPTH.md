@@ -30,18 +30,18 @@ bypass, then fallback.
 
 ```mermaid
 flowchart TD
-    A["Bridge proof_draft"] --> B["Row left OPEN: for each control, what happens when it is bypassed and which inner layer catches it; findings first"]
-    B --> C["Agent takes each control from the Security Posture row"]
-    C --> D{"Bypass this control: does an inner layer still refuse?"}
-    D -->|"yes"| E["Name the layer at file:line; mark it CySec Hardens; ideally a test with the outer layer bypassed"]
-    D -->|"no"| F["State: no fallback, and why; or add the layer"]
-    E --> G["story proof id --set 'Defense in Depth=PROVEN|findings|metrics'"]
+    A["Bridge proof_draft"] --> B["Row left OPEN: for each control,<br/>what happens when it is bypassed<br/>and which inner layer catches<br/>it; findings first"]
+    B --> C["Agent takes each control from<br/>the Security Posture row"]
+    C --> D{"Bypass this control: does an<br/>inner layer still refuse?"}
+    D -->|"yes"| E["Name the layer at file:line;<br/>mark it CySec Hardens;<br/>ideally a test with the<br/>outer layer bypassed"]
+    D -->|"no"| F["State: no fallback, and<br/>why; or add the layer"]
+    E --> G["story proof id --set<br/>'Defense in<br/>Depth=PROVEN|findings|metrics'"]
     F --> G
-    G --> H{"proof_set: real evidence text, no citation of an uncovered spec item"}
+    G --> H{"proof_set: real evidence<br/>text, no citation of an<br/>uncovered spec item"}
     H -->|"refused"| X["Nothing written"]
     H -->|"ok"| S["Row stored"]
     S --> R["Adversarial review tries the bypass"]
-    R --> Z["Close: row present, not UNPROVEN, evidence real"]
+    R --> Z["Close: row present, not<br/>UNPROVEN, evidence real"]
 ```
 
 **Step by step.**

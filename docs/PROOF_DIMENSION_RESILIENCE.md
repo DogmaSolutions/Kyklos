@@ -30,16 +30,16 @@ the [Bridge](COMPONENTS.md#kyklos-bridge) looks for evidence of each, and the cl
 
 ```mermaid
 flowchart TD
-    A["Specification: Fail-open vs fail-hard section, e.g. FAIL-HARD for writes, FAIL-OPEN for the cache"] --> B["Bridge proof_draft"]
-    B --> C{"Evidence for each marker: a changed test naming it, a tool receipt, or the verified review stating it holds"}
-    C --> D["Row left OPEN: judge that each FAIL-OPEN / FAIL-HARD choice holds; name the test of each; items named and not named"]
-    D --> E["Agent writes the row: story proof id --set"]
-    E --> F{"proof_set: real evidence text, no citation of an uncovered marker"}
-    F -->|"refused"| X1["Nothing written; add the test, draft again"]
+    A["Specification: Fail-open vs<br/>fail-hard section, e.g.<br/>FAIL-HARD for writes,<br/>FAIL-OPEN for the cache"] --> B["Bridge proof_draft"]
+    B --> C{"Evidence for each marker: a<br/>changed test naming it, a tool<br/>receipt, or the verified<br/>review stating it holds"}
+    C --> D["Row left OPEN: judge that each<br/>FAIL-OPEN / FAIL-HARD choice<br/>holds; name the test of each;<br/>items named and not named"]
+    D --> E["Agent writes the row:<br/>story proof id --set"]
+    E --> F{"proof_set: real evidence<br/>text, no citation of an<br/>uncovered marker"}
+    F -->|"refused"| X1["Nothing written; add the<br/>test, draft again"]
     F -->|"ok"| S["Row stored"]
-    S --> G["Close: story_close, or the Stop rule through proof_validate"]
-    G --> H{"Row PROVEN: FAIL-OPEN and FAIL-HARD, as declared, each inside a kbd label of this row?"}
-    H -->|"no"| X2["Close refused, naming the uncited marker"]
+    S --> G["Close: story_close, or the Stop<br/>rule through proof_validate"]
+    G --> H{"Row PROVEN: FAIL-OPEN and<br/>FAIL-HARD, as declared, each<br/>inside a kbd label of this row?"}
+    H -->|"no"| X2["Close refused, naming<br/>the uncited marker"]
     H -->|"yes"| OK["Gate passes"]
 ```
 

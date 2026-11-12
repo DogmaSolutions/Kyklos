@@ -43,17 +43,17 @@ translated into. See [Supported languages and tools](SUPPORT_MATRIX.md).
 
 ```mermaid
 flowchart TD
-    A["scan-strings.sh --repo src<br/>(changed lines since the merge base)"] --> B{"Changed file in a language<br/>the scanner cannot read?"}
+    A["scan-strings.sh --repo src<br/>(changed lines since<br/>the merge base)"] --> B{"Changed file in a language<br/>the scanner cannot read?"}
     B -- yes --> X0["Exit 3: build a scanner for it,<br/>keep it in the project, cite it"]
-    B -- no --> C["Each literal: CANDIDATE or EXCLUDED:reason"]
-    C --> D["Agent judges each CANDIDATE:<br/>promote (user sees it) or ignore (rule)"]
+    B -- no --> C["Each literal: CANDIDATE<br/>or EXCLUDED:reason"]
+    C --> D["Agent judges each CANDIDATE:<br/>promote (user sees it)<br/>or ignore (rule)"]
     D --> E["Promote: reuse an existing key,<br/>else add one; tests stay green"]
     E --> R["Row: Candidates, Promoted, Ignored,<br/>each citing its tool"]
     R --> V{"proof_set and close"}
     V --> N{"Row NOT_PERTINENT?"}
     N -- yes --> X1["Refused: can never be NOT_PERTINENT"]
     N -- no --> M{"All three metrics present,<br/>whole numbers, each citing a tool?"}
-    M -- no --> X2["Refused: names the missing or bad metric"]
+    M -- no --> X2["Refused: names the<br/>missing or bad metric"]
     M -- yes --> S{"Promoted + Ignored = Candidates?"}
     S -- no --> X3["Refused: metrics do not add up"]
     S -- yes --> OK["Row holds"]

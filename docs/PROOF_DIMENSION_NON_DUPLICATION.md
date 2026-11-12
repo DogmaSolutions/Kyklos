@@ -35,10 +35,10 @@ row only audits what it did.
 
 ```mermaid
 flowchart TD
-    A["Clone detector over the scope<br/>(for example jscpd)"] --> B["Agent triages each candidate by meaning"]
+    A["Clone detector over the scope<br/>(for example jscpd)"] --> B["Agent triages each<br/>candidate by meaning"]
     B --> C["Real duplicates centralised;<br/>tests re-run, still green"]
-    C --> D["Report uploaded to the story<br/>(story attach: a link whose file name names duplication)"]
-    C --> E["Token over the scanned files:<br/>proof-tool-gate.sh emit Non-Duplication files"]
+    C --> D["Report uploaded to the story<br/>(story attach: a link whose file<br/>name names duplication)"]
+    C --> E["Token over the scanned files:<br/>proof-tool-gate.sh emit<br/>Non-Duplication files"]
     D --> F["proof_draft fills the row:<br/>Token + Report metrics"]
     E --> F
     F --> G{"Close: change touched source?"}

@@ -36,18 +36,18 @@ that demands a file, a line and a threat forces it to happen.
 
 ```mermaid
 flowchart TD
-    A["Bridge proof_draft"] --> B["Row left OPEN: findings first, file:line control to the threat it handles, or what was searched and found none, then the verdict"]
-    B --> C["Agent walks the attack surface of the diff"]
-    C --> D["Security code carries a CySec annotation with a formal reference"]
-    D --> E["story proof id --set 'Security Posture=PROVEN|findings|controls'"]
-    E --> F{"proof_set: real evidence text, no citation of an uncovered spec item"}
+    A["Bridge proof_draft"] --> B["Row left OPEN: findings<br/>first, file:line control to<br/>the threat it handles, or<br/>what was searched and found<br/>none, then the verdict"]
+    B --> C["Agent walks the attack<br/>surface of the diff"]
+    C --> D["Security code carries a<br/>CySec annotation with a<br/>formal reference"]
+    D --> E["story proof id --set<br/>'Security<br/>Posture=PROVEN|findings|controls'"]
+    E --> F{"proof_set: real evidence<br/>text, no citation of an<br/>uncovered spec item"}
     F -->|"refused"| X1["Nothing written"]
     F -->|"ok"| S["Row stored"]
-    D --> M{"A changed production line within ten lines of a CySec comment?"}
-    M -->|"yes"| MR["One mutation run is required before the push or the close; the Test Discipline row states its score"]
-    M -->|"no"| MN["Test Discipline states: Mutation not required"]
-    S --> R["Adversarial review attacks the change and checks the findings"]
-    R --> Z["Close: row present, not UNPROVEN, evidence real; review row clean"]
+    D --> M{"A changed production<br/>line within ten lines of<br/>a CySec comment?"}
+    M -->|"yes"| MR["One mutation run is required<br/>before the push or the<br/>close; the Test Discipline<br/>row states its score"]
+    M -->|"no"| MN["Test Discipline states:<br/>Mutation not required"]
+    S --> R["Adversarial review<br/>attacks the change and<br/>checks the findings"]
+    R --> Z["Close: row present, not<br/>UNPROVEN, evidence real;<br/>review row clean"]
 ```
 
 **Step by step.**

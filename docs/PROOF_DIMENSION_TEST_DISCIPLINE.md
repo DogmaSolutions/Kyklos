@@ -78,20 +78,20 @@ content: its lines are not executable, not gaps.
 
 ```mermaid
 flowchart TD
-    subgraph Host["Host machine (never mounted in the container)"]
-        L["Launcher: first launch creates KYKLOS_PROOF_HMAC_KEY<br/>(32 random bytes) in the OS credential store"] --> B["Bridge process environment<br/>(the only process that receives the key)"]
-        B --> R["Test run with coverage<br/>(build, test hosts: key removed from their environment,<br/>own temporary folder per run)"]
-        R -- "green, no process left alive" --> W["Write one fact per file:<br/>blob, executable lines, lines run, tests<br/>+ HMAC-SHA256 under the key"]
+    subgraph Host["Host machine (never<br/>mounted in the container)"]
+        L["Launcher: first launch creates<br/>KYKLOS_PROOF_HMAC_KEY<br/>(32 random bytes) in the<br/>OS credential store"] --> B["Bridge process environment<br/>(the only process that<br/>receives the key)"]
+        B --> R["Test run with coverage<br/>(build, test hosts: key removed<br/>from their environment,<br/>own temporary folder per run)"]
+        R -- "green, no process left alive" --> W["Write one fact per file:<br/>blob, executable lines,<br/>lines run, tests<br/>+ HMAC-SHA256 under the key"]
         W --> LED[("content-ledger/facts.jsonl<br/>in the Bridge state folder")]
     end
-    subgraph Close["Story close (story_close in the Bridge)"]
+    subgraph Close["Story close<br/>(story_close in the Bridge)"]
         Q["Read changed lines from git objects<br/>(story head vs merge base)"] --> V{"Each fact's signature<br/>verifies under the key?"}
         LED --> V
         V -- no --> ABS["Fact reads as absent, named:<br/>its lines are gaps"]
-        V -- yes --> J{"Changed executable lines run<br/>by a fact whose tests are unchanged?"}
+        V -- yes --> J{"Changed executable lines run<br/>by a fact whose tests<br/>are unchanged?"}
         ABS --> J
         J -- "all (or the owner's floor)" --> P["authentic: Test Discipline holds"]
-        J -- gaps --> G["gaps: file:lines, the close is refused<br/>run the tests that cover them"]
+        J -- gaps --> G["gaps: file:lines, the<br/>close is refused<br/>run the tests that cover them"]
     end
 ```
 
@@ -156,7 +156,7 @@ flowchart TD
     NP -- yes --> X1["Refused: tool-not-pertinent<br/>(not for an ops story)"]
     NP -- no --> M{"PROVEN row carries the<br/>story-line figure and a CRAP score<br/>within the story's limits?"}
     M -- no --> X2["Refused: metrics-format"]
-    M -- yes --> T{"Bridge answer for the change:<br/>C# via the ledger, shell via the token"}
+    M -- yes --> T{"Bridge answer for the change:<br/>C# via the ledger,<br/>shell via the token"}
     T -- "gaps / unauthentic / stale" --> X3["Refused: tool-token"]
     T -- authentic --> RC{"Receipt required and bound?<br/>(shell, or the token opt-out)"}
     RC -- no --> X4["Refused: coverage-receipt"]

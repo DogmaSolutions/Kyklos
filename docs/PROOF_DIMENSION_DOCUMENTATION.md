@@ -44,8 +44,8 @@ flowchart TD
     A["update-docs: find the documents<br/>the change affects"] --> B["Bring each to the four criteria"]
     B --> C["audience-lint.sh on every<br/>consumer-facing file"]
     C -- "a hit" --> B
-    C -- clean --> D["Token over the changed source:<br/>proof-tool-gate.sh emit Documentation files"]
-    D --> E["proof_draft: one Doc metric per changed<br/>document, linked at the deliverable's commit"]
+    C -- clean --> D["Token over the changed source:<br/>proof-tool-gate.sh emit<br/>Documentation files"]
+    D --> E["proof_draft: one Doc<br/>metric per changed<br/>document, linked at the<br/>deliverable's commit"]
     E --> F{"Close"}
     F --> G{"Change touched source?"}
     G -- yes --> H{"Documentation token current?"}
@@ -54,7 +54,7 @@ flowchart TD
     G -- no --> I{"PROVEN row has a pinned<br/>link /-/blob/commit/path?"}
     I -- no --> X2["Refused: metrics-format"]
     I -- yes --> J{"Project recorded its<br/>Documentation conventions?"}
-    J -- no --> X3["Refused: run the update-docs interview"]
+    J -- no --> X3["Refused: run the<br/>update-docs interview"]
     J -- yes --> OK["Row holds"]
 ```
 

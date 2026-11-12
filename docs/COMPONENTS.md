@@ -33,14 +33,14 @@ flowchart LR
         AG["Agent"] --> PL["Kyklos Plugin: one hook per event"]
     end
     subgraph Host["Developer's machine"]
-        LA["Kyklos Launcher"] -->|"starts, with its settings and secrets"| BR["Kyklos Bridge"]
+        LA["Kyklos Launcher"] -->|"starts, with its<br/>settings and secrets"| BR["Kyklos Bridge"]
         CS[("Credential store")] --> LA
-        RS[("Reviewed Bridge settings, committed and pushed, outside the container")] --> LA
+        RS[("Reviewed Bridge settings,<br/>committed and pushed,<br/>outside the container")] --> LA
     end
-    PL -->|"hook_event, authenticated, project checked"| BR
-    AG -->|"tool calls: build, run_tests, story, CI"| BR
+    PL -->|"hook_event,<br/>authenticated, project checked"| BR
+    AG -->|"tool calls: build,<br/>run_tests, story, CI"| BR
     BR -->|"its own tokens"| GL["GitLab: tracker and CI"]
-    BR -->|"builds and tests with a clean environment"| SRC["The project's source"]
+    BR -->|"builds and tests with a<br/>clean environment"| SRC["The project's source"]
 ```
 
 - **The settings the [Bridge](#kyklos-bridge) runs with are reviewed.** Before it starts a project's Bridge, the [Launcher](#kyklos-launcher) checks that the project's settings file (`projects/<project>/bridge.appsettings.json` under

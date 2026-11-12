@@ -27,16 +27,16 @@ with named evidence, and the [Bridge](COMPONENTS.md#kyklos-bridge) and the [adve
 
 ```mermaid
 flowchart TD
-    A["Bridge proof_draft"] --> B["Row left OPEN: judge that every untrusted input the change reads is validated; name the test that rejects bad input"]
-    B --> C["Agent lists the entry points of the change and their rejection tests"]
-    C --> D["story proof id --set 'Input Validation=PROVEN|evidence|metrics'"]
+    A["Bridge proof_draft"] --> B["Row left OPEN: judge that every<br/>untrusted input the change reads<br/>is validated; name the test that<br/>rejects bad input"]
+    B --> C["Agent lists the entry<br/>points of the change and<br/>their rejection tests"]
+    C --> D["story proof id --set<br/>'Input<br/>Validation=PROVEN|evidence|metrics'"]
     D --> E{"proof_set checks"}
     E -->|"no real evidence text"| X1["Refused, nothing written"]
-    E -->|"cites a spec item the draft found no evidence for"| X2["Refused"]
+    E -->|"cites a spec item the draft<br/>found no evidence for"| X2["Refused"]
     E -->|"ok"| S["Row stored in the proof note"]
-    S --> R["Adversarial review: sends inputs the tests did not try"]
+    S --> R["Adversarial review: sends<br/>inputs the tests did not try"]
     R -->|"finding"| X3["Review row stays open until fixed"]
-    R -->|"clean"| Z["Close: row present once, not UNPROVEN, evidence real"]
+    R -->|"clean"| Z["Close: row present once, not<br/>UNPROVEN, evidence real"]
     Z --> OK["Story closes"]
 ```
 

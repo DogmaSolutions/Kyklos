@@ -29,21 +29,21 @@ there.
 
 ```mermaid
 flowchart TD
-    E["Claude Code event: tool call, stop, session start, prompt"] --> H["kyklos-event.sh reads the event"]
-    H --> F["Collects container facts: branch, status, remotes, standards.env, switch values, never a secret"]
-    F --> B["Calls the Bridge verb hook_event over the session's MCP address"]
-    B -->|"no answer, wrong project, too old, unreadable"| D["Bridge did not answer"]
+    E["Claude Code event: tool call,<br/>stop, session start, prompt"] --> H["kyklos-event.sh reads the event"]
+    H --> F["Collects container facts:<br/>branch, status, remotes,<br/>standards.env, switch<br/>values, never a secret"]
+    F --> B["Calls the Bridge verb<br/>hook_event over the<br/>session's MCP address"]
+    B -->|"no answer, wrong project,<br/>too old, unreadable"| D["Bridge did not answer"]
     D -->|"tool call"| D1["Refused: nothing runs"]
-    D -->|"Stop"| D2["Let through with a message, recorded as an unjudged Stop"]
-    D -->|"session start or prompt"| D3["A notice: every tool call will be refused until the Bridge answers"]
-    B --> P["Bridge parses the command once into a command tree"]
-    P --> R["Runs every rule whose condition matches, in parallel, each under a deadline"]
+    D -->|"Stop"| D2["Let through with a message,<br/>recorded as an unjudged Stop"]
+    D -->|"session start or prompt"| D3["A notice: every tool call<br/>will be refused until the<br/>Bridge answers"]
+    B --> P["Bridge parses the command<br/>once into a command tree"]
+    P --> R["Runs every rule whose<br/>condition matches, in<br/>parallel, each under a deadline"]
     R -->|"needs a fact only the container has"| NF["Asks for it once, the hook sends it"]
     NF --> R
-    R --> V["Combines the verdicts: any deny or block refuses, ask only when nobody refuses"]
-    V --> O["Spends overrides only if the final verdict lets the call through"]
-    O --> A["Answer: allow, ask, deny or block, every reason listed, rules in a fixed order"]
-    A --> C["The hook prints it in Claude Code's format"]
+    R --> V["Combines the verdicts: any<br/>deny or block refuses, ask<br/>only when nobody refuses"]
+    V --> O["Spends overrides only if<br/>the final verdict lets<br/>the call through"]
+    O --> A["Answer: allow, ask, deny or<br/>block, every reason listed,<br/>rules in a fixed order"]
+    A --> C["The hook prints it in<br/>Claude Code's format"]
 ```
 
 - **Files and resources.** The hook is the plugin's `hooks/kyklos-event.sh`; the plugin's `hooks/hooks.json` holds exactly one entry per event, and that entry refuses by itself when the script is missing, so a broken install never runs a tool call unchecked. The facts are collected by `hooks/lib/repo-facts.sh`. The answer comes from the Bridge process on the host.
@@ -79,19 +79,19 @@ How the Stop is judged:
 ```mermaid
 flowchart TD
     S["Agent tries to end its turn"] --> B{"Bridge answers?"}
-    B -->|"no"| U["Stop let through with the bridge-down message, recorded as unjudged and judged at the next answered Stop"]
-    B -->|"yes"| M{"A message from a person or agent waits for a reply?"}
+    B -->|"no"| U["Stop let through with the<br/>bridge-down message, recorded<br/>as unjudged and judged at the<br/>next answered Stop"]
+    B -->|"yes"| M{"A message from a person or<br/>agent waits for a reply?"}
     M -->|"yes"| X1["Blocked: answer it first"]
-    M -->|"no"| W{"Open in-scope work, from the tracker?"}
+    M -->|"no"| W{"Open in-scope work,<br/>from the tracker?"}
     W -->|"none"| OK["Stop allowed: all work done"]
     W -->|"only blocked, parked or messages"| OK
-    W -->|"work that is actionable"| Q{"Did the agent just ask the user a real question?"}
+    W -->|"work that is actionable"| Q{"Did the agent just ask the<br/>user a real question?"}
     Q -->|"yes"| OK2["Stop allowed: awaiting the user"]
-    Q -->|"no"| R{"A background run it started is still active?"}
+    Q -->|"no"| R{"A background run it<br/>started is still active?"}
     R -->|"yes, and the work is its own"| OK3["Stop allowed while it waits"]
-    R -->|"no"| K{"Same open set, no new tool calls, several Stops in a row?"}
+    R -->|"no"| K{"Same open set, no new tool<br/>calls, several Stops in a row?"}
     K -->|"yes"| OK4["Stuck-breaker releases the Stop"]
-    K -->|"no"| X2["Blocked: names the next item to work on"]
+    K -->|"no"| X2["Blocked: names the next<br/>item to work on"]
 ```
 
 The open work is read from the tracker by the [Bridge](COMPONENTS.md#kyklos-bridge) with its own token, never from the agent's word or a local file it can edit; a blocked story's recorded blocker is re-checked at each Stop

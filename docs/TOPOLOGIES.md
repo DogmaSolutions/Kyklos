@@ -24,19 +24,19 @@ The topology is declared once, in the project's [`.claude/standards.env`](WORKFL
 
 ```mermaid
 flowchart TD
-    W["Agent writes a file"] --> B1{"Target is another repository than the session's own, or the public nested source?"}
-    B1 -->|"yes, and the text adds an internal reference or an organisation name"| X1["Refused before the write lands"]
+    W["Agent writes a file"] --> B1{"Target is another repository<br/>than the session's own, or the<br/>public nested source?"}
+    B1 -->|"yes, and the text adds an<br/>internal reference or an<br/>organisation name"| X1["Refused before the write lands"]
     B1 -->|"no"| OK1["Write allowed"]
     C["git commit or branch"] --> M{"Repository declares a topology?"}
     M -->|"no"| X2["Refused: declare it first"]
-    M -->|"yes"| WF{"Its workflow: GitFlow, trunk-based, or read-only for the agent"}
-    WF -->|"read-only source"| X3["Commit refused: a person commits there"]
+    M -->|"yes"| WF{"Its workflow: GitFlow,<br/>trunk-based, or<br/>read-only for the agent"}
+    WF -->|"read-only source"| X3["Commit refused: a<br/>person commits there"]
     WF -->|"GitFlow, on a trunk"| X4["Refused: branch first"]
     WF -->|"allowed"| OK2["Commit allowed"]
-    P["git push into a public source"] --> A{"Any pushed tree or new commit adds Stories, CLAUDE.md, AGENTS.md, .claude, .codex or .devcontainer?"}
+    P["git push into a public source"] --> A{"Any pushed tree or new<br/>commit adds Stories,<br/>CLAUDE.md, AGENTS.md,<br/>.claude, .codex or .devcontainer?"}
     A -->|"yes"| X5["Refused, for every session"]
     A -->|"no"| OK3["Push goes on to the push rules"]
-    S["story new against the public artifact repository"] --> X6["Refused: no story is filed against it"]
+    S["story new against the public<br/>artifact repository"] --> X6["Refused: no story is<br/>filed against it"]
 ```
 
 - **What is read.** The topology and workflow keys of the repository's own `.claude/standards.env` (in a companion, the nested source's keys live in the companion's file), the git facts of the

@@ -34,21 +34,21 @@ run under a controlled load and reports how many repeats passed under live load.
 
 ```mermaid
 flowchart TD
-    A["Bridge proof_draft"] --> B["Row left OPEN: judge the state the change shares between threads, tasks or processes; name the test, or why there is none"]
-    B --> C["Agent classifies each added or changed test file: timing-dependent or not"]
-    C --> D["run_tests with repeat 5 and load, on the host where the code really runs"]
+    A["Bridge proof_draft"] --> B["Row left OPEN: judge the<br/>state the change shares<br/>between threads, tasks or<br/>processes; name the test, or<br/>why there is none"]
+    B --> C["Agent classifies each added<br/>or changed test file:<br/>timing-dependent or not"]
+    C --> D["run_tests with repeat 5 and<br/>load, on the host where the<br/>code really runs"]
     D --> L{"Machine-wide load lock free?"}
-    L -->|"no"| X1["Refused, naming the holder; wait and ask again"]
-    L -->|"yes"| E["One build; busy workers start; the suite repeats with no rebuild"]
-    E --> F{"Every repeat passed, all under live load?"}
-    F -->|"a repeat failed or neared its limit"| G["Run the file 20 times, find and fix the cause"]
+    L -->|"no"| X1["Refused, naming the holder;<br/>wait and ask again"]
+    L -->|"yes"| E["One build; busy workers<br/>start; the suite repeats<br/>with no rebuild"]
+    E --> F{"Every repeat passed, all<br/>under live load?"}
+    F -->|"a repeat failed or neared its limit"| G["Run the file 20 times,<br/>find and fix the cause"]
     G --> D
-    F -->|"load ended before the last repeat"| X2["The run fails: the load was not proven"]
-    F -->|"yes"| H["Answer reports e.g. 5 of 5 under load; workers stopped by recorded id"]
-    H --> I["story proof id --set 'Thread Safety=PROVEN|evidence|counts'"]
-    I --> J{"proof_set: real evidence text, no citation of an uncovered spec item"}
-    J -->|"ok"| S["Row stored; the pass counts also appear in the Test Discipline row"]
-    S --> R["Adversarial review checks which files ran once and why"]
+    F -->|"load ended before the last repeat"| X2["The run fails: the load<br/>was not proven"]
+    F -->|"yes"| H["Answer reports e.g. 5 of 5<br/>under load; workers stopped<br/>by recorded id"]
+    H --> I["story proof id --set 'Thread<br/>Safety=PROVEN|evidence|counts'"]
+    I --> J{"proof_set: real evidence<br/>text, no citation of an<br/>uncovered spec item"}
+    J -->|"ok"| S["Row stored; the pass<br/>counts also appear in the<br/>Test Discipline row"]
+    S --> R["Adversarial review checks which<br/>files ran once and why"]
 ```
 
 **Step by step.**

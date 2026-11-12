@@ -38,22 +38,22 @@ the agent never types it by hand.
 
 ```mermaid
 flowchart TD
-    A["Agent: story proof id --draft, cites the deliverable"] --> B["Bridge proof_draft"]
+    A["Agent: story proof id --draft,<br/>cites the deliverable"] --> B["Bridge proof_draft"]
     B --> C{"Cited deliverable on the remote?"}
-    C -->|"no"| O1["Row stays UNPROVEN: OPEN, cite the merge request, branch or commit"]
+    C -->|"no"| O1["Row stays UNPROVEN: OPEN,<br/>cite the merge request,<br/>branch or commit"]
     C -->|"yes"| D{"Deliverable's pipeline green?"}
-    D -->|"no"| O2["Row stays UNPROVEN: OPEN, the pipeline must be green"]
-    D -->|"yes"| E["Scan the changed test files, tool receipts, the newest verified review, the risk register"]
-    E --> F{"Every AC item, and every orphan item of the kind, named by evidence?"}
-    F -->|"no"| O3["Row stays UNPROVEN, naming the items no evidence names"]
-    F -->|"yes"| P["Row PROVEN with one metric per item and its source"]
-    P --> R["Signed draft record stored on the story: rows proved, items uncovered"]
+    D -->|"no"| O2["Row stays UNPROVEN: OPEN, the<br/>pipeline must be green"]
+    D -->|"yes"| E["Scan the changed test files, tool<br/>receipts, the newest verified<br/>review, the risk register"]
+    E --> F{"Every AC item, and every<br/>orphan item of the kind,<br/>named by evidence?"}
+    F -->|"no"| O3["Row stays UNPROVEN, naming the<br/>items no evidence names"]
+    F -->|"yes"| P["Row PROVEN with one metric<br/>per item and its source"]
+    P --> R["Signed draft record stored<br/>on the story: rows proved,<br/>items uncovered"]
     O3 --> R
-    R --> W["Later hand writes: proof_set refuses to change a drafted row or to cite an uncovered item"]
-    W --> Z["Close: story_close, or the Stop rule through proof_validate"]
-    Z --> G{"Closability, evidence text, correlation, spec complete, Remote Truth"}
+    R --> W["Later hand writes: proof_set<br/>refuses to change a drafted row<br/>or to cite an uncovered item"]
+    W --> Z["Close: story_close, or the Stop<br/>rule through proof_validate"]
+    Z --> G{"Closability, evidence<br/>text, correlation, spec<br/>complete, Remote Truth"}
     G -->|"all pass"| CL["Story closes"]
-    G -->|"any finding"| RF["Close refused, every finding listed at once"]
+    G -->|"any finding"| RF["Close refused, every<br/>finding listed at once"]
 ```
 
 **Step by step.**

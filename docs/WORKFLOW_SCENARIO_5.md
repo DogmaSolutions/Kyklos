@@ -35,13 +35,13 @@ The diagram below is also available in [Yed GRAPHML format](../assets/workflow/A
 
 ```mermaid
 flowchart TD
-    K{"Story kind"} -->|"documentation"| DOC["Documents changed on the story branch"]
+    K{"Story kind"} -->|"documentation"| DOC["Documents changed on<br/>the story branch"]
     K -->|"analysis"| AN["Analysis recorded on the story"]
-    DOC --> L["Documentation pass and audience lint: no internal details in a public document"]
+    DOC --> L["Documentation pass and<br/>audience lint: no internal<br/>details in a public document"]
     L --> P["Pushed and merged like code"]
     AN --> R
     P --> R["Adversarial review, token signed"]
-    R --> CL{"story close: phase past Design, review token valid, Completeness, for documents: merged on the remote, Refs commits on the trunk, Documentation row links each document"}
+    R --> CL{"story close: phase past Design,<br/>review token valid,<br/>Completeness, for documents:<br/>merged on the remote, Refs<br/>commits on the trunk,<br/>Documentation row links each document"}
     CL -->|"pass"| D["Closed"]
     CL -->|"fail"| X["Refused, findings listed"]
 ```

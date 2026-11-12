@@ -41,17 +41,17 @@ How each switch is checked, and by whom:
 ```mermaid
 flowchart TD
     A["A privileged action"] --> K{"Which action?"}
-    K -->|"CI administration, CI write on a trunk, full process view"| B{"Bridge role read from the reviewed settings file is Infrastructure?"}
-    B -->|"no"| X1["The Bridge does not list the tool, and refuses it by name"]
-    B -->|"yes"| W{"Ref allowed by ContinuousIntegration:WriteRefs?"}
+    K -->|"CI administration, CI write on a<br/>trunk, full process view"| B{"Bridge role read from the<br/>reviewed settings file is<br/>Infrastructure?"}
+    B -->|"no"| X1["The Bridge does not list the<br/>tool, and refuses it by name"]
+    B -->|"yes"| W{"Ref allowed by<br/>ContinuousIntegration:WriteRefs?"}
     W -->|"no"| X2["Refused, logged as a ci-audit line"]
-    W -->|"yes"| OK1["Done, logged as a ci-audit line with the role"]
-    K -->|"launcher_request"| L{"Launcher set KYKLOS_BRIDGE_LAUNCHER_OPERATOR for this Bridge?"}
+    W -->|"yes"| OK1["Done, logged as a ci-audit<br/>line with the role"]
+    K -->|"launcher_request"| L{"Launcher set<br/>KYKLOS_BRIDGE_LAUNCHER_OPERATOR<br/>for this Bridge?"}
     L -->|"no"| X3["Refused"]
     L -->|"yes"| OK2["Done"]
-    K -->|"git push of a trunk or another session's branch"| P{"KYKLOS_ALLOW_PUSH=1 in the launch configuration?"}
+    K -->|"git push of a trunk or<br/>another session's branch"| P{"KYKLOS_ALLOW_PUSH=1 in the<br/>launch configuration?"}
     P -->|"no"| X4["Refused by the push rule"]
-    P -->|"yes"| F{"Force or delete of a trunk, release, support or tag?"}
+    P -->|"yes"| F{"Force or delete of a trunk,<br/>release, support or tag?"}
     F -->|"yes"| X5["Refused"]
     F -->|"no"| OK3["Pushed"]
 ```

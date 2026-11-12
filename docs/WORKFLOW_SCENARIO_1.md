@@ -32,15 +32,15 @@ The diagram below is also available in [Yed GRAPHML format](../assets/workflow/A
 
 ```mermaid
 flowchart TD
-    C["Commit on the story branch: Refs footer, story in progress"] --> T["Bridge runs builds, tests and coverage on the host"]
-    T --> K["Bridge records the evidence and signs the tokens"]
-    K --> P{"Push: own feature or hotfix branch, KYKLOS_CI_MONITOR=1, armed merge request admitted?"}
-    P -->|"no"| X1["Push refused, or request created unarmed with the reason"]
-    P -->|"yes"| R["Adversarial review on the pushed change, token signed"]
+    C["Commit on the story branch: Refs<br/>footer, story in progress"] --> T["Bridge runs builds, tests and<br/>coverage on the host"]
+    T --> K["Bridge records the evidence<br/>and signs the tokens"]
+    K --> P{"Push: own feature or hotfix<br/>branch, KYKLOS_CI_MONITOR=1,<br/>armed merge request admitted?"}
+    P -->|"no"| X1["Push refused, or request created<br/>unarmed with the reason"]
+    P -->|"yes"| R["Adversarial review on the<br/>pushed change, token signed"]
     R --> PL{"Pipeline"}
     PL -->|"red"| C
     PL -->|"green"| M["GitLab merges the armed request"]
-    M --> CL{"story close: rules 1 to 5, tokens re-computed on the merged files"}
+    M --> CL{"story close: rules 1 to<br/>5, tokens re-computed on<br/>the merged files"}
     CL -->|"pass"| D["Closed"]
     CL -->|"fail"| X2["Refused, findings listed"]
 ```

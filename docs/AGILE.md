@@ -46,15 +46,15 @@ the work appears, and the gates read it.
 
 ```mermaid
 flowchart TD
-    N["story new: kind, severity and epic required"] --> RQ["Requirements"]
-    RQ -->|"spec complete: requirements, use cases, failure modes, fail-open decisions, poka-yoke, acceptance criteria, risk register"| DS["Design"]
+    N["story new: kind, severity<br/>and epic required"] --> RQ["Requirements"]
+    RQ -->|"spec complete: requirements,<br/>use cases, failure modes,<br/>fail-open decisions,<br/>poka-yoke, acceptance<br/>criteria, risk register"| DS["Design"]
     RQ -->|"spec incomplete"| X1["Refused: names the missing section"]
     DS -->|"a commit on the story branch"| IM["Implementation"]
-    IM -->|"a push, or a story-bound test or coverage run"| TS["Testing"]
-    TS --> DP["Deployment: merge request armed, merged on green"]
+    IM -->|"a push, or a story-bound<br/>test or coverage run"| TS["Testing"]
+    TS --> DP["Deployment: merge request<br/>armed, merged on green"]
     DP --> AR{"Adversarial review clean?"}
     AR -->|"findings"| IM
-    AR -->|"clean"| CG{"Close gates pass: proof complete, merged on the remote"}
+    AR -->|"clean"| CG{"Close gates pass: proof<br/>complete, merged on the remote"}
     CG -->|"yes"| RV["Review, then Closed"]
     CG -->|"no"| X3["Refused: the findings are listed"]
     DS -->|"close attempted"| X2["Refused: never past Design"]

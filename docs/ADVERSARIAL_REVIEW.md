@@ -62,14 +62,14 @@ sequenceDiagram
     participant Tracker as Tracker, for example GitLab
     Reviewer->>Agent: report in the template above
     Agent->>Bridge: advreview_mint: story and report
-    Bridge->>Bridge: checks the template line by line, refuses a quick-action line
-    Bridge-->>Agent: token = HMAC-SHA256 of "advreview:story:SHA-256 of the report", host key
-    Agent->>Bridge: advreview_post: story, report and token
-    Bridge->>Tracker: posts the round note with the report and its token, as the Bridge's account
-    Note over Tracker: the server records when the note was posted
+    Bridge->>Bridge: checks the template line<br/>by line, refuses a<br/>quick-action line
+    Bridge-->>Agent: token = HMAC-SHA256 of<br/>"advreview:story:SHA-256 of<br/>the report", host key
+    Agent->>Bridge: advreview_post: story,<br/>report and token
+    Bridge->>Tracker: posts the round note with the<br/>report and its token, as the<br/>Bridge's account
+    Note over Tracker: the server records when<br/>the note was posted
     Agent->>Bridge: story close
-    Bridge->>Tracker: reads the newest review note and the times the remote received the code
-    Bridge->>Bridge: re-computes the token from the note's report and compares
+    Bridge->>Tracker: reads the newest review<br/>note and the times the<br/>remote received the code
+    Bridge->>Bridge: re-computes the token from the<br/>note's report and compares
     alt token matches, review newer than the last covered code, no open blocker or major
         Bridge-->>Agent: the review gate passes
     else edited report, old review, or open findings

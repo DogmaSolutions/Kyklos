@@ -15,7 +15,7 @@ The dimensions, one page each: [Completeness](PROOF_DIMENSION_COMPLETENESS.md) �
 [Poka-Yoke](PROOF_DIMENSION_POKA_YOKE.md) · [Risk Assessment](PROOF_DIMENSION_RISK_ASSESSMENT.md) ·
 [i18n](PROOF_DIMENSION_I18N.md) · [Adversarial Review](PROOF_DIMENSION_ADVERSARIAL_REVIEW.md)
 
-What the checks assume about the agent, and the optional hardening against a deliberately hostile one:
+What the checks assume about the agent, and the optional hardening against a **deliberately hostile** one:
 [What Kyklos assumes about the agent](PROOF_AGENT_ASSUMPTIONS.md).
 
 Languages: the table's headings, dimension names and verdict words are fixed English words the tools read; the evidence
@@ -73,6 +73,26 @@ what Kyklos relies on against an agent acting deliberately against you is explai
 row needs an **attached file** (the coverage receipt archive of a shell-script Test Discipline row, the duplication report for Non-Duplication), the row must link exactly that attachment. How
 the Test Discipline evidence is recorded and checked, for C# and for shell scripts, is on its [page](PROOF_DIMENSION_TEST_DISCIPLINE.md).
 
+
+## How "proven, not asserted" works
+
+ The agent never marks its own homework. Test coverage, duplication scans, documentation checks and reviews produce signed tokens and attached reports.  
+ A claim without its token is refused.
+
+```mermaid
+flowchart LR
+    W["Agent's work"] --> T["A tool measures it\non the host: \ntests and coverage,\nduplication scan,\ndocumentation pass,\nadversarial review"]
+    T --> S["The Kyklos Bridge signs\nthe result with a\nkey only it holds"]
+    S --> N["Token and report\nattached to the story"]
+    N --> C{"At the close:\ntoken re-computed\nover the current files,\nchange merged\non the remote?"}
+    C -->|"yes"| D["Story closed"]
+    C -->|"no"| X["Close refused,\nreasons listed"]
+```
+
+Each token is a keyed hash (HMAC-SHA256) of what the tool measured, made with a key kept in the operating system's credential store and given only to the [Bridge](COMPONENTS.md#kyklos-bridge), so the agent cannot produce
+one by hand, and a file changed after its measurement no longer matches. The rules of the close are in [the workflow](WORKFLOW.md), the rows in [the Proof Table](#the-proof-table), and the rare
+exceptions a person may grant in [Overrides](WORKFLOW.md#overrides).
+
 ## The owner's Proof Discipline
 
 Every story's header holds a **Proof Discipline** section, filled when the story is created or adopted, from its kind and the
@@ -104,14 +124,14 @@ comparing it with its own signed copy (next section) and by reading the tracker'
 
 ```mermaid
 flowchart TD
-    A["A verb reads the story: proof_get, proof_validate, proof_draft, story_close, proof_discipline_get"] --> B{"Signing key present, edits and the Bridge's own account readable?"}
-    B -->|"no"| N["No change counts: the story owes the strictest of creation values, signed copy and section"]
+    A["A verb reads the story:<br/>proof_get, proof_validate,<br/>proof_draft, story_close,<br/>proof_discipline_get"] --> B{"Signing key present,<br/>edits and the Bridge's<br/>own account readable?"}
+    B -->|"no"| N["No change counts: the story owes<br/>the strictest of creation values,<br/>signed copy and section"]
     B -->|"yes"| C{"Section equal to the signed copy?"}
     C -->|"yes"| U["Section in force as signed"]
-    C -->|"no, or removed"| D{"Every description edit since the copy made by a configured owner account?"}
-    D -->|"yes"| O["Owner's change: in force, recorded with original value, new value, who and when; a new signed copy is written"]
-    D -->|"no"| R["Refused: what asks less than the copy is put back, what asks more stays; one notice on the story names why"]
-    U --> G["The close gates judge the table through this ruling"]
+    C -->|"no, or removed"| D{"Every description edit since<br/>the copy made by a<br/>configured owner account?"}
+    D -->|"yes"| O["Owner's change: in force,<br/>recorded with original value,<br/>new value, who and when; a new<br/>signed copy is written"]
+    D -->|"no"| R["Refused: what asks less than<br/>the copy is put back, what<br/>asks more stays; one notice on<br/>the story names why"]
+    U --> G["The close gates judge the<br/>table through this ruling"]
     O --> G
     R --> G
     N --> G
@@ -152,11 +172,11 @@ story's notes: it opens with a sentence saying what it is, and the data it holds
 
 ```mermaid
 flowchart LR
-    K["Credential Manager on the host: KYKLOS_PROOF_HMAC_KEY"] -->|"Launcher hands it to the Bridge process only"| BR["Kyklos Bridge"]
-    S["Story header: Proof Discipline section"] --> BR
-    E["Tracker: list of description edits, with account"] --> BR
-    BR -->|"HMAC-SHA256 over 'proof-discipline:' + the copy's data"| N["Note on the story, marked kyklos:proof-discipline, data plus mac field"]
-    N -->|"read back and verified on every judged load"| BR
+    K["Credential Manager on the<br/>host: KYKLOS_PROOF_HMAC_KEY"] -->|"Launcher hands it to the<br/>Bridge process only"| BR["Kyklos Bridge"]
+    S["Story header: Proof<br/>Discipline section"] --> BR
+    E["Tracker: list of description<br/>edits, with account"] --> BR
+    BR -->|"HMAC-SHA256 over<br/>'proof-discipline:' + the copy's data"| N["Note on the story, marked<br/>kyklos:proof-discipline,<br/>data plus mac field"]
+    N -->|"read back and verified on<br/>every judged load"| BR
 ```
 
 - **Where the key lives.** The signing key is the [proof signing key](PROOF_DIMENSION_TEST_DISCIPLINE.md#signatures-the-key-and-when-they-are-checked), `KYKLOS_PROOF_HMAC_KEY`. The [`Kyklos Launcher`](COMPONENTS.md#kyklos-launcher) creates it on

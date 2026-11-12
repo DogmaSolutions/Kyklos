@@ -243,20 +243,20 @@ Write the two paths as **absolute** paths (in JSON, every `\` is written `\\`). 
 ```mermaid
 flowchart TD
     S["Launch needs Bridge version V"] --> C{"Cached copy of V?"}
-    C -->|"yes"| H{"Its SHA-256 equals the published checksum?"}
+    C -->|"yes"| H{"Its SHA-256 equals the<br/>published checksum?"}
     H -->|"yes"| SIG
     H -->|"no"| D
-    C -->|"no"| D["Download, hashing while it streams into a temporary file"]
+    C -->|"no"| D["Download, hashing while it<br/>streams into a temporary file"]
     D --> P{"Release publishes a checksum?"}
-    P -->|"no"| E{"Launcher:Bridge:AllowUnverifiedBinary on?"}
+    P -->|"no"| E{"Launcher:Bridge:AllowUnverifiedBinary<br/>on?"}
     E -->|"no"| X1["Refused"]
     E -->|"yes"| W["Kept, with a warning in the log"]
     P -->|"yes"| Q{"Hash equals it?"}
-    Q -->|"no"| X2["Refused: the file is never moved into place"]
-    Q -->|"yes"| K["Moved into the cache, hash kept beside it"]
-    K --> SIG{"Launcher:Bridge:RequireAuthenticode on, on Windows?"}
+    Q -->|"no"| X2["Refused: the file is<br/>never moved into place"]
+    Q -->|"yes"| K["Moved into the cache,<br/>hash kept beside it"]
+    K --> SIG{"Launcher:Bridge:RequireAuthenticode<br/>on, on Windows?"}
     W --> SIG
-    SIG -->|"yes, and the code signature is not valid"| X3["Refused"]
+    SIG -->|"yes, and the code<br/>signature is not valid"| X3["Refused"]
     SIG -->|"no, or valid"| R["Bridge started"]
 ```
 
@@ -375,13 +375,13 @@ How the Launcher checks the file at every launch:
 
 ```mermaid
 flowchart TD
-    L["Launch of project N"] --> F{"projects/N/bridge.appsettings.json exists under the settings root?"}
-    F -->|"no"| X1["Refused: file missing, or its folder name differs from the project name"]
-    F -->|"yes"| O{"Outside the workspace and every extra mount the container can write?"}
+    L["Launch of project N"] --> F{"projects/N/bridge.appsettings.json<br/>exists under the settings<br/>root?"}
+    F -->|"no"| X1["Refused: file missing, or<br/>its folder name differs<br/>from the project name"]
+    F -->|"yes"| O{"Outside the workspace and<br/>every extra mount the<br/>container can write?"}
     O -->|"no"| X2["Refused"]
-    O -->|"yes"| T{"Tracked in git, unchanged since its commit, identical to its remote branch?"}
+    O -->|"yes"| T{"Tracked in git, unchanged<br/>since its commit, identical<br/>to its remote branch?"}
     T -->|"no"| X3["Refused: commit and push it first"]
-    T -->|"yes"| B["Bridge started with exactly the reviewed settings"]
+    T -->|"yes"| B["Bridge started with exactly<br/>the reviewed settings"]
 ```
 
 The settings decide what the agent may reach (its role, the projects it serves, the CI refs it may write), so only a version a person committed and pushed counts: an edit nobody committed, or a

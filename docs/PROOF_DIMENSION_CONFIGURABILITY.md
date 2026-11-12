@@ -47,7 +47,7 @@ The checks that apply to the row, in the order they run:
 
 ```mermaid
 flowchart TD
-    A["Agent writes the row with story proof --set<br/>(verdict, evidence, metrics)"] --> B{"Verdict?"}
+    A["Agent writes the row with<br/>story proof --set<br/>(verdict, evidence, metrics)"] --> B{"Verdict?"}
     B -- UNPROVEN --> X["Close refused:<br/>prove it or justify NOT_PERTINENT"]
     B -- NOT_PERTINENT --> C{"Evidence states a real reason?"}
     C -- no --> X2["Close refused:<br/>NOT_PERTINENT needs a justification"]

@@ -29,17 +29,17 @@ The credentials are deliberately **split by purpose**:
 
 ```mermaid
 flowchart LR
-    CM[("Credential store: Windows Credential Manager, or a secrets manager or the encrypted vault on Linux")] --> L["Kyklos Launcher, at every launch"]
-    L --> C1{"Push credential: GitLab asked what it can do"}
+    CM[("Credential store: Windows<br/>Credential Manager, or a<br/>secrets manager or the<br/>encrypted vault on Linux")] --> L["Kyklos Launcher, at every launch"]
+    L --> C1{"Push credential: GitLab<br/>asked what it can do"}
     C1 -->|"api scope, or expired"| X1["Launch refused"]
-    C1 -->|"write-only, valid"| CT["Agent's container: the push credential only"]
-    L --> C2{"Other served tokens: can they call the API?"}
+    C1 -->|"write-only, valid"| CT["Agent's container: the<br/>push credential only"]
+    L --> C2{"Other served tokens: can<br/>they call the API?"}
     C2 -->|"yes, or scope unconfirmed"| BR["Kyklos Bridge process on the host"]
-    C2 -->|"KYKLOS_API_TOKEN_IN_CONTAINER=allow with a reason"| CT
-    C2 -->|"not a GitLab token, listed in KYKLOS_SECRETS_NOT_GITLAB"| CT
-    L -->|"proof signing key, created on first use"| BR
+    C2 -->|"KYKLOS_API_TOKEN_IN_CONTAINER=allow<br/>with a reason"| CT
+    C2 -->|"not a GitLab token, listed in<br/>KYKLOS_SECRETS_NOT_GITLAB"| CT
+    L -->|"proof signing key,<br/>created on first use"| BR
     L -->|"local authentication token"| BR
-    BR -->|"story, CI and message actions, each checked against the rules"| GL["GitLab"]
+    BR -->|"story, CI and message<br/>actions, each checked<br/>against the rules"| GL["GitLab"]
     CT -->|"git push of its own branches"| GL
 ```
 

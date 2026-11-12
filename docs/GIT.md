@@ -44,29 +44,29 @@ repository the push goes to, not the folder the session started in.
 
 ```mermaid
 flowchart TD
-    P["git push"] --> T{"Target repository served by this Bridge?"}
-    T -->|"no"| NJ["Story rules not judgeable here: named and skipped, local checks still run"]
+    P["git push"] --> T{"Target repository served<br/>by this Bridge?"}
+    T -->|"no"| NJ["Story rules not judgeable<br/>here: named and skipped,<br/>local checks still run"]
     T -->|"yes"| A{"Who may push this?"}
     NJ --> A
-    A -->|"KYKLOS_ALLOW_PUSH=1"| A1{"Force or delete of a trunk, release, support or tag?"}
+    A -->|"KYKLOS_ALLOW_PUSH=1"| A1{"Force or delete of a trunk,<br/>release, support or tag?"}
     A1 -->|"yes"| X1["Refused"]
     A1 -->|"no"| CHK
-    A -->|"KYKLOS_CI_MONITOR=1, own feature or hotfix branch, no force, no tag"| CHK
-    A -->|"push-override label applied by a person on the story"| CHK
-    A -->|"anything else"| X2["Refused: a person or the push-authorised session pushes"]
-    CHK["Content checks"] --> C1{"Every pushed commit has its Refs footer, one branch one item?"}
+    A -->|"KYKLOS_CI_MONITOR=1, own<br/>feature or hotfix branch,<br/>no force, no tag"| CHK
+    A -->|"push-override label applied by<br/>a person on the story"| CHK
+    A -->|"anything else"| X2["Refused: a person or the<br/>push-authorised session pushes"]
+    CHK["Content checks"] --> C1{"Every pushed commit has<br/>its Refs footer, one<br/>branch one item?"}
     C1 -->|"no"| X3["Refused, naming the commit"]
-    C1 -->|"yes"| C2{"Public source and an agent artifact in the pushed tree or history?"}
+    C1 -->|"yes"| C2{"Public source and an agent<br/>artifact in the pushed<br/>tree or history?"}
     C2 -->|"yes"| X4["Refused"]
-    C2 -->|"no"| C3{"Scripts pass the formal check, full-solution build recorded green?"}
+    C2 -->|"no"| C3{"Scripts pass the formal<br/>check, full-solution build<br/>recorded green?"}
     C3 -->|"no"| X5["Refused, naming the finding"]
     C3 -->|"yes"| M{"Creates a merge request?"}
     M -->|"no"| OK["Push runs"]
     M -->|"yes"| AR{"Created armed?"}
-    AR -->|"no, and the repository has a pipeline"| X6["Refused: the same command, armed, is shown"]
-    AR -->|"yes"| G{"Arm admitted: branch holds the trunk's head or no overlap, and the C Sharp change covered by test evidence?"}
+    AR -->|"no, and the repository<br/>has a pipeline"| X6["Refused: the same<br/>command, armed, is shown"]
+    AR -->|"yes"| G{"Arm admitted: branch holds the<br/>trunk's head or no overlap,<br/>and the C Sharp change covered<br/>by test evidence?"}
     G -->|"yes"| OK2["Push runs, GitLab merges on green"]
-    G -->|"no"| UN["Created unarmed, with the reason, armed once it is fixed"]
+    G -->|"no"| UN["Created unarmed, with the<br/>reason, armed once it is fixed"]
 ```
 
 - **Files and resources.** The rules read the repository's own [`.claude/standards.env`](WORKFLOW.md#greppable-opt-out-switches) (its [topology](TOPOLOGIES.md) and close mode), the git facts of the target repository (branch, commits, remote), and,

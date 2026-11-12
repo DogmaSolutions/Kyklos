@@ -24,11 +24,11 @@ It's inspired by the intrinsic cyclic nature of the *Agile* SSDLC (Secure Softwa
 
 The Agile SSDLC is the result of a growing understanding within the security and software engineering communities about the necessity of proactive security measures. The concept evolved over time, driven by the increasing awareness of software vulnerabilities and the need to build more secure applications. The core structure of the SSDLC is not very different from the traditional SDLC, and in fact it can be considered an extension of SDLC with the distinctive feature of integrating security measures into every phase of the software development process. By embedding security from the initial design through to deployment, Agile SSDLC ensures that potential vulnerabilities are addressed proactively.
 
-The primary purpose of **Kyklos** is to make the agent stick to the steps and practices that allow the team to fully and easily adopt the Agile SSDLC workflow.
+> The primary purpose of **Kyklos** is to make the agent stick to the steps and practices that allow the team to fully and easily adopt the Agile SSDLC workflow.
 
 ## ✅ The principles
 
-1. **Proven, not asserted.** The agent never marks its own homework. Test coverage, duplication scans, documentation checks and reviews produce signed tokens and attached reports (see the [Proof Table](docs/PROOF.md)). A claim without its
+1. [**Proven, not asserted.**](docs/PROOF.md) The agent never marks its own homework. Test coverage, duplication scans, documentation checks and reviews produce signed tokens and attached reports (see the [Proof Table](docs/PROOF.md)). A claim without its
    token is refused.
 2. **Mistake-proof by design.** When a mistake is possible, Kyklos first tries to make it impossible, then to make it fail at once, then to block it at the point of action. A written rule is the last
    resort, never the first. Every defect that gets through earns a new guard before its fix is closed.
@@ -40,29 +40,15 @@ The primary purpose of **Kyklos** is to make the agent stick to the steps and pr
 7. **The human decides what matters.** Kyklos keeps a short, explicit list of actions that always stop for a person: publishing outward, deleting shared things, introducing a new blocking gate.
    Everything else, the agent drives on its own, within the rules.
 
-### How "proven, not asserted" works
-
-```mermaid
-flowchart LR
-    W["Agent's work"] --> T["A tool measures it on the host: tests and coverage, duplication scan, documentation pass, adversarial review"]
-    T --> S["The Kyklos Bridge signs the result with a key only it holds"]
-    S --> N["Token and report attached to the story"]
-    N --> C{"At the close: token re-computed over the current files, change merged on the remote?"}
-    C -->|"yes"| D["Story closed"]
-    C -->|"no"| X["Close refused, reasons listed"]
-```
-
-Each token is a keyed hash (HMAC-SHA256) of what the tool measured, made with a key kept in the operating system's credential store and given only to the [Bridge](docs/COMPONENTS.md#kyklos-bridge), so the agent cannot produce
-one by hand, and a file changed after its measurement no longer matches. The rules of the close are in [the workflow](docs/WORKFLOW.md), the rows in [the Proof Table](docs/PROOF.md), and the rare
-exceptions a person may grant in [Overrides](docs/WORKFLOW.md#overrides).
-
 ## 🎯 Who it is for
 
 - **Tech leads and developers** who want AI agents in their teams without lowering the bar, and who need evidence they can audit rather than a promise.
 - **Organisations under secure-development expectations** ([IEC 62443-4-1](https://www.isa.org/standards-and-publications/isa-standards/isa-iec-62443-series-of-standards) practice, [NIS2](https://eur-lex.europa.eu/eli/dir/2022/2555/oj)-style risk management), where "how do you know?" needs an answer on record (see the [Knowledge base](docs/KB.md) for the standards Kyklos refers to).
 - **Teams running several agents at once**, where Kyklos keeps parallel work from colliding: one lane per change, shared resources locked, merges in order (see [How the agent uses Git](docs/GIT.md)).
 
-Kyklos does not make the agent smarter. It makes the agent's work **verifiable**, **deterministic**, and it makes skipping the process harder than following it.
+>  Kyklos does not make the agent smarter. It makes the agent's work **verifiable**, **deterministic**, and it makes skipping the process harder than following it.
+
+
 
 ## 📜 Helping satisfy legal requirements, new-generation legal frameworks and standards
 
@@ -93,30 +79,32 @@ This list is indicative and is not legal advice.
 
 The following sections illustrate how *Kyklos* works and how it helps to keep the behaviour of the AI agent "on track" with an *Agile SSDLC* workflow.
 
-1. [Stories, Epics, and how the agent works with them](docs/AGILE.md)
-2. [The complete Kyklos (Agile SSDLC-based) workflow](docs/WORKFLOW.md), with its five scenarios: [CI, the agent pushes](docs/WORKFLOW_SCENARIO_1.md) · [CI, a person pushes](docs/WORKFLOW_SCENARIO_2.md) · [no CI pipeline](docs/WORKFLOW_SCENARIO_3.md) · [companion, source pushed by a person](docs/WORKFLOW_SCENARIO_4.md) · [no testable code](docs/WORKFLOW_SCENARIO_5.md)
-3. [The three Kyklos components](docs/COMPONENTS.md)
-4. [How the process is enforced: hooks and skills](docs/HOOKS_AND_SKILLS.md)
-5. [Where stories and epics live: storages](docs/STORAGES.md)
-6. [Project topologies](docs/TOPOLOGIES.md)
-7. [Secrets: the agent uses them without knowing them](docs/SECRETS.md)
-8. [How the agent uses CI](docs/CI.md)
-9. [How the agent uses Git: branching and authorisation](docs/GIT.md)
-10. [The Proof Table](docs/PROOF.md)
-11. [Adversarial reviews](docs/ADVERSARIAL_REVIEW.md)
-12. [The Infrastructure session: one privileged agent across projects](docs/INFRASTRUCTURE_SESSION.md)
-13. [Similar projects, and how Kyklos compares](docs/SIMILAR_PROJECTS.md)
-14. [Manually install and configure Kyklos on Windows](docs/INSTALL_AND_CONFIG.md)
-15. [Installing Kyklos with an agent: step-by-step instructions an agent can follow](docs/AGENT_INSTALL.md)
-16. [Knowledge base](docs/KB.md)
-17. [Supported languages and tools: programming languages, test frameworks, measuring tools and human languages](docs/SUPPORT_MATRIX.md)
+1. [Supported languages and tools: programming languages, test frameworks, measuring tools and human languages](docs/SUPPORT_MATRIX.md)  
+2. [Stories, Epics, and how the agent works with them](docs/AGILE.md)
+3. [The complete Kyklos (Agile SSDLC-based) workflow](docs/WORKFLOW.md)
+4. [The three Kyklos components](docs/COMPONENTS.md)
+5. [How the process is enforced: hooks and skills](docs/HOOKS_AND_SKILLS.md)
+6. [Where stories and epics live: storages](docs/STORAGES.md)
+7. [Project topologies](docs/TOPOLOGIES.md)
+8. [Secrets: the agent uses them without knowing them](docs/SECRETS.md)
+9. [How the agent uses CI](docs/CI.md)
+10. [How the agent uses Git: branching and authorisation](docs/GIT.md)
+11. [The Proof Table](docs/PROOF.md)
+12. [Adversarial reviews](docs/ADVERSARIAL_REVIEW.md)
+13. [The Infrastructure session: one privileged agent across projects](docs/INFRASTRUCTURE_SESSION.md)
+14. [Similar projects, and how Kyklos compares](docs/SIMILAR_PROJECTS.md)
+15. [Manually install and configure Kyklos on Windows](docs/INSTALL_AND_CONFIG.md)
+16. [Installing Kyklos with an agent: step-by-step instructions an agent can follow](docs/AGENT_INSTALL.md)
+17. [Knowledge base](docs/KB.md)
+
+---  
 
 
 ## 🚀 Get Started
 
 To get started, follow [Installing and configuring Kyklos on Windows](docs/INSTALL_AND_CONFIG.md): a roadmap from zero to a working agent on a "Hello World" .NET project in GitLab.
 
-Which platforms and features are supported today (Windows, Linux, macOS) is in [Current scope](docs/INSTALL_AND_CONFIG.md#current-scope). Every check works for C# on .NET; bash scripts get line coverage; code in other languages is not measured; the agent's instructions and Kyklos's messages are in English. Which programming languages, test frameworks, measuring tools and human languages each check supports is in [Supported languages and tools](docs/SUPPORT_MATRIX.md). The three parts you install, the [Launcher, the Bridge and the Plugin](docs/COMPONENTS.md), keep [secrets](docs/SECRETS.md) out of the agent's hands and enforce the [workflow](docs/WORKFLOW.md) through [proofs](docs/PROOF.md) and [adversarial reviews](docs/ADVERSARIAL_REVIEW.md).
+To let an agent do the installation for you, point it (running on the host, not in a container) at [Agent Install](docs/AGENT_INSTALL.md): numbered steps with a check after each one, which stop and ask you wherever only a person can act (tokens, secrets, logins, approvals).
 
 To run without the [Launcher](docs/COMPONENTS.md#kyklos-launcher) (you start the [Bridge](docs/COMPONENTS.md#kyklos-bridge), install the [Plugin](docs/COMPONENTS.md#kyklos-plugin) in Claude Code and connect the two yourself), see [Wiring a project by hand](docs/INSTALL_AND_CONFIG.md#wiring-a-project-by-hand-without-the-launcher); the Plugin itself installs with:
 
@@ -125,8 +113,6 @@ claude plugin marketplace add https://github.com/DogmaSolutions/Kyklos.git
 claude plugin install kyklos@dogmasolutions
 ```
 
-During early access (see below) the clone needs an invited GitHub account: sign in with `gh auth login` and run `gh auth setup-git` first.
-
-To let an agent do the installation for you, point it (running on the host, not in a container) at [docs/AGENT_INSTALL.md](docs/AGENT_INSTALL.md): numbered steps with a check after each one, which stop and ask you wherever only a person can act (tokens, secrets, logins, approvals).
-
-**Early access:** the repository is private for now, so anonymous downloads answer 404. Invited users start with [Early access: the repository is private](docs/AGENT_INSTALL.md#early-access-the-repository-is-private-do-this-first) (GitHub CLI sign-in, a read-only token, the Bridge in the Launcher's cache).
+### Early acces
+During early access (see below) the clone needs an invited GitHub account: sign in with `gh auth login` and run `gh auth setup-git` first.  
+The repository is private for now, so anonymous downloads answer 404. Invited users start with [Early access: the repository is private](docs/AGENT_INSTALL.md#early-access-the-repository-is-private-do-this-first) (GitHub CLI sign-in, a read-only token, the Bridge in the Launcher's cache).

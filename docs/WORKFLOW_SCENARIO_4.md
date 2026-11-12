@@ -44,12 +44,12 @@ The diagram below is also available in [Yed GRAPHML format](../assets/workflow/A
 flowchart TD
     S["Story in the companion"] --> C{"Commit in the nested source"}
     C -->|"source read-only for the agent"| X1["Refused: the person commits there"]
-    C -->|"allowed"| T["Bridge builds and tests the source on the host"]
+    C -->|"allowed"| T["Bridge builds and tests the<br/>source on the host"]
     T --> P{"Push of the source"}
-    P -->|"agent may not push it"| H["A person pushes the source branch with its armed merge request"]
-    P -->|"public source carrying an agent artifact"| X2["Refused, for every session"]
-    H --> PL["Source pipeline green, GitLab merges"]
-    PL --> CL{"story close: deliverable in the source project merged, every Refs commit on its trunk, in the companion and the source"}
+    P -->|"agent may not push it"| H["A person pushes the<br/>source branch with its<br/>armed merge request"]
+    P -->|"public source carrying<br/>an agent artifact"| X2["Refused, for every session"]
+    H --> PL["Source pipeline green,<br/>GitLab merges"]
+    PL --> CL{"story close: deliverable in the<br/>source project merged, every Refs<br/>commit on its trunk, in the<br/>companion and the source"}
     CL -->|"pass"| D["Closed"]
     CL -->|"fail"| X3["Refused, findings listed"]
 ```

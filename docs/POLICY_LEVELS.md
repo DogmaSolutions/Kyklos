@@ -79,16 +79,16 @@ flowchart TD
     R -->|"no"| F{"Local Corporate file configured?"}
     F -->|"no"| C0["Compose Levels 0 and 2 only"]
     F -->|"yes"| V
-    R -->|"yes"| G["Launcher reads the file with git on the host, token from the credential store in the child process environment"]
+    R -->|"yes"| G["Launcher reads the file with<br/>git on the host, token from the<br/>credential store in the child<br/>process environment"]
     G -->|"unreachable"| LG{"A last good copy exists?"}
-    LG -->|"yes"| W["Use it, with a warning naming its commit and date"]
+    LG -->|"yes"| W["Use it, with a warning<br/>naming its commit and date"]
     LG -->|"no"| X1["Launch refused"]
-    G --> V{"File valid: UTF-8, at most 256 KB, known identifiers, every block closed and with a reason?"}
+    G --> V{"File valid: UTF-8, at most<br/>256 KB, known identifiers,<br/>every block closed and<br/>with a reason?"}
     V -->|"no"| X2["Refused, naming the line"]
     V -->|"yes"| K["Kept as the last good copy"]
-    K --> C["Composed into the container's managed policy"]
+    K --> C["Composed into the<br/>container's managed policy"]
     W --> C
-    C --> H["Launch lists every replaced or removed rule and the hook that still enforces it"]
+    C --> H["Launch lists every replaced or<br/>removed rule and the hook that<br/>still enforces it"]
 ```
 
 The token that reads a private repository is named by [`KYKLOS_CORPORATE_POLICY_TOKEN_NAME`](#settings), read from the credential store on the host, and handed to git through the child process's

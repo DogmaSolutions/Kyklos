@@ -32,16 +32,16 @@ An issue without the `story` label is not adopted: it is not treated as a story,
 
 ```mermaid
 flowchart TD
-    A["Agent: story, agent-msg or proof command"] --> B["Bridge verb, with the story token held on the host"]
-    R["Agent: raw curl, glab or script on the issues or milestones API"] --> G{"Rules before the command runs"}
+    A["Agent: story, agent-msg<br/>or proof command"] --> B["Bridge verb, with the story<br/>token held on the host"]
+    R["Agent: raw curl, glab or<br/>script on the issues or<br/>milestones API"] --> G{"Rules before the command runs"}
     G -->|"creates an issue"| X1["Refused, no override"]
-    G -->|"changes a story's lifecycle labels, a milestone, a proof note"| X2["Refused: use the tool, a one-shot marker exists for a genuine repair"]
+    G -->|"changes a story's<br/>lifecycle labels, a<br/>milestone, a proof note"| X2["Refused: use the tool, a<br/>one-shot marker exists for<br/>a genuine repair"]
     B --> T{"Free text written by the agent?"}
-    T -->|"a line that is a GitLab quick action, for example /close"| X3["Refused, naming the line"]
+    T -->|"a line that is a GitLab quick<br/>action, for example /close"| X3["Refused, naming the line"]
     T -->|"clean"| D["One GitLab writer in the Bridge"]
     D --> GL["GitLab issue, labels, notes"]
-    GL --> RD["Reads come back in three states: open, closed, or unknown with its cause"]
-    RD --> M["Local mirror under Stories/ regenerated"]
+    GL --> RD["Reads come back in three<br/>states: open, closed, or<br/>unknown with its cause"]
+    RD --> M["Local mirror under<br/>Stories/ regenerated"]
     E["Agent edits a mirror file by hand"] --> X4["Refused: mirror files are generated"]
 ```
 

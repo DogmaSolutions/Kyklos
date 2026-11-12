@@ -29,12 +29,12 @@ The diagram below is also available in [Yed GRAPHML format](../assets/workflow/A
 
 ```mermaid
 flowchart TD
-    C["Commit and measure on the host"] --> P["Push the branch, merge request created unarmed"]
-    P --> Q{"GitLab reports the request mergeable, and the branch holds the trunk's head or no overlap?"}
-    Q -->|"no"| W["Agent merges the trunk into the branch, or waits"]
+    C["Commit and measure on the host"] --> P["Push the branch, merge<br/>request created unarmed"]
+    P --> Q{"GitLab reports the request<br/>mergeable, and the branch holds<br/>the trunk's head or no overlap?"}
+    Q -->|"no"| W["Agent merges the trunk into<br/>the branch, or waits"]
     W --> Q
     Q -->|"yes"| M["Agent merges it through the Bridge"]
-    M --> CL{"story close: rules 1 to 5, no pipeline evidence"}
+    M --> CL{"story close: rules 1 to 5,<br/>no pipeline evidence"}
     CL -->|"pass"| D["Closed"]
     CL -->|"fail"| X["Refused, findings listed"]
 ```

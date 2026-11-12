@@ -40,17 +40,17 @@ sequenceDiagram
     participant B as Kyklos Bridge (host, holds the key)
     participant T as Issue tracker (the story)
     R->>B: advreview_mint(story, report)
-    B->>B: refuse if no story number, empty, over 512 KB,<br/>off-template, or no signing key
-    B->>B: body = "advreview:" + story + ":" + SHA-256(report)<br/>token = HMAC-SHA256(key, body)
+    B->>B: refuse if no story number,<br/>empty, over 512 KB,<br/>off-template, or no signing key
+    B->>B: body = "advreview:" + story +<br/>":" + SHA-256(report)<br/>token = HMAC-SHA256(key, body)
     B->>B: keep body and token for the story<br/>(Bridge state folder, per project)
     B-->>R: token (64 hex characters)
-    R->>B: advreview_post(story, report, token)
-    B->>B: refuse a malformed token, an off-template report,<br/>a line that would run a tracker quick action, a non-story
-    B->>T: note "Adversarial review (round N)"<br/>with a hidden marker and the token line
+    R->>B: advreview_post(story,<br/>report, token)
+    B->>B: refuse a malformed token, an<br/>off-template report,<br/>a line that would run a tracker<br/>quick action, a non-story
+    B->>T: note "Adversarial review (round N)"<br/>with a hidden marker<br/>and the token line
     B-->>R: note link
-    Note over R,T: proof_draft fills the row: Report = note link, Token = token
-    B->>B: story_close: recompute HMAC over the kept body,<br/>compare with the row's token in constant time
-    B->>T: read the review note's server time,<br/>compare with when the remote received the code
+    Note over R,T: proof_draft fills the row: Report<br/>= note link, Token = token
+    B->>B: story_close: recompute HMAC<br/>over the kept body,<br/>compare with the row's<br/>token in constant time
+    B->>T: read the review note's server time,<br/>compare with when the<br/>remote received the code
 ```
 
 In words:
@@ -96,12 +96,12 @@ flowchart TD
     C["story_close"] --> N{"Row NOT_PERTINENT?"}
     N -- yes --> X1["Refused: can NEVER be NOT_PERTINENT"]
     N -- no --> P{"Row PROVEN with a Report link (URL)<br/>and a Token metric?"}
-    P -- no --> X2["Refused: populate it via the review skill"]
+    P -- no --> X2["Refused: populate it via<br/>the review skill"]
     P -- yes --> V{"Bridge: token authentic<br/>for this story?"}
     V -- no --> X3["Refused: the token does not verify<br/>re-run the review"]
     V -- yes --> K{"Story kind measured by coverage?<br/>(development)"}
     K -- no --> OK["Row holds"]
-    K -- yes --> F{"Review note newer than every story commit<br/>changing covered code, as the remote received it?"}
+    K -- yes --> F{"Review note newer than<br/>every story commit<br/>changing covered code, as<br/>the remote received it?"}
     F -- no --> X4["Refused: fresh-review<br/>review the finished work again"]
     F -- yes --> OK
 ```

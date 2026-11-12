@@ -292,10 +292,10 @@ test -x DogmaSolutions.Kyklos.Launcher && echo executable
 
 ```mermaid
 flowchart TD
-    D["Downloaded zip and SHA256SUMS.txt from the same release"] --> H{"SHA-256 of the zip equals its line?"}
+    D["Downloaded zip and<br/>SHA256SUMS.txt from the same release"] --> H{"SHA-256 of the zip equals its line?"}
     H -->|"no"| R["Download once more"]
     R --> H2{"Equal now?"}
-    H2 -->|"no"| S["STOP: tell the person, do not unpack"]
+    H2 -->|"no"| S["STOP: tell the person,<br/>do not unpack"]
     H2 -->|"yes"| U
     H -->|"yes"| U["Unpack"]
     U --> W{"Windows: signature Valid?"}

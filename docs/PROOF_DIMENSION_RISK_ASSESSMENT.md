@@ -49,19 +49,19 @@ that the tools read; the risks themselves may be written in any language. See [S
 ```mermaid
 flowchart TD
     C["First use in a project: interview,<br/>criteria saved in CLAUDE.md<br/>'## Risk assessment criteria'"] --> W["Agent writes the register:<br/>story ra id --apply file"]
-    W --> RS{"Bridge ra_set: at least one RA-nn item,<br/>or a 'Risk-Assessment-Waived:' line?"}
+    W --> RS{"Bridge ra_set: at least<br/>one RA-nn item,<br/>or a<br/>'Risk-Assessment-Waived:' line?"}
     RS -- no --> X0["Refused: not stored"]
     RS -- yes --> N[("Register note on the story<br/>(marker kyklos:risk-assessment)")]
     N --> CL{"Close: story type docs or test?"}
     CL -- yes --> OK0["No register required"]
     CL -- no --> O{"Owner unticked Risk Assessment<br/>or applied proof-override?"}
-    O -- yes --> OK1["Waived by the owner, shown in the row"]
-    O -- no --> R{"Register holds at least one RA-nn item?"}
+    O -- yes --> OK1["Waived by the owner,<br/>shown in the row"]
+    O -- no --> R{"Register holds at least<br/>one RA-nn item?"}
     R -- no --> X1["Refused: risk-assessment"]
     R -- yes --> P{"Row PROVEN while CLAUDE.md has<br/>no risk-assessment criteria?"}
     P -- yes --> X2["Refused: run the interview first"]
     P -- no --> M{"Code mitigations carry<br/>[RiskMitigation RA-nn]?"}
-    M -- "some missing" --> WN["Warning: named items, for the reviewer"]
+    M -- "some missing" --> WN["Warning: named items,<br/>for the reviewer"]
     M -- yes --> OK["Row holds"]
     WN --> OK
 ```

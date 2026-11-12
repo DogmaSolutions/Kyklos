@@ -31,14 +31,14 @@ The diagram below is also available in [Yed GRAPHML format](../assets/workflow/A
 
 ```mermaid
 flowchart TD
-    C["Agent commits on the story branch and measures on the host"] --> P{"Agent tries to push"}
+    C["Agent commits on the story branch<br/>and measures on the host"] --> P{"Agent tries to push"}
     P --> X1["Refused: this session may not push"]
-    X1 --> B["Agent records the story as blocked on the person, and takes other work"]
-    B --> H["A person pushes the story branch with its armed merge request"]
+    X1 --> B["Agent records the story as<br/>blocked on the person, and<br/>takes other work"]
+    B --> H["A person pushes the<br/>story branch with its<br/>armed merge request"]
     H --> PL{"Pipeline"}
     PL -->|"red"| C
     PL -->|"green"| M["GitLab merges the request"]
-    M --> CL{"story close: rules 1 to 5 on the merged result"}
+    M --> CL{"story close: rules 1 to 5<br/>on the merged result"}
     CL -->|"pass"| D["Closed"]
     CL -->|"fail"| X2["Refused, findings listed"]
 ```

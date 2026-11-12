@@ -33,17 +33,17 @@ looks for tests that name them, and the close demands each one cited in this row
 
 ```mermaid
 flowchart TD
-    A["Specification: Failure modes section declares FM1, FM2"] --> B["Bridge proof_draft scans the changed tests"]
-    B --> C["Row left OPEN: judge that each failure mode is handled; evidence names FM1 by a test; no evidence names FM2"]
-    C --> D["Signed draft record lists FM2 as uncovered"]
-    D --> E["Agent writes the row: story proof id --set"]
+    A["Specification: Failure modes<br/>section declares FM1, FM2"] --> B["Bridge proof_draft scans<br/>the changed tests"]
+    B --> C["Row left OPEN: judge that each<br/>failure mode is handled;<br/>evidence names FM1 by a test;<br/>no evidence names FM2"]
+    C --> D["Signed draft record lists<br/>FM2 as uncovered"]
+    D --> E["Agent writes the row:<br/>story proof id --set"]
     E --> F{"proof_set"}
-    F -->|"cites FM2, still uncovered"| X1["Refused: add a test naming FM2, draft again"]
+    F -->|"cites FM2, still uncovered"| X1["Refused: add a test<br/>naming FM2, draft again"]
     F -->|"no real evidence text"| X2["Refused"]
     F -->|"ok"| S["Row stored"]
-    S --> G["Close: story_close, or the Stop rule through proof_validate"]
-    G --> H{"Row PROVEN: every FM item cited inside a kbd label of this row?"}
-    H -->|"no"| X3["Close refused, naming each uncited FM item"]
+    S --> G["Close: story_close, or the Stop<br/>rule through proof_validate"]
+    G --> H{"Row PROVEN: every FM item<br/>cited inside a kbd label<br/>of this row?"}
+    H -->|"no"| X3["Close refused, naming<br/>each uncited FM item"]
     H -->|"yes"| OK["Gate passes"]
 ```
 

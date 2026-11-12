@@ -42,12 +42,12 @@ the judgement itself to the agent and to the reviewer.
 ```mermaid
 flowchart TD
     S["Story specification"] --> P{"Section 'Poka-yoke:<br/>prevent agent misuse' filled?"}
-    P -- no --> X1["Close refused: the spec is not complete"]
-    P -- yes --> D["Design and implementation<br/>(kyklos:poka-yoke skill: ladder, questions)"]
+    P -- no --> X1["Close refused: the spec<br/>is not complete"]
+    P -- yes --> D["Design and implementation<br/>(kyklos:poka-yoke skill:<br/>ladder, questions)"]
     D --> R["Row written with story proof --set:<br/>each footgun + its rung"]
     R --> V{"Row checks at proof_set and close:<br/>real evidence, spec items cited"}
     V -- no --> X2["Refused, with the reason"]
-    V -- yes --> A["Adversarial review:<br/>is a footgun missing? is a rung too low?"]
+    V -- yes --> A["Adversarial review:<br/>is a footgun missing? is<br/>a rung too low?"]
     A -- "finding" --> D
     A -- clean --> OK["Row holds"]
 ```

@@ -29,18 +29,18 @@ verdict.
 
 ```mermaid
 flowchart TD
-    A["Bridge proof_draft"] --> B["Row left OPEN: judge that a failure of the change is diagnosable (its messages, logs, answers); findings first"]
-    B --> C["Agent lists every failure path the diff adds"]
-    C --> D{"Each path: what signal does it emit, at file:line?"}
-    D -->|"none or vague"| E["Add the context to the error or the log line; optionally tag it Observability"]
-    D -->|"actionable"| F["Finding written; a test asserting the signal is the strongest evidence"]
+    A["Bridge proof_draft"] --> B["Row left OPEN: judge that a<br/>failure of the change is<br/>diagnosable (its messages,<br/>logs, answers); findings first"]
+    B --> C["Agent lists every failure<br/>path the diff adds"]
+    C --> D{"Each path: what signal does<br/>it emit, at file:line?"}
+    D -->|"none or vague"| E["Add the context to the error<br/>or the log line; optionally<br/>tag it Observability"]
+    D -->|"actionable"| F["Finding written; a test<br/>asserting the signal is the<br/>strongest evidence"]
     E --> F
-    F --> G["story proof id --set 'Observability=PROVEN|findings|metrics'"]
-    G --> H{"proof_set: real evidence text, no citation of an uncovered spec item"}
+    F --> G["story proof id --set<br/>'Observability=PROVEN|findings|metrics'"]
+    G --> H{"proof_set: real evidence<br/>text, no citation of an<br/>uncovered spec item"}
     H -->|"refused"| X["Nothing written"]
     H -->|"ok"| S["Row stored"]
-    S --> R["Adversarial review provokes a failure and reads what it left behind"]
-    R --> Z["Close: row present, not UNPROVEN, evidence real"]
+    S --> R["Adversarial review<br/>provokes a failure and<br/>reads what it left behind"]
+    R --> Z["Close: row present, not<br/>UNPROVEN, evidence real"]
 ```
 
 **Step by step.**

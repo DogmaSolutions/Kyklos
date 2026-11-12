@@ -134,17 +134,17 @@ The agent closes a story with the story tool (`story close <id>`), which hands t
 
 ```mermaid
 flowchart TD
-    A["Agent runs story close"] --> B["Bridge resolves the story's project and repository"]
+    A["Agent runs story close"] --> B["Bridge resolves the story's<br/>project and repository"]
     B -->|"project not served"| X1["Refused: PROJECT-NOT-SERVED"]
-    B --> C["Bridge reads the facts: story, notes, label history, cited deliverables on the remote, trunk history, tokens, receipts"]
+    B --> C["Bridge reads the facts: story,<br/>notes, label history, cited<br/>deliverables on the remote, trunk<br/>history, tokens, receipts"]
     C -->|"a fact cannot be read"| X2["Refused, naming the fact"]
-    C --> D{"Owner's proof-override label granted, with a named cause?"}
-    D -->|"no"| E["Judge rules 1 to 4 and the proof gates: Remote Truth, Trunk Reach, tokens re-hashed with the host key, coverage receipt, fresh review, phase walk"]
-    D -->|"yes"| F["Those gates are waived and the waiver is recorded"]
-    E --> G["Judge the gates no override lifts: phase past Design, reopen root cause, fix-the-class record"]
+    C --> D{"Owner's proof-override label<br/>granted, with a named cause?"}
+    D -->|"no"| E["Judge rules 1 to 4 and the proof<br/>gates: Remote Truth, Trunk Reach,<br/>tokens re-hashed with the host<br/>key, coverage receipt, fresh<br/>review, phase walk"]
+    D -->|"yes"| F["Those gates are waived and<br/>the waiver is recorded"]
+    E --> G["Judge the gates no override<br/>lifts: phase past Design,<br/>reopen root cause,<br/>fix-the-class record"]
     F --> G
-    G -->|"any finding"| X3["Close refused: the story stays open, every finding listed"]
-    G -->|"no finding"| H["Story closed, the proof note and the close record stay on the issue"]
+    G -->|"any finding"| X3["Close refused: the story stays<br/>open, every finding listed"]
+    G -->|"no finding"| H["Story closed, the proof<br/>note and the close record<br/>stay on the issue"]
 ```
 
 - **Where the facts come from.** The deliverable, its merge request, its pipeline and the story's notes and label history are read from the tracker (for example GitLab) with the story token the Bridge holds on the host (see [Secrets](SECRETS.md)); the agent's container never holds that token. The trunk history is read from the repository after a `git fetch` (a failed fetch refuses). The tool tokens are re-computed from the files in the host's copy of the project.
@@ -200,17 +200,17 @@ This section lists **every** kind of override the product offers, from the stron
 flowchart TD
     R["A check refuses"] --> Q1{"Is the refusal right?"}
     Q1 -->|"yes"| FIX["Fix the cause: no override"]
-    Q1 -->|"no: a defect of the check, or a genuine exception"| Q2{"What is being decided?"}
-    Q2 -->|"a story's close gates"| L1["The owner applies proof-override and names the cause"]
-    Q2 -->|"a push or a merge of a story branch"| L2["The owner applies push-override or merge-override"]
-    Q2 -->|"one command a rule misreads"| M["The agent sets the one-shot marker the refusal names"]
-    Q2 -->|"a check that does not fit the project at all"| S["The person sets the opt-out switch, confirmed in Claude Code's dialog"]
-    Q2 -->|"a threshold of one story"| PD["The owner edits the story's Proof Discipline"]
+    Q1 -->|"no: a defect of the check,<br/>or a genuine exception"| Q2{"What is being decided?"}
+    Q2 -->|"a story's close gates"| L1["The owner applies<br/>proof-override and names the cause"]
+    Q2 -->|"a push or a merge of a story branch"| L2["The owner applies<br/>push-override or merge-override"]
+    Q2 -->|"one command a rule misreads"| M["The agent sets the one-shot<br/>marker the refusal names"]
+    Q2 -->|"a check that does not fit<br/>the project at all"| S["The person sets the opt-out<br/>switch, confirmed in Claude<br/>Code's dialog"]
+    Q2 -->|"a threshold of one story"| PD["The owner edits the<br/>story's Proof Discipline"]
     L1 --> T["The trace stays on the story"]
     L2 --> T
-    M --> T2["The answer names the spent override, the Bridge records it"]
-    S --> T3["An audit note is posted on the story being worked"]
-    PD --> T4["The Proof Table row shows old value, new value, who and when"]
+    M --> T2["The answer names the spent<br/>override, the Bridge records it"]
+    S --> T3["An audit note is posted on<br/>the story being worked"]
+    PD --> T4["The Proof Table row shows old<br/>value, new value, who and when"]
 ```
 
 ### How an override reaches a rule
@@ -229,14 +229,14 @@ sequenceDiagram
     participant Bridge as Bridge hook_event
     Agent->>Hook: tool call, for example git push
     Hook->>Bridge: event plus container facts
-    Bridge->>Bridge: 1. Judge: every applicable rule decides, and names the override that would lift its own refusal
-    Bridge->>Bridge: 2. Commit: overrides are spent only if the final verdict lets the call through
+    Bridge->>Bridge: 1. Judge: every applicable<br/>rule decides, and names the<br/>override that would lift<br/>its own refusal
+    Bridge->>Bridge: 2. Commit: overrides are spent<br/>only if the final verdict lets<br/>the call through
     alt every refusal lifted by its own override
         Bridge-->>Hook: allow, naming each override spent
         Hook-->>Agent: the command runs
     else another rule still refuses
-        Bridge-->>Hook: deny, every reason, the overrides kept for the next try
-        Hook-->>Agent: the command does not run, nothing was spent
+        Bridge-->>Hook: deny, every reason, the<br/>overrides kept for the next try
+        Hook-->>Agent: the command does not run,<br/>nothing was spent
     end
 ```
 
