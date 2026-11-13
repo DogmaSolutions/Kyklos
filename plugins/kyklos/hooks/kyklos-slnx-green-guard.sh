@@ -159,7 +159,16 @@ done
 # We WOULD block. Spend the one-shot override on the block path only, so a benign allowed push cannot silently eat it.
 override_take "$OK_NAME" "$(override_scope_of "${TOP:-$PROJECT_DIR}")" "$INPUT" && { echo "[kyklos] slnx-green gate: OVERRIDDEN once ($OK_NAME spent) — a push was allowed WITHOUT a recorded full-solution green build." >&2; exit 0; }
 
-reason="Push BLOCKED — the pushed $push_branch @ $PUSHED_SHA needs a recorded green full-solution build for ${#MISSING[@]} solution(s)$_scope_note:$_details A single-project build/test does NOT run the StyleCop solution-ruleset rules (SA1117 etc.); only a FULL-solution 'dotnet build <solution>.slnx' does — the same build CI's 'build' job runs. The recorder runs that build and, only on GREEN, records the current HEAD for that solution; then push. For a single deliberate exception: bash $OVERRIDE_MARKER_CLI set $OK_NAME $OK_SCOPE_HINT"
+# The refusal names the route the recorder takes for this project's build channel (BUILD_EXECUTION, read by the one
+# shared reader the recorder uses), so an agent that may not build locally knows the recorder does not build locally.
+# Text only: the channel never changes which push is allowed.
+. "$_GD_HERE/lib/build-execution.sh" 2>/dev/null
+case "$(command -v build_execution_mode >/dev/null 2>&1 && build_execution_mode "$_cfg")" in
+    bridge) _route="With BUILD_EXECUTION=bridge the recorder runs that build on the host through the bridge's build verb, never in this container, so it is allowed where local builds are forbidden." ;;
+    local)  _route="With BUILD_EXECUTION=local the recorder runs that build locally, in this container." ;;
+    *)      _route="BUILD_EXECUTION is not set (or not bridge or local), so the recorder cannot choose where to build: set it first (bridge builds on the host through the bridge, local builds in this container), then run the recorder." ;;
+esac
+reason="Push BLOCKED — the pushed $push_branch @ $PUSHED_SHA needs a recorded green full-solution build for ${#MISSING[@]} solution(s)$_scope_note:$_details A single-project build/test does NOT run the StyleCop solution-ruleset rules (SA1117 etc.); only a FULL-solution 'dotnet build <solution>.slnx' does — the same build CI's 'build' job runs. The recorder runs that build and, only on GREEN, records the current HEAD for that solution; then push. $_route For a single deliberate exception: bash $OVERRIDE_MARKER_CLI set $OK_NAME $OK_SCOPE_HINT"
 reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
 printf '{"decision":"block","reason":"%s"}' "$reason"
 exit 0

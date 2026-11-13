@@ -112,7 +112,3 @@ To run without the [Launcher](docs/COMPONENTS.md#kyklos-launcher) (you start the
 claude plugin marketplace add https://github.com/DogmaSolutions/Kyklos.git
 claude plugin install kyklos@dogmasolutions
 ```
-
-### Early acces
-During early access (see below) the clone needs an invited GitHub account: sign in with `gh auth login` and run `gh auth setup-git` first.  
-The repository is private for now, so anonymous downloads answer 404. Invited users start with [Early access: the repository is private](docs/AGENT_INSTALL.md#early-access-the-repository-is-private-do-this-first) (GitHub CLI sign-in, a read-only token, the Bridge in the Launcher's cache).

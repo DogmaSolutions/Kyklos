@@ -253,7 +253,71 @@ if [ "${KYKLOS_CI_MONITOR:-0}" = "1" ]; then
     fi
 fi
 
-reason="Push BLOCKED. This container is not push-authorised (KYKLOS_ALLOW_PUSH is not 1), and this is not a push a project session may make itself: that is only a non-force, non-tag push of the repo's own current feature/* or hotfix/* branch (or main/master of a trunk-declared repo), and only while KYKLOS_CI_MONITOR=1. Trunks, release/*, support/*, tags and force pushes are pushed by a human or by the push-authorised session your organisation's policy layer names. What to do instead: the PUSH POLICY section of the managed policy. If this container is genuinely push-authorised, its launcher must set KYKLOS_ALLOW_PUSH=1. For a single authorized exception: bash $OVERRIDE_MARKER_CLI set $OK_NAME $OK_SCOPE_HINT"
+# The refusal explains itself: WHY (the kind of push, and the topology, KYKLOS_CI_MONITOR and KYKLOS_ALLOW_PUSH as
+# read) and WHICH setting, if any, would allow it. It only describes the decision taken above; it never changes which
+# push passes.
+_np_cur="$(git -C "$_np_tgt" symbolic-ref --quiet --short HEAD 2>/dev/null || echo "")"
+_np_wf="$(repo_workflow "$_np_tgt")"
+_np_topo="$(topology_effective "$(repo_setting_of "$_np_tgt" KYKLOS_PROJECT_TOPOLOGY 2>/dev/null || true)" \
+    "$(repo_setting_of "$_np_tgt" KYKLOS_REPO_SHAPE 2>/dev/null || true)" 2>/dev/null)" || _np_topo="not declared"
+_np_topo="$_np_topo ($(repo_role "$_np_tgt") repository, $_np_wf branch model)"
+_np_trunk_names() { printf '%s' "$1" | grep -ciE '(^|[[:space:]"+:])(refs/heads/)?(master|main|develop)([[:space:]"]|$)' >/dev/null; }
+_np_release_names() { printf '%s' "$1" | grep -ciE '(release|support)/[^[:space:]"]*(:|[[:space:]"]|$)' >/dev/null; }
+_np_tag_names() {
+    printf '%s' "$1" | grep -ciE '(^|[[:space:]])--(tags|follow-tags)([[:space:]"]|$)|refs/tags/' >/dev/null && return 0
+    # A tag pushed by its bare name: a shared ref that is neither a trunk nor a release/support branch.
+    _np_shared_ref "$1" && ! _np_trunk_names "$1" && ! _np_release_names "$1"
+}
+# _np_kind_of: the kind of push, from the command first (force, tag, a named trunk, a named release/support branch),
+# else from the checked-out branch a bare push sends.
+_np_kind_of() {
+    if _np_is_force "$CMD"; then printf 'force'
+    elif _np_tag_names "$CMD"; then printf 'tag'
+    elif _np_trunk_names "$CMD"; then printf 'trunk'
+    elif _np_release_names "$CMD"; then printf 'release'
+    else
+        case "$_np_cur" in
+            main|master|develop) printf 'trunk' ;;
+            release/*|support/*) printf 'release' ;;
+            feature/*|hotfix/*) printf 'feature' ;;
+            "") printf 'detached' ;;
+            *) printf 'other' ;;
+        esac
+    fi
+}
+_np_only_authorised="Only the push-authorised session your organisation names (KYKLOS_ALLOW_PUSH=1) may push it; a project session pushes its story branch and lets the merge request bring the work to the trunk."
+case "$(_np_kind_of)" in
+    force)
+        _np_kind="it is a force push, which rewrites the history of the branch it updates"
+        _np_fix="No setting lets a project session force-push. The push-authorised session (KYKLOS_ALLOW_PUSH=1) may force-push only a feature/* or hotfix/* branch, never a trunk, a release/* or support/* branch or a tag. Push a new commit instead." ;;
+    tag)
+        _np_kind="it pushes a tag"
+        _np_fix="$_np_only_authorised" ;;
+    trunk)
+        _np_kind="it pushes a trunk (main, master or develop)"
+        case "$_np_wf:$_np_cur:${KYKLOS_CI_MONITOR:-0}" in
+            trunk:main:1|trunk:master:1) _np_fix="$_np_only_authorised" ;;
+            trunk:main:*|trunk:master:*) _np_fix="KYKLOS_CI_MONITOR=1 would allow it: this repository's branch model is trunk-based, so a project session then pushes its own main or master, without force." ;;
+            *) _np_fix="$_np_only_authorised" ;;
+        esac ;;
+    release)
+        _np_kind="it pushes a release/* or support/* branch"
+        _np_fix="$_np_only_authorised" ;;
+    feature)
+        _np_kind="it pushes the feature or hotfix branch $_np_cur"
+        if [ "${KYKLOS_CI_MONITOR:-0}" = "1" ]; then
+            _np_fix="KYKLOS_CI_MONITOR=1 is already set: push only the current branch, by name or as HEAD, without force."
+        else
+            _np_fix="KYKLOS_CI_MONITOR=1 would allow it: a project session then pushes its own current feature/* or hotfix/* branch, without force, and watches the pipeline the push starts."
+        fi ;;
+    detached)
+        _np_kind="no branch is checked out (a detached HEAD), so it is not a push of a feature or hotfix branch"
+        _np_fix="No setting lets a project session push it: check out a feature/* or hotfix/* branch and push that." ;;
+    *)
+        _np_kind="it pushes the branch $_np_cur, which is not a feature/* or hotfix/* branch"
+        _np_fix="No setting lets a project session push it: move the work to a feature/* or hotfix/* branch and push that." ;;
+esac
+reason="Push refused: $_np_kind. Read for this push: topology $_np_topo, KYKLOS_CI_MONITOR=${KYKLOS_CI_MONITOR:-not set}, KYKLOS_ALLOW_PUSH=${KYKLOS_ALLOW_PUSH:-not set}. What would allow it: $_np_fix The rules: the PUSH POLICY section of the managed policy. For a single authorized exception: bash $OVERRIDE_MARKER_CLI set $OK_NAME $OK_SCOPE_HINT"
 reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
 printf '{"decision":"block","reason":"%s"}' "$reason"
 exit 0
