@@ -25,6 +25,10 @@
 # outside a heredoc body, up to the end of its line; the shell never reads it, so it is neither an option, a refspec
 # nor an arm. (cmd-strip.sh's cmd_drop_comments: the one step every guard runs before it reads a command.)
 # [CySec] [RiskMitigation RA-01] CWE-184: text the shell never runs must not add or remove what a guard judges.
+#
+# bodyfile=<path> (awk -v): each heredoc operator with its delimiter is replaced by a marker word (byte 3, "HD", its
+# number, byte 3), and every body line is written whole to <path> as "<number><TAB><line>", so a caller can read the
+# body a shell is fed on its standard input as the commands it is (lib/run-bound.sh).
 BEGIN { SEP = sprintf("%c", 1); reset_all() }
 function reset_all() { nd = 0; cur = 0; sp = 0; st[0] = "U"; pd[0] = 0; delete dq; delete dl }
 function push(s) { sp++; st[sp] = s; pd[sp] = 0 }
@@ -82,6 +86,7 @@ function scan(line,    i, n, c, s, out, rest, m) {
             if (DV != "" || DQ) {
                 nd++; dq[nd] = DQ; dl[nd] = DV
                 if (uncomment) out = out substr(line, i, m + length(DW))   # kept: only the comments go
+                else if (bodyfile != "") { hdn++; hdno[nd] = hdn; out = out " " sprintf("%cHD%d%c", 3, hdn, 3) " " }
                 i += m + length(DW) - 1; continue
             }
         }
@@ -113,6 +118,7 @@ function substs(line,    i, n, c, r, k, d, j) {
     if (cur > 0) {                                   # inside a heredoc body: drop the line, end at its delimiter
         t = $0; sub(/^\t+/, "", t)
         if (uncomment) print                         # a body line is data, never a comment: kept as written
+        if (bodyfile != "" && t != dl[cur]) print hdno[cur] "\t" $0 >> bodyfile
         if (t == dl[cur]) { cur++; if (cur > nd) { cur = 0; nd = 0; delete dq; delete dl } }
         else if (!dq[cur] && !uncomment) { t = substs($0); if (t != "") print t }
         next

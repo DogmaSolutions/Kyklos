@@ -462,6 +462,8 @@ The checks and their switches:
 | **Safety** | | |
 | `KYKLOS_RM_CRITICAL_PATH_GUARD` | the immediate refusal of an `rm` on a critical path | on |
 | `KYKLOS_PIPED_SCRIPT_GUARD` | the refusal of a download piped into an interpreter | on |
+| `KYKLOS_TEST_RUN_BOUND_GUARD` | the refusal of a test run started from the shell without a `timeout <limit>` (the refusal shows the corrected command; the limit is `KYKLOS_TEST_RUN_LIMIT`, default `60m`) | on |
+| `KYKLOS_TEST_HOST_REAPER` | ending, at every end of turn, the test hosts without a `timeout` of their own (of at most 2 hours, not yet spent) that have run longer than `KYKLOS_TEST_RUN_LIMIT`, each reported with its command and its starter | on |
 | `KYKLOS_BORDER_CONTROL` | the refusal of internal references written into another repository | on |
 | `KYKLOS_ASK_FIRST` (*launcher*) | the Ask First confirmation itself | on |
 | **Notices only** (they inform, never refuse) | | |

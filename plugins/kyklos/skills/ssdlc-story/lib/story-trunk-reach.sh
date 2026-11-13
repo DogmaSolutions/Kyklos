@@ -119,14 +119,22 @@ _tr_production_trunk() {
 }
 
 # trunk_reach_trunks <repo> -> the trunk refs for <repo>, one per line, the integration trunk first; rc 1 with the
-# reason on stdout when the model is invalid or no trunk exists.
+# reason on stdout when the model is invalid or no trunk exists. The trunks are the ones the bridge names from GitLab
+# (item_trunk_refs_of: develop when GitLab has it, then the default branch; a trunk-based repository uses the default
+# branch alone); only when no bridge can say does the local rule below choose among the usual names.
 trunk_reach_trunks() {
-    local repo="$1" wf prod ref
+    local repo="$1" wf prod ref named
     wf="$(repo_workflow "$repo" 2>/dev/null)" || wf="__INVALID__"
     case "$wf" in
         gitflow|agent-readonly|trunk) ;;
         *) printf 'the repository model of %s is invalid (%s), so its trunk cannot be named' "$repo" "${wf:-unreadable}"; return 1 ;;
     esac
+    if command -v item_trunk_refs_of >/dev/null 2>&1 && named="$(item_trunk_refs_of "$repo")"; then
+        named="$(printf '%s\n' "$named" | sed '/^$/d')"
+        [ -n "$named" ] || { printf 'the trunks GitLab names for %s are not in its clone yet (git fetch origin, then retry)' "$repo"; return 1; }
+        if [ "$wf" = trunk ]; then printf '%s\n' "$named" | tail -n 1; else printf '%s\n' "$named"; fi
+        return 0
+    fi
     prod="$(_tr_production_trunk "$repo")" || { printf '%s has no remote trunk (origin/HEAD, origin/main or origin/master)' "$repo"; return 1; }
     if [ "$wf" = trunk ]; then printf '%s\n' "$prod"; return 0; fi
     # GitFlow: develop first (the integration trunk the squash check merges into), then every production trunk that

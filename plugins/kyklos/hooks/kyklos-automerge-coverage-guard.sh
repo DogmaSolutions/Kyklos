@@ -281,8 +281,17 @@ refuse_coverage() {
     [ "$_AC_PROBE" = 1 ] && block_state "$msg"
     # Named Cause: the one-shot override is spent only on a story that names the cause of its gap (an open item that
     # removes it, or the owner's accepted figure); the bridge decides it, and without its answer the marker stays unspent.
+    # 784-P6-interim (delete with this guard when story 741 ports it): the bridge is asked about the story in ITS project,
+    # as the one repository resolver names it for the armed repository, never the session's STORY_GITLAB_PROJECT (empty
+    # in a session of another project, so the override was never spent there).
+    local _ocp=""
+    if [ -f "$_AC_HERE/lib/item-project.sh" ]; then
+        # shellcheck source=lib/item-project.sh
+        command -v item_story_project_of >/dev/null 2>&1 || . "$_AC_HERE/lib/item-project.sh"
+        _ocp="$(item_story_project_of "$repo" 2>/dev/null)" || _ocp=""
+    fi
     if ls "$(override_state_dir)/$OK_NAME".* >/dev/null 2>&1 \
-       && ! override_cause_named "${STORY_GITLAB_PROJECT:-}" "$story" "$OK_NAME"; then
+       && ! override_cause_named "$_ocp" "$story" "$OK_NAME"; then
         block_state "$msg The one-shot $OK_NAME override is set but was NOT spent: $OVERRIDE_CAUSE_WHY."
     fi
     if override_take "$OK_NAME" "$(override_scope_of "$repo")" "$INPUT"; then
@@ -545,6 +554,34 @@ else
 fi
 [ "$_mode" = "apimerge" ] && exit 0   # a plain API merge is judged by the merged-result check only
 
+# ---- 1c. The merge request being armed names the story and the head that are judged ---------------------------------
+# (784-arm-mr: kept with the guard until story 741 ports it.) An arm of a merge request is judged for THAT request: its
+# story is the one its source branch names and its head is the request's head commit, never the branch or commit the
+# work tree happens to have checked out (arming one story's request while the checkout is on another story's branch
+# was judged with the other story's facts). A push judges the branch it pushes.
+# [CySec] Prevents CWE-863 "Incorrect Authorization": the coverage verdict is given for the change being merged.
+_arm_branch=""; _arm_sha=""; _arm_unreadable=""
+# An answer that names no head or branch is refused only for a repository that holds C# (the per-repository loop below),
+# so a repository without C# is never stopped by it.
+case "$_mode" in
+    api) _arm_branch="$(printf '%s' "${_mr_json:-}" | jq -r '.source_branch // empty' 2>/dev/null || true)"
+         _arm_sha="$(printf '%s' "${_mr_json:-}" | jq -r '.sha // empty' 2>/dev/null || true)"
+         # The request's head commit is what is merged; a local branch of the same name may be behind it, so an answer
+         # without the head is refused rather than judged by the local tip.
+         [ -n "$_arm_sha" ] || _arm_unreadable="Auto-merge arming BLOCKED: the merge request's answer names no head commit, so the commit this arm would merge cannot be checked; it is never judged by a local branch tip instead. Retry once GitLab (or the bridge's mr_get) answers with it." ;;
+    bridge)
+        _bmr="$(printf '%s' "$INPUT" | jq -r '.tool_input.merge_request // empty | tostring' 2>/dev/null || true)"
+        . "$_AC_HERE/lib/coordination-read.sh" 2>/dev/null || true
+        if [ -n "$_bmr" ] && command -v coordination_read >/dev/null 2>&1; then
+            _bmr_text="$(coordination_read mr_get "$(jq -cn --arg p "${_bridge_proj:-}" --arg n "$_bmr" '{merge_request:$n} + (if $p == "" then {} else {project:$p} end)')" 2>/dev/null)" \
+                && { _arm_branch="$(printf '%s' "$_bmr_text" | jq -r '.source_branch // empty' 2>/dev/null || true)"
+                     _arm_sha="$(printf '%s' "$_bmr_text" | jq -r '.sha // empty' 2>/dev/null || true)"; }
+        fi
+        [ -n "$_arm_branch" ] && [ -n "$_arm_sha" ] || _arm_unreadable="Auto-merge arming BLOCKED: merge request !${_bmr:-?} could not be read through the bridge (mr_get), so the story and the commit this arm would merge cannot be told; it is never judged by the work tree's checkout instead. Retry once the bridge answers." ;;
+    push) _arm_branch="${_mrbr:-}" ;;
+esac
+case "$_arm_branch$_arm_sha" in *[!A-Za-z0-9._/-]*) block_state "Auto-merge arming BLOCKED: the merge request's source branch or head ($_arm_branch $_arm_sha) is not a plain git name." ;; esac
+
 # ---- 2. Opt-out (explicit, greppable, audited) -----------------------------------------------------------------
 if kyklos_control_off "${KYKLOS_AUTOMERGE_COVERAGE:-}"; then
     [ "$_AC_PROBE" = 1 ] && exit 0
@@ -638,45 +675,79 @@ is_test_code() { printf '%s' "$1" | grep -cE '(^|/)([Tt]ests?|[^/]*[._-][Tt]ests
 # bridge, an older bridge without test_facts, a refusal, another head, a GAP or an EXPIRED line, an unreadable answer)
 # answers rc 1 and the token check below decides exactly as before. Default ON; the only off switch:
 # KYKLOS_AUTOMERGE_LEDGER=off. LEDGER_REASON names why the ledger did not settle it, for the refusal text.
+# Which changed C# file is production code is the ledger's call, not this hook's (one judge): an answer for this commit
+# with no C# summary says no changed C# production line (only test code, such as a test project's support files) and
+# admits; LEDGER_ANSWERED=1 says the ledger judged this commit, so its refusal stands even for files the hook's own
+# name rule (is_test_code) would have skipped.
 # [CySec] CWE-636: fails closed; the ledger can only admit, never weaken the existing token refusal.
 LEDGER_REASON=""
+LEDGER_ANSWERED=""
 ledger_answers_story() {
-    local repo="$1" story="$2" reply text answered summary run exe gap exp rc dirty
-    LEDGER_REASON=""
+    local repo="$1" story="$2" judged="${3:-}" here project="" reply text answered summary run exe gap exp rc dirty
+    LEDGER_REASON=""; LEDGER_ANSWERED=""
     if kyklos_control_off "${KYKLOS_AUTOMERGE_LEDGER:-}"; then LEDGER_REASON="the ledger check is off (KYKLOS_AUTOMERGE_LEDGER=off)"; return 1; fi
+    # JUDGED is the commit being armed (784-arm-mr); the checkout when none is named.
+    here="$(git -C "$repo" rev-parse HEAD 2>/dev/null)"; [ -n "$judged" ] || judged="$here"
     # The ledger answers from committed content only, while the change set below includes the working tree: an
-    # uncommitted C# edit is never covered by the ledger's answer, so it leaves the decision to the token check.
-    git -C "$repo" status --porcelain --untracked-files=all >/dev/null 2>&1 || { LEDGER_REASON="the work tree's state cannot be read (git status failed)"; return 1; }
-    dirty="$(git -C "$repo" status --porcelain --untracked-files=all -- '*.cs' '*.CS' 2>/dev/null | head -3 | tr '\n' ' ')"
-    if [ -n "$dirty" ]; then LEDGER_REASON="the work tree holds uncommitted C# changes (${dirty% }), which the ledger cannot answer for: commit them"; return 1; fi
+    # uncommitted C# edit is never covered by the ledger's answer, so it leaves the decision to the token check. Only
+    # when the judged head is the checkout: another head's change set holds no working-tree edit.
+    if [ "$judged" = "$here" ]; then
+        git -C "$repo" status --porcelain --untracked-files=all >/dev/null 2>&1 || { LEDGER_REASON="the work tree's state cannot be read (git status failed)"; return 1; }
+        dirty="$(git -C "$repo" status --porcelain --untracked-files=all -- '*.cs' '*.CS' 2>/dev/null | head -3 | tr '\n' ' ')"
+        if [ -n "$dirty" ]; then LEDGER_REASON="the work tree holds uncommitted C# changes (${dirty% }), which the ledger cannot answer for: commit them"; return 1; fi
+    fi
     if ! command -v bridge_mcp_call >/dev/null 2>&1; then
         [ -f "$_AC_HERE/lib/bridge-mcp.sh" ] && . "$_AC_HERE/lib/bridge-mcp.sh"
     fi
     command -v bridge_mcp_call >/dev/null 2>&1 || { LEDGER_REASON="the bridge client is missing"; return 1; }
-    reply="$(bridge_mcp_call test_facts "$(jq -cn --arg s "$story" '{story:$s}')" 120)"; rc=$?
+    # The story's project, as the bridge's one repository resolver names it for this repository (a bridge serving several
+    # projects answers each story in its own project's tree); without an answer the question names none, as before.
+    if [ -f "$_AC_HERE/lib/item-project.sh" ]; then
+        # shellcheck source=lib/item-project.sh
+        command -v item_story_project_of >/dev/null 2>&1 || . "$_AC_HERE/lib/item-project.sh"
+        project="$(item_story_project_of "$repo" 2>/dev/null)" || project=""
+    fi
+    reply="$(bridge_mcp_call test_facts "$(jq -cn --arg s "$story" --arg p "$project" '{story:$s} + (if $p == "" then {} else {project:$p} end)')" 120)"; rc=$?
     [ "$rc" -eq 0 ] && [ -n "$reply" ] || { LEDGER_REASON="the bridge's ledger could not be asked"; return 1; }
     if bridge_mcp_is_error "$reply"; then LEDGER_REASON="the bridge refused test_facts"; return 1; fi
     text="$(bridge_mcp_text "$reply")"
     # The bridge writes "story N at <sha>"; a client may capitalise the first letter. Either spelling is read.
     answered="$(printf '%s\n' "$text" | sed -n "s/^[Ss]tory ${story} at \([0-9a-f]\{7,40\}\) .*/\1/p" | head -1)"
     [ -n "$answered" ] || { LEDGER_REASON="the ledger did not answer for story ${story} ($(printf '%s' "$text" | head -1 | cut -c1-160))"; return 1; }
-    case "$(git -C "$repo" rev-parse HEAD 2>/dev/null)" in
+    case "$judged" in
         "$answered"*) : ;;
-        *) LEDGER_REASON="the ledger answered for ${answered}, not for the commit checked out here"; return 1 ;;
+        *) LEDGER_REASON="the ledger answered for ${answered}, not for the commit being armed (${judged:0:12})"; return 1 ;;
     esac
     summary="$(printf '%s\n' "$text" | grep -E '^dotnet: run [0-9]+ of [0-9]+ ' | head -1)"
-    [ -n "$summary" ] || { LEDGER_REASON="the ledger answer has no C# summary"; return 1; }
+    if [ -z "$summary" ]; then
+        # The ledger lists a C# summary whenever it judged a changed C# production file; a readable answer for this commit
+        # without one (no production line at all, or shell files only) says no changed C# line is production code.
+        if printf '%s\n' "$text" | grep -cE '^(no changed C# or shell production line$|shell: run [0-9]+ of [0-9]+ )' >/dev/null; then
+            LEDGER_ANSWERED=1; LEDGER_REASON="the ledger says no changed C# line is production code"; return 0
+        fi
+        LEDGER_REASON="the ledger answer has no C# summary"; return 1
+    fi
     run="$(printf '%s' "$summary" | sed -n 's/^dotnet: run \([0-9]*\) of \([0-9]*\) .*/\1/p')"
     exe="$(printf '%s' "$summary" | sed -n 's/^dotnet: run \([0-9]*\) of \([0-9]*\) .*/\2/p')"
     gap="$(printf '%s' "$summary" | sed -n 's/.*, gap \([0-9]*\),.*/\1/p')"
     exp="$(printf '%s' "$summary" | sed -n 's/.*, expired \([0-9]*\),.*/\1/p')"
     [ -n "$run" ] && [ -n "$exe" ] && [ -n "$gap" ] && [ -n "$exp" ] || { LEDGER_REASON="the ledger's C# summary could not be read ($summary)"; return 1; }
+    LEDGER_ANSWERED=1
     if [ "$gap" -eq 0 ] && [ "$exp" -eq 0 ] && [ "$run" -eq "$exe" ]; then return 0; fi
     LEDGER_REASON="the ledger says ${run} of ${exe} changed C# lines run, ${gap} not run (GAP), ${exp} expired"
     return 1
 }
 
 # ---- 4. Judge each repository's change set ---------------------------------------------------------------------
+# (784-arm-mr) The repositories that hold the armed head: a companion and its nested source are both candidates, and the
+# armed head lives in one of them; a repository that lacks it is skipped while another holds it, and the arm is refused
+# only when none does (fetch it first).
+_arm_holders=0
+if [ -n "$_arm_sha" ]; then
+    for _r in "${_repos[@]}"; do
+        git -C "$_r" rev-parse --verify -q "${_arm_sha}^{commit}" >/dev/null 2>&1 && _arm_holders=$((_arm_holders + 1))
+    done
+fi
 _seen=""
 for _r in "${_repos[@]}"; do
     case " $_seen " in *" $_r "*) continue ;; esac; _seen="$_seen $_r"
@@ -688,27 +759,64 @@ for _r in "${_repos[@]}"; do
         fi
         block_state "Auto-merge arming BLOCKED: the trunk this branch forked from cannot be resolved in '$_r' (no origin/develop, origin/main or origin/master, or KYKLOS_CHANGE_BASE_REF='${KYKLOS_CHANGE_BASE_REF:-}' does not exist), so the branch's changed C# files cannot be determined. Fetch the trunk ('git fetch origin'), or set KYKLOS_CHANGE_BASE_REF to the branch's target (e.g. origin/develop), then arm auto-merge again."
     fi
-    _changed="$(proof_tool_changed_files "$_r" || true)"
-    _prod=()
+    # The merge request's answer must name its head and branch, but only where it matters: a repository with C#.
+    if [ -n "$_arm_unreadable" ] && git -C "$_r" ls-files -- '*.cs' '*.CS' 2>/dev/null | grep -c . >/dev/null; then
+        block_state "$_arm_unreadable"
+    fi
+    # The head judged (784-arm-mr): the armed merge request's head commit, or the pushed branch's tip; the checkout only
+    # when it is that commit (or nothing names one). Another head is judged from git alone: its own change since its trunk.
+    _here="$(git -C "$_r" rev-parse HEAD 2>/dev/null || true)"; _judged="$_here"
+    if [ -n "$_arm_sha" ]; then
+        # Only where it matters: a repository that holds no C# has nothing this guard judges.
+        git -C "$_r" ls-files -- '*.cs' '*.CS' 2>/dev/null | grep -c . >/dev/null || continue
+        if ! _judged="$(git -C "$_r" rev-parse --verify -q "${_arm_sha}^{commit}" 2>/dev/null)" && [ "$_arm_holders" -gt 0 ]; then
+            continue   # another candidate repository holds the armed head: the change is judged there
+        fi
+        [ -n "$_judged" ] \
+            || block_state "Auto-merge arming BLOCKED: the head ${_arm_sha} of the merge request being armed (branch ${_arm_branch:-?}) is not in '$_r', so its change cannot be checked. Fetch it (git -C $_r fetch origin ${_arm_branch:-<its branch>}), then arm again."
+    elif [ -n "$_arm_branch" ] && _t="$(git -C "$_r" rev-parse --verify -q "refs/heads/${_arm_branch}^{commit}" 2>/dev/null)"; then
+        _judged="$_t"
+    fi
+    if [ "$_judged" = "$_here" ]; then
+        _changed="$(proof_tool_changed_files "$_r" || true)"
+    else
+        _jbase="$(proof_tool_change_base_ref "$_r" "$_judged" 2>/dev/null)" \
+            || block_state "Auto-merge arming BLOCKED: the trunk the armed branch ${_arm_branch:-?} forked from cannot be resolved in '$_r', so its changed C# files cannot be determined. Fetch the trunk ('git fetch origin'), then arm again."
+        _changed="$(git -C "$_r" diff --name-only "${_jbase#* }" "$_judged" 2>/dev/null || true)"
+    fi
+    _prod=(); _cs=()
     while IFS= read -r _f; do
         [ -n "$_f" ] || continue
         # A name with a line break arrives in git's quoted form and cannot be opened: it is required (fail closed), not skipped.
-        case "$_f" in \"*.cs\"|\"*.CS\") _prod+=("$_f"); continue ;; esac
+        case "$_f" in \"*.cs\"|\"*.CS\") _prod+=("$_f"); _cs+=("$_f"); continue ;; esac
         case "$_f" in *.cs|*.CS) : ;; *) continue ;; esac
-        [ -f "$_r/$_f" ] || continue
+        if [ "$_judged" = "$_here" ]; then [ -f "$_r/$_f" ] || continue
+        else git -C "$_r" cat-file -e "$_judged:$_f" 2>/dev/null || continue; fi
+        _cs+=("$_f")
         is_test_code "$_f" && continue
         _prod+=("$_f")
     done <<< "$_changed"
-    [ "${#_prod[@]}" -gt 0 ] || continue
+    [ "${#_cs[@]}" -gt 0 ] || continue
 
-    _story="$(_proof_tool_detect_story "$_r")"
-    _list="$(printf '%s, ' "${_prod[@]}")"; _list="${_list%, }"
+    # The story (784-arm-mr): the one the armed request's (or pushed) branch names, else the checkout's when it is the
+    # judged head; another head's story is never read from the checkout.
+    _story=""
+    [ -n "$_arm_branch" ] && _story="$(_proof_tool_story_key "$(story_num_from_branch "$_arm_branch")")"
+    [ -n "$_story" ] || [ "$_judged" != "$_here" ] || _story="$(_proof_tool_detect_story "$_r")"
+    if [ "${#_prod[@]}" -gt 0 ]; then _list="$(printf '%s, ' "${_prod[@]}")"; else _list="$(printf '%s, ' "${_cs[@]}")"; fi; _list="${_list%, }"
     if [ -z "$_story" ]; then
+        [ "${#_prod[@]}" -gt 0 ] || continue
         block_state "Auto-merge arming BLOCKED: this change touches C# (${_list}) but no story can be derived from the branch or the last commit in '$_r', so no Test Discipline coverage token can match it. Put the work on a feature/story-<N>-... branch (or add 'Refs: #<N>' to the commit), measure coverage locally with the bridge get_coverage (story=<N>), then arm auto-merge. A plain push without auto-merge is still allowed."
     fi
     # The content ledger first: the answer the story close reads. A change whose every changed C# line a passing test
     # ran, at exactly this commit, needs no whole-suite token.
-    if ledger_answers_story "$_r" "$_story"; then continue; fi
+    if ledger_answers_story "$_r" "$_story" "$_judged"; then continue; fi
+    # Only test code by this hook's name rule and the ledger could not judge the commit: nothing to prove here, as before.
+    [ "${#_prod[@]}" -gt 0 ] || [ -n "$LEDGER_ANSWERED" ] || continue
+    # A token reads the checked-out files: for another head than the checkout only the ledger can settle the arm.
+    if [ "$_judged" != "$_here" ]; then
+        defer_refusal "$_r" "$_story" "Auto-merge arming BLOCKED: this change touches C# (${_list}) and the content ledger does not settle it for story ${_story} at the armed head ${_judged:0:12}. Ledger: ${LEDGER_REASON}. Measure the tests that run the changed lines with the bridge (get_coverage without story, filtered) until test_facts for story ${_story} shows no GAP at that commit, or check out the branch ${_arm_branch:-of the merge request} to use a Test Discipline token. A plain push without auto-merge is still allowed." && continue
+    fi
     # The token's entries are read under the root the token names (proof_tool_token_root, the rule the Stop gate uses):
     # its .base sidecar, else this repository. Entries are then compared with this repository's changed files, so a root
     # that is a subfolder of the repository (a solution below its top) is mapped back; a root outside it matches nothing.

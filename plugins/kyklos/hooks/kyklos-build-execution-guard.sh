@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # kyklos-build-execution-guard.sh (Kyklos) — PreToolUse Bash. Enforces HOW this project builds/tests,
-# per the interviewed BUILD_EXECUTION knob in .claude/standards.env (values bridge|local, NO default).
+# per the BUILD_EXECUTION knob (values bridge|local, NO default), read by hooks/lib/build-execution.sh: the session's
+# environment first (the KyklosLauncher passes the project's setting), then .claude/standards.env.
 #
 # WHY: some projects MUST build/test on the real host via the KyklosBridge, never locally in the sealed
 # Linux dev container — a local `dotnet build`/`test` there does not see the host SDK and outright fails on
@@ -18,8 +19,10 @@
 #     to the bridge over HTTP (it does NOT run local dotnet), so it is the sanctioned recorder, not a local build.
 #   * BUILD_EXECUTION=local   => ALLOW (exit 0): local dotnet is the declared mode.
 #   * BUILD_EXECUTION unset/blank/invalid => BLOCK with the interview message (no default; ENFORCE, not fail-open).
-#   * FAIL-SAFE: if CLAUDE_PROJECT_DIR / standards.env cannot be resolved AT ALL, or the command is clearly not
-#     a local dotnet build, exit 0 — the guard enforces the build channel, it must not brick unrelated commands.
+#     That includes a project with no standards.env and no value in the environment (a brand-new project): a
+#     missing declaration is "not set", never "local".
+#   * FAIL-SAFE: a command that is clearly not a local dotnet build exits 0 — the guard enforces the build channel,
+#     it must not brick unrelated commands.
 #
 # One-shot LOGGED override (consumed on the block path only, mirroring push-ok/slnx-ok/gitflow-ok):
 #   bash hooks/lib/override-marker.sh set build-execution-ok <your-working-folder>
@@ -64,14 +67,18 @@ fi
 # there), so allow it even though its own body may contain a local `dotnet build` for the local-mode path.
 printf '%s' "$CMD" | grep -cE 'record-slnx-green\.sh' >/dev/null && exit 0
 
-# ---- Read the declared build channel. ----
-# FAIL-SAFE: if we cannot even resolve standards.env, do not wedge the command (exit 0). The knob's absence is
-# only a BLOCK when the file EXISTS and the knob is genuinely unset/blank/invalid — that is the enforce path.
-[ -f "$CFG" ] || exit 0
-
-value="$(grep -E "^[[:space:]]*BUILD_EXECUTION=" "$CFG" 2>/dev/null | grep -vE "^[[:space:]]*#" | tail -1 | sed -E 's/^[[:space:]]*BUILD_EXECUTION=//')"
-value="${value%%#*}"
-value="$(printf '%s' "$value" | sed -E 's/^[[:space:]]*//; s/[[:space:]]*$//; s/^"//; s/"$//; s/^'"'"'//; s/'"'"'$//')"
+# ---- Read the declared build channel: the session's environment first, then standards.env. ----
+# [CySec] Prevents CWE-636 "Not Failing Securely ('Failing Open')": a project that declares no channel anywhere (no
+#         value in the environment and no standards.env, as every brand-new project starts) is "not set" and BLOCKS
+#         with the interview message, never an allowed local build.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/build-execution.sh"
+value="$(build_execution_raw "$CFG")"
+source_of="$(build_execution_source "$CFG")"
+case "$source_of" in
+    environment) from="from the session's environment" ;;
+    file)        from="from $CFG" ;;
+    *)           from="declared nowhere" ;;
+esac
 
 block() {
     local reason="$1"
@@ -87,6 +94,13 @@ case "$value" in
         exit 0 ;;   # ALLOW: local dotnet is the declared mode.
     bridge)
         block "Local .NET build/test BLOCKED — this project's BUILD_EXECUTION=bridge: builds and tests run on the real host via the KyklosBridge, never locally in this container (a local 'dotnet build'/'test' does not see the host SDK and fails on host-only target frameworks). Use the MCP tools mcp__KyklosBridge__build / mcp__KyklosBridge__run_tests instead. To record a green full-solution build for a push, run record-slnx-green.sh (it routes to the bridge in this mode). Tool-first norm (GOVERNANCE F10): consult the SessionStart capability catalog before hand-rolling a build/test. For a single deliberate exception: bash $OVERRIDE_MARKER_CLI set $OK_NAME $OK_SCOPE_HINT" ;;
-    ""|*)
-        block "BUILD_EXECUTION is not set — run the running-tests interview and persist bridge|local before building (no default). bridge = all builds/tests via the KyklosBridge (mcp__KyklosBridge__build/run_tests); local = local dotnet. Persist your answer to \${CLAUDE_PROJECT_DIR}/.claude/standards.env. For a single deliberate exception: bash $OVERRIDE_MARKER_CLI set $OK_NAME $OK_SCOPE_HINT" ;;
+    *)
+        # A value that is set but not bridge|local is named with where it came from, never reported as "not set".
+        if [ -n "$value" ]; then
+            block "BUILD_EXECUTION='$value' ($from) is not one of bridge|local (lower case) — correct it to bridge or local before building (no default). bridge = all builds/tests via the KyklosBridge (mcp__KyklosBridge__build/run_tests); local = local dotnet. A value in the session's environment (from the project's KyklosLauncher configuration) wins over \${CLAUDE_PROJECT_DIR}/.claude/standards.env. For a single deliberate exception: bash $OVERRIDE_MARKER_CLI set $OK_NAME $OK_SCOPE_HINT"
+        fi
+        if [ "$source_of" = file ] && [ ! -r "$CFG" ]; then
+            block "BUILD_EXECUTION cannot be read: $CFG exists but cannot be read, so the declared build channel cannot be told. Fix the file's permissions, or set BUILD_EXECUTION in the project's KyklosLauncher configuration. For a single deliberate exception: bash $OVERRIDE_MARKER_CLI set $OK_NAME $OK_SCOPE_HINT"
+        fi
+        block "BUILD_EXECUTION is not set — run the running-tests interview and persist bridge|local before building (no default). bridge = all builds/tests via the KyklosBridge (mcp__KyklosBridge__build/run_tests); local = local dotnet. Set it in the project's KyklosLauncher configuration (BUILD_EXECUTION, passed into the session's environment) or persist your answer to \${CLAUDE_PROJECT_DIR}/.claude/standards.env; a value in the environment wins over the file. For a single deliberate exception: bash $OVERRIDE_MARKER_CLI set $OK_NAME $OK_SCOPE_HINT" ;;
 esac

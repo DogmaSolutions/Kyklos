@@ -359,6 +359,12 @@ is **unreachable** it keeps the last-good mirror but prints a **STALE** warning 
 never a silent stale pass. A hand-edit to a mirror file does not persist (the next refresh overwrites it). Under the
 `local` backend `refresh` is a no-op — there the files ARE the record. **One project per mirror:** a call for ANOTHER GitLab project than the one the workspace declares (an exported `STORY_GITLAB_PROJECT` that differs from the workspace's `.claude/standards.env`) mirrors under `${XDG_CACHE_HOME:-~/.cache}/kyklos-story-mirror/<project>/Stories` instead, so another project's stories never collide by number with the workspace's own; an explicit `--dir` still wins.
 
+**Another repository's stories (`STORY_REPO`).** By default the story tool reads the settings of the session's
+workspace. A run that works on another repository's stories names that repository with `STORY_REPO=<dir>`: the tool then
+reads that repository's own `.claude/standards.env` (the companion's, for a nested source) and never the session's, so
+its story project, API address, label and thresholds are the repository's own; an exported value still wins, and the
+checkout's branch the tool records is that repository's.
+
 **The mirror stays out of git.** Because every refresh rewrites the mirror, it must never be tracked (except in a
 companion or trunk-model repository, whose mirror is committed on purpose as bookkeeping). After every mirror write the
 tool lists any untracked, not-ignored generated copy (`BACKLOG.md`, the `STORY-*/` folders, `.mirror-stale`) in the
@@ -637,8 +643,9 @@ SSDLC phase from lagging the real work:
   declared root can be proven it commits nothing and says so (`[mirror-commit] not committed: ...`). DEFAULT-ON;
   opt out with `KYKLOS_MIRROR_AUTOCOMMIT=off`.
 - **Stale-read surfacing.** `story check` drops a `.mirror-stale` marker when the mirror differs from the SoT (and
-  `story refresh` clears it); reading a `Stories/` file while that marker is present prints a loud STALE warning
-  (`kyklos-story-mirror-stale-surface`), so a stale Status/phase/branch read is never silent.
+  `story refresh` clears it); reading a `Stories/` file while that marker is present hands the agent a loud STALE
+  warning as context after the read (`kyklos-story-mirror-stale-surface`), so a stale Status/phase/branch read is
+  never silent.
 - **A not-started story is started by its work.** A commit or a push that git really recorded (not a dry run or an
   up-to-date push), or a story-bound test run, on the branch of a Todo story starts it (`status In-progress`) and then
   advances it, and says so; a story created after its code therefore still enters Implementation with its first commit

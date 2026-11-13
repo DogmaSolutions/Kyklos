@@ -13,6 +13,9 @@
 #                                     empty reply, 2 = endpoint not resolvable, 5 = curl/jq missing, 6 = the answer came
 #                                     from a bridge that is not this session's (see bridge_mcp_check_identity), 7 = the
 #                                     shell is sealed for a test and the endpoint is not a loopback stand-in
+#   bridge_mcp_tool_takes <tool> <parameter> [max_seconds]
+#                                  -> rc 0 when the bridge's tools/list gives <tool> the input <parameter>, rc 1 when not
+#                                     (an older bridge), else bridge_mcp_call's codes
 #   bridge_mcp_check_identity <headers-file> <endpoint>
 #                                  -> rc 0 when the answer's X-Bridge-Project names this session's project
 #                                     ($KYKLOS_BRIDGE_PROJECT_NAME) and its X-Bridge-Launch-Root this session's solution root
@@ -165,20 +168,43 @@ bridge_mcp_check_identity() {
 }
 
 bridge_mcp_call() {
-    local tool="$1" args="${2:-}" max="${3:-120}"
+    local tool="$1" args="${2:-}" max="${3:-120}" body
     [ -n "$args" ] || args='{}'
     command -v curl >/dev/null 2>&1 || return 5
     command -v jq >/dev/null 2>&1 || return 5
-    local endpoint resp body hdr
-    local _bm_erc=0
-    endpoint="$(bridge_mcp_endpoint)" || _bm_erc=$?
-    case "$_bm_erc" in 0) ;; 5|7) return "$_bm_erc" ;; *) return 2 ;; esac
     # The arguments can be large (a coverage report is hundreds of kilobytes): a single command-line argument is capped
     # (128 KiB on Linux), so the arguments reach jq on stdin and the request reaches curl from a file, never on argv.
     body="$(mktemp "${TMPDIR:-/tmp}/bridge-mcp.XXXXXX")" || return 3
     if ! printf '%s' "$args" | jq -c --arg name "$tool" '{jsonrpc:"2.0",id:1,method:"tools/call",params:{name:$name,arguments:.}}' > "$body" 2>/dev/null; then
         rm -f "$body"; return 3
     fi
+    _bridge_mcp_send "$body" "$max"
+}
+
+# bridge_mcp_tool_takes <tool> <parameter> [max_seconds] -> rc 0 when the bridge lists <tool> with <parameter> in its
+# input schema, rc 1 when it lists the tool without it (a bridge older than that parameter) or does not list the tool,
+# and bridge_mcp_call's codes when it cannot be asked. A caller that needs the parameter refuses on rc 1 with
+# BRIDGE-TOO-OLD rather than letting an older bridge ignore it.
+bridge_mcp_tool_takes() {
+    local tool="$1" param="$2" max="${3:-30}" body reply rc=0
+    command -v curl >/dev/null 2>&1 || return 5
+    command -v jq >/dev/null 2>&1 || return 5
+    body="$(mktemp "${TMPDIR:-/tmp}/bridge-mcp.XXXXXX")" || return 3
+    printf '%s' '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' > "$body"
+    reply="$(_bridge_mcp_send "$body" "$max")" || rc=$?
+    [ "$rc" -eq 0 ] || return "$rc"
+    printf '%s' "$reply" | json_test '.result.tools | type == "array"' || return 3
+    printf '%s' "$reply" | json_test 'any(.result.tools[]; .name == $t and ((.inputSchema.properties // {}) | has($p)))' --arg t "$tool" --arg p "$param"
+}
+
+# _bridge_mcp_send <body-file> <max_seconds> -> POSTs the JSON-RPC request in <body-file> (removed afterwards) to the
+# bridge; prints the reply, with bridge_mcp_call's return codes.
+_bridge_mcp_send() {
+    local body="$1" max="$2"
+    local endpoint resp hdr
+    local _bm_erc=0
+    endpoint="$(bridge_mcp_endpoint)" || _bm_erc=$?
+    case "$_bm_erc" in 0) ;; 5|7) rm -f "$body"; return "$_bm_erc" ;; *) rm -f "$body"; return 2 ;; esac
     hdr="$(mktemp "${TMPDIR:-/tmp}/bridge-mcp-hdr.XXXXXX")" || { rm -f "$body"; return 3; }
     # [CySec] Mitigates CWE-214 "Invocation of Process Using Visible Sensitive Information" and CWE-532: the auth
     # header goes to curl through its stdin config, never as a command-line argument, and tracing is off while the

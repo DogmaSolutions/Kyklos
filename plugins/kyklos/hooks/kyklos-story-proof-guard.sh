@@ -66,9 +66,12 @@ _psg_block() {
 # be RENDERED in the reply (the user may be remote with no FS/GitLab-note access) — enforced PER-STORY, only for
 # THIS-session closes, marker-suppressed, FAIL-OPEN.
 _TPATH="$(printf '%s' "$INPUT" | sed -nE 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -1)"
+# The volatile state folder (the last-resort marker folder and the legacy one read during the transition). A test names
+# its own with KYKLOS_VOLATILE_STATE_DIR, so it never writes the machine's shared temp folder.
+_VOLATILE_STATE="${KYKLOS_VOLATILE_STATE_DIR:-/tmp/kyklos-state}"
 if [ -n "${KYKLOS_STATE_DIR:-}" ]; then _SHOWN_DIR="$KYKLOS_STATE_DIR/proof-shown"
 elif [ -n "${HOME:-}" ] && [ -d "$HOME/.claude" ] && [ -w "$HOME/.claude" ]; then _SHOWN_DIR="$HOME/.claude/kyklos-state/proof-shown"
-else _SHOWN_DIR="/tmp/kyklos-state/proof-shown"; fi
+else _SHOWN_DIR="$_VOLATILE_STATE/proof-shown"; fi
 mkdir -p "$_SHOWN_DIR" 2>/dev/null || true
 _SHOWN_WIN="${KYKLOS_SESSION_WINDOW_SECONDS:-64800}"   # 18h default; overridable
 # Canonical-dimension SoT, sourced EARLY (before the gitlab branch's shown-check calls it — the FS branch re-sources
@@ -612,9 +615,9 @@ for dir in "$STORIES_DIR"/STORY-*/; do
         _vol_state_dir="$state_dir"
     elif [ -n "${HOME:-}" ] && [ -d "$HOME/.claude" ] && [ -w "$HOME/.claude" ]; then
         state_dir="$HOME/.claude/kyklos-state/proof-shown"         # persistent named volume — durable
-        _vol_state_dir="/tmp/kyklos-state/proof-shown"             # legacy volatile location (transition read)
+        _vol_state_dir="$_VOLATILE_STATE/proof-shown"              # legacy volatile location (transition read)
     else
-        state_dir="/tmp/kyklos-state/proof-shown"                  # last-resort volatile
+        state_dir="$_VOLATILE_STATE/proof-shown"                   # last-resort volatile
         _vol_state_dir="$state_dir"
     fi
     mkdir -p "$state_dir" 2>/dev/null || true

@@ -45,8 +45,12 @@ _REPO_ROLE_LIB="$HERE/../../hooks/lib/repo-role.sh"
 . "$HERE/../../hooks/lib/require-lib.sh" 2>/dev/null && declare -F require_lib require_story_seam >/dev/null \
   || { printf 'story: refusing to run: cannot load %s\n' "$HERE/../../hooks/lib/require-lib.sh" >&2; exit 1; }
 # shellcheck source=../../hooks/lib/repo-role.sh
-require_lib "$_REPO_ROLE_LIB" _rr_getkey repo_workspace_root repo_inner_source_of \
+require_lib "$_REPO_ROLE_LIB" _rr_getkey repo_workspace_root repo_root_of repo_inner_source_of \
   || { printf 'story: refusing to run: cannot load %s completely (see above)\n' "$_REPO_ROLE_LIB" >&2; exit 1; }
+# The bridge's one repository resolver, as the container asks it: a repository's project and its trunks.
+# shellcheck source=../../hooks/lib/item-project.sh
+require_lib "$HERE/../../hooks/lib/item-project.sh" item_project_of item_story_project_of item_trunk_refs_of \
+  || { printf 'story: refusing to run: cannot load %s completely (see above)\n' "$HERE/../../hooks/lib/item-project.sh" >&2; exit 1; }
 # shellcheck source=lib/story-trunk-reach.sh
 require_lib "$HERE/lib/story-trunk-reach.sh" story_trunk_reach_problem trunk_reach_trunks \
   || { printf 'story: refusing to run: cannot load %s completely (see above)\n' "$HERE/lib/story-trunk-reach.sh" >&2; exit 1; }
@@ -90,7 +94,28 @@ STORY_THRESHOLDS_FOREIGN=0
 STORY_THRESHOLD_SOURCE=""
 _STORY_THRESHOLD_KEYS="COVERAGE_THRESHOLD CRAP_THRESHOLD PROOF_TD_MAX_CRAP PROOF_TD_CRAP_APPLICABLE"
 if command -v _rr_getkey >/dev/null 2>&1; then
-  _STORY_ROOT="$(_story_workspace_root)"
+  # STORY_REPO=<dir> names the repository whose stories this run works on: its own settings are read (repo_root_of, the
+  # companion root for a nested source), never the session's, so a session working on another project's repository uses
+  # that repository's story project and settings. Without it, the session's workspace as before (the hooks call the
+  # story tool for the session's own stories).
+  if [ -n "${STORY_REPO:-}" ]; then
+    _STORY_ROOT="$(repo_root_of "$STORY_REPO")"
+    [ -n "$_STORY_ROOT" ] || { printf 'story: STORY_REPO=%s is not inside a git repository\n' "$STORY_REPO" >&2; exit 1; }
+  else
+    _STORY_ROOT="$(_story_workspace_root)"
+    # Named, never silent: a run from inside another repository reads the session's settings unless STORY_REPO names it.
+    _story_here="$(repo_root_of "$PWD")"
+    # Said only when it matters: the session's settings file exists and gives this run another story backend or project
+    # than the repository it is in would (the same values, or no settings at all, leave nothing to be told).
+    _story_pair() { printf '%s|%s' "$(_rr_getkey "$1/.claude/standards.env" STORY_BACKEND 2>/dev/null || true)" "$(_rr_getkey "$1/.claude/standards.env" STORY_GITLAB_PROJECT 2>/dev/null || true)"; }
+    if [ -n "$_story_here" ] && [ -n "$_STORY_ROOT" ] && [ -f "$_STORY_ROOT/.claude/standards.env" ] \
+       && [ "$(cd "$_story_here" && pwd -P)" != "$(cd "$_STORY_ROOT" 2>/dev/null && pwd -P)" ] \
+       && [ "$(_story_pair "$_STORY_ROOT")" != "$(_story_pair "$_story_here")" ]; then
+      printf 'story: reading the settings of the session'"'"'s workspace %s, not of the repository you are in (%s); STORY_REPO is unset: set STORY_REPO=%s to work on that repository'"'"'s stories\n' \
+        "$_STORY_ROOT" "$_story_here" "$_story_here" >&2
+    fi
+    unset _story_here
+  fi
   if [ -n "$_STORY_ROOT" ] && [ -f "$_STORY_ROOT/.claude/standards.env" ]; then
     _declared="$(_rr_getkey "$_STORY_ROOT/.claude/standards.env" STORY_GITLAB_PROJECT 2>/dev/null || true)"
     [ -n "$_declared" ] && [ -n "${STORY_GITLAB_PROJECT:-}" ] && [ "$_declared" != "$STORY_GITLAB_PROJECT" ] \
@@ -939,7 +964,7 @@ Author each dimension in the story body. $(_done_gate_exception)"
     _rcv="$(proof_verdict_class "$(printf '%s' "$_rcrow" | awk -F'|' '{print $3}')" 2>/dev/null || true)"
     _rccited="${5:-}"
     [ -n "$_rccited" ] || _rccited="$(backend_get_field "$dir" "$handle" Branch 2>/dev/null || true)"
-    _rcf="$(proof_receipt_close_finding "$_rcv" "$(basename "$handle")" "$(backend_get_kind "$dir" "$handle" 2>/dev/null || true)" "${STORY_GITLAB_PROJECT:-}" "$_rcrow" "$_rccited" 2>/dev/null | head -1 || true)"
+    _rcf="$(proof_receipt_close_finding "$_rcv" "$(basename "$handle")" "$(backend_get_kind "$dir" "$handle" 2>/dev/null || true)" "${_GL_PID:-${STORY_GITLAB_PROJECT:-}}" "$_rcrow" "$_rccited" 2>/dev/null | head -1 || true)"
     [ -n "$_rcf" ] && die "close: refusing — $_rcf $(_done_gate_exception)"
   fi
   # Pre-implementation-phase gate — a story still in ssdlc:phase::Requirements|Design at close never
@@ -1056,7 +1081,8 @@ _autoclose_parents() {
 # never reads "Branch: -". Silent no-op when not in a git checkout or on another branch.
 _story_record_branch() {
   local dir="$1" handle="$2" br cur
-  br="$(git -C "${CLAUDE_PROJECT_DIR:-.}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  # The checkout of the story's repository (STORY_REPO when the run names one), else the session's.
+  br="$(git -C "${STORY_REPO:-${CLAUDE_PROJECT_DIR:-.}}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
   case "$br" in
     feature/story-"$handle"|hotfix/story-"$handle"|feature/story-"$handle"-*|hotfix/story-"$handle"-*) : ;;
     *) return 0 ;;

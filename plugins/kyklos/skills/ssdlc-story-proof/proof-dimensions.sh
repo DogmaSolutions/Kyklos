@@ -757,7 +757,26 @@ proof_advreview_row_problem() {
   fi
   # shellcheck source=../../hooks/lib/bridge-mcp.sh
   . "$bmcp"
-  reply="$(bridge_mcp_call advreview_check "$(jq -cn --arg s "$story" --arg t "$tok" '{story:$s, token:$t}' 2>/dev/null)" 60)"; rc=$?
+  # The token is checked under the story's own project (a bridge serving several projects keeps each project's reviews
+  # apart); a bridge whose advreview_check takes no project would ignore it, so that refuses by name (BRIDGE-TOO-OLD).
+  # The story's own project is the one the closing story tool reads the story from (its GitLab backend's project), the
+  # project the caller names (KYKLOS_ADVREVIEW_PROJECT), and only then a setting.
+  local rrl project trc=0
+  rrl="$(dirname "$bmcp")/repo-role.sh"
+  # shellcheck source=../../hooks/lib/repo-role.sh
+  [ -f "$rrl" ] && . "$rrl"
+  project="${_GL_PID:-${KYKLOS_ADVREVIEW_PROJECT:-}}"
+  [ -n "$project" ] || project="$(repo_story_project 2>/dev/null || true)"
+  bridge_mcp_tool_takes advreview_check project 30 || trc=$?
+  # FAIL-CLOSED: only a bridge that answered and lists the project input is asked; every other answer refuses.
+  case "$trc" in
+    0) : ;;
+    1) printf 'Adversarial Review Token CANNOT be verified for story %s - BRIDGE-TOO-OLD: the KyklosBridge does not check review tokens per project yet (its advreview_check takes no project); update the bridge (relaunch the container from an updated launcher), then re-close.\n' "$story"
+       return 0 ;;
+    *) printf 'Adversarial Review Token CANNOT be verified for story %s - the KyklosBridge did not list its tools (rc %s; endpoint file %s). Only the bridge can check a review token; refusing (fail-closed): re-close when the bridge answers.\n' "$story" "$trc" "$(bridge_mcp_json_path)"
+       return 0 ;;
+  esac
+  reply="$(bridge_mcp_call advreview_check "$(jq -cn --arg p "$project" --arg s "$story" --arg t "$tok" '{story:$s, token:$t} + (if $p == "" then {} else {project:$p} end)' 2>/dev/null)" 60)"; rc=$?
   if [ "$rc" -ne 0 ] || bridge_mcp_is_error "$reply"; then
     printf 'Adversarial Review Token CANNOT be verified for story %s - the KyklosBridge did not answer (rc %s; endpoint file %s, override with KYKLOS_BRIDGE_MCP_JSON). Only the bridge can check a review token; refusing (fail-closed): re-close when the bridge is reachable.\n' "$story" "$rc" "$(bridge_mcp_json_path)"
     return 0

@@ -126,8 +126,145 @@ _proof_tool_detect_story() {
     _proof_tool_story_key "$n"
 }
 
-# _proof_tool_token_file DIM STORY -> the token path for DIM bound to STORY ("<dim-slug>@<story>.token").
-_proof_tool_token_file() { printf '%s/%s@%s.token' "$(_proof_tool_dir)" "$(_proof_tool_slug "$1")" "$2"; }
+# ---- Tokens kept per project -------------------------------------------------------------------------------------
+# A bridge may serve several GitLab projects, and two projects can each have a story with the same number. A token is
+# therefore kept under the project it belongs to: "<token dir>/<project id>/<dim-slug>@<story>.token", where the
+# project id is the canonical numeric GitLab id the bridge's one repository resolver answers (project_resolve). The
+# project is bound by `--project <id>` (emit, verify) or KYKLOS_PROOF_PROJECT; the bridge always names it, and a
+# container emit asks the bridge for the project of the files' repository. A token written with no project bound is a
+# project-less token ("<token dir>/<dim-slug>@<story>.token"): the bridge carries it to its home project's key when the
+# tree it records is the home project's tree, and refuses it otherwise. The folder is the record of the project: a
+# reader bound to a project reads only that project's folder. The Test Discipline token is the exception: it stays
+# project-less (its receipts and its bridge emit belong to the content ledger's work, which answers Test Discipline per
+# project from the project's own tree), so a bound project never changes where it is read or written.
+# [RiskMitigation RA-02] [CySec] Prevents CWE-639 "Authorization Bypass Through User-Controlled Key": one project's
+# token never answers for another project's story of the same number.
+
+# _proof_tool_project -> the bound project id ('' when none is bound), leading zeros dropped.
+_proof_tool_project() {
+    local p="${_PTG_PROJECT:-${KYKLOS_PROOF_PROJECT:-}}"
+    case "$p" in ''|*[!0-9]*) return 0 ;; esac
+    printf '%s' "$p" | sed -E 's/^0+([0-9])/\1/'
+}
+
+# _proof_tool_project_valid VALUE -> rc 0 iff VALUE is empty or a numeric project id.
+_proof_tool_project_valid() { case "${1:-}" in *[!0-9]*) return 1 ;; esac; return 0; }
+
+# _proof_tool_projectless_token_file DIM STORY -> the project-less token path of DIM for STORY.
+_proof_tool_projectless_token_file() { printf '%s/%s@%s.token' "$(_proof_tool_dir)" "$(_proof_tool_slug "$1")" "$2"; }
+
+# _proof_tool_keyed_projects DIM STORY -> the ids of the projects holding a keyed DIM token of STORY, one per line.
+_proof_tool_keyed_projects() {
+    local dir slug f p
+    dir="$(_proof_tool_dir)"; slug="$(_proof_tool_slug "$1")"
+    for f in "$dir"/*/"$slug@$2.token"; do
+        [ -f "$f" ] || continue
+        p="$(basename "$(dirname "$f")")"
+        case "$p" in ''|*[!0-9]*) continue ;; esac
+        printf '%s\n' "$p"
+    done
+}
+
+# _proof_tool_token_file DIM STORY [write] -> the token path for DIM bound to STORY. With a project bound, the project's
+# keyed path. With none bound: the project-less path; a READ that finds no project-less token but exactly one project
+# holding a keyed token of the story reads that one (a reader that cannot name the project, on a bridge serving one
+# project, or the only project with that story number); two or more such projects are refused by the caller, naming
+# them (_proof_tool_keyed_projects). A write with no project bound always writes the project-less path.
+_proof_tool_token_file() {
+    local p dir slug only
+    p="$(_proof_tool_project)"; dir="$(_proof_tool_dir)"; slug="$(_proof_tool_slug "$1")"
+    if [ "$slug" = test-discipline ]; then printf '%s/%s@%s.token' "$dir" "$slug" "$2"; return 0; fi
+    if [ -n "$p" ]; then printf '%s/%s/%s@%s.token' "$dir" "$p" "$slug" "$2"; return 0; fi
+    if [ "${3:-}" != write ] && [ ! -f "$dir/$slug@$2.token" ]; then
+        only="$(_proof_tool_keyed_projects "$1" "$2")"
+        if [ -n "$only" ] && [ "$(printf '%s\n' "$only" | wc -l)" -eq 1 ]; then
+            printf '%s/%s/%s@%s.token' "$dir" "$only" "$slug" "$2"; return 0
+        fi
+    fi
+    printf '%s/%s@%s.token' "$dir" "$slug" "$2"
+}
+
+# _proof_tool_project_refusal DIM STORY TOKFILE -> with no project bound and no token at TOKFILE, print the refusal
+# naming the projects that each hold a DIM token of STORY (the reader must name its project); nothing otherwise.
+_proof_tool_project_refusal() {
+    local dim="$1" story="$2" tokfile="$3" holders
+    [ ! -f "$tokfile" ] && [ -z "$(_proof_tool_project)" ] || return 0
+    holders="$(_proof_tool_keyed_projects "$dim" "$story")"
+    if [ -n "$holders" ] && [ "$(printf '%s\n' "$holders" | wc -l)" -gt 1 ]; then
+        printf 'no-token: PROJECT-REQUIRED: projects %s each hold a %s token of story %s; name the project (--project <id>)' "$(printf '%s\n' "$holders" | tr '\n' ' ' | sed 's/ $//')" "$dim" "$story"
+    fi
+}
+
+# proof_tool_carry_projectless DIM STORY TREE -> with a project bound, carry the project-less DIM token of STORY to the
+# project's key when the tree it was measured in (its root: line, else the root its .base sidecar names, else the token
+# root) is TREE, the bound project's tree; the bridge calls it only for its home project, the only project a token
+# written before tokens were kept per project can belong to. rc 0 when there is nothing to carry or it was carried
+# (printing "carried <dim> <story> <project>"); rc 1 with one "<verdict>: <what>" line when it is not this project's.
+# The token, its root sidecar (rewritten for the folder one level deeper) and its measured sidecar move together.
+# [RiskMitigation RA-02] A project-less token goes only to the project whose tree it was measured in, never by number.
+proof_tool_carry_projectless() {
+    local dim="$1" story="$2" tree="$3" p legacy keyed recorded base bf mf
+    p="$(_proof_tool_project)"
+    [ -n "$p" ] && [ "$(_proof_tool_slug "$dim")" != test-discipline ] || return 0
+    keyed="$(_proof_tool_token_file "$dim" "$story")"
+    legacy="$(_proof_tool_projectless_token_file "$dim" "$story")"
+    [ ! -f "$keyed" ] && [ -f "$legacy" ] || return 0
+    recorded="$(sed -n 's/^root://p' "$legacy" | head -1 | tr -d '\r')"
+    if [ -z "$recorded" ]; then
+        base="$(_proof_tool_token_base "$legacy")"
+        if [ -n "$base" ]; then recorded="$(_proof_tool_join_rel "$(dirname "$legacy")" "$base")"; else recorded="$(_proof_tool_root)"; fi
+    fi
+    if [ -z "$tree" ] || [ "$(_proof_tool_canon_path "$recorded")" != "$(_proof_tool_canon_path "$tree")" ]; then
+        printf 'unauthentic: TOKEN-OTHER-PROJECT: the %s token of story %s names no project and was measured in %s, not in project %s'"'"'s tree %s; measure it again for project %s\n' \
+            "$dim" "$story" "$(_proof_tool_canon_path "$recorded")" "$p" "${tree:-(none)}" "$p"
+        return 1
+    fi
+    mkdir -p "$(dirname "$keyed")" 2>/dev/null || { printf 'unavailable: the folder of project %s could not be made\n' "$p"; return 1; }
+    _proof_tool_lock "$legacy" || { printf 'unavailable: the token of story %s is being written; check again\n' "$story"; return 1; }
+    bf="$(_proof_tool_base_file "$legacy")"; mf="$(_proof_tool_measured_file "$legacy")"
+    if [ -f "$bf" ]; then
+        base="$(_proof_tool_token_base "$legacy")"
+        case "$base" in .) base=".." ;; *) base="../$base" ;; esac
+        printf '%s\n' "$base" > "$(_proof_tool_base_file "$keyed")" || { _proof_tool_unlock "$legacy"; printf 'unavailable: the root of the carried token could not be written\n'; return 1; }
+        rm -f "$bf"
+    fi
+    [ ! -f "$mf" ] || mv -f "$mf" "$(_proof_tool_measured_file "$keyed")"
+    mv -f "$legacy" "$keyed"
+    _proof_tool_unlock "$legacy"
+    printf 'carried %s %s %s\n' "$dim" "$story" "$p"
+}
+
+# _proof_tool_no_token_reason DIM STORY TOKFILE -> the reason no token answers: the projects to choose among, or "no
+# token for story N" (naming the bound project, if any).
+_proof_tool_no_token_reason() {
+    local refusal p
+    refusal="$(_proof_tool_project_refusal "$1" "$2" "$3")"
+    if [ -n "$refusal" ]; then printf '%s' "$refusal"; return 0; fi
+    p="$(_proof_tool_project)"
+    if [ -n "$p" ] && [ -f "$(_proof_tool_projectless_token_file "$1" "$2")" ]; then
+        printf 'no-token: story %s has only a token that names no project, which is carried only to the bridge'"'"'s home project when it was measured in that project'"'"'s tree; measure it again for project %s' "$2" "$p"
+        return 0
+    fi
+    printf 'no-token: no token for story %s%s' "$2" "${p:+ of project $p}"
+}
+
+# _proof_tool_bind_project_for DIR -> bind the project of the repository at DIR when none is bound, by asking the
+# bridge's one repository resolver (item_project_of). On the host (the key is present) nothing is asked: the bridge
+# names the project itself. A bridge that cannot be asked leaves the token project-less, said on stderr.
+_proof_tool_bind_project_for() {
+    local d="${1:-.}" answer rc
+    [ -z "$(_proof_tool_project)" ] || return 0
+    [ -z "${KYKLOS_PROOF_HMAC_KEY:-}" ] || return 0
+    if ! command -v item_project_of >/dev/null 2>&1; then
+        # shellcheck source=/dev/null
+        [ -f "$_PTG_LIB_DIR/item-project.sh" ] && . "$_PTG_LIB_DIR/item-project.sh"
+    fi
+    command -v item_project_of >/dev/null 2>&1 || return 0
+    answer="$(item_project_of "$d")"; rc=$?
+    if [ "$rc" -eq 0 ]; then _PTG_PROJECT="$answer"; return 0; fi
+    printf '[kyklos] proof-tool: the token is kept without a project (%s); the bridge carries it to its home project when the token'"'"'s tree is that project'"'"'s\n' "$answer" >&2
+    return 0
+}
 # _proof_tool_legacy_token_file DIM -> the pre-binding, story-less token path. Never accepted as proof any more
 # (it cannot show which story it proves); only used to explain a refusal.
 _proof_tool_legacy_token_file() { printf '%s/%s.token' "$(_proof_tool_dir)" "$(_proof_tool_slug "$1")"; }
@@ -954,9 +1091,12 @@ _proof_tool_attachments_with() {
 # only over a token it can authenticate.
 proof_tool_attach() {
     local story="" line="" dim="Test Discipline" tokfile stored="" body="" roots="" atts mac tmp
+    local _PTG_PROJECT="${_PTG_PROJECT:-}"
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --story) story="${2:-}"; shift 2 || return 1 ;;
+            --project) _proof_tool_project_valid "${2:-}" || { echo "proof_tool_attach: --project needs a numeric GitLab project id" >&2; return 2; }
+                       _PTG_PROJECT="${2:-}"; shift 2 || return 1 ;;
             --attachment) line="${2:-}"; shift 2 || return 1 ;;
             *) echo "proof_tool_attach: unknown option '$1'" >&2; return 2 ;;
         esac
@@ -997,9 +1137,12 @@ proof_tool_attach() {
 # key). On a refusal: rc 1 and one "<verdict>: <what>" line on stdout.
 proof_tool_receipts() {
     local story="" tokfile stored
+    local _PTG_PROJECT="${_PTG_PROJECT:-}"
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --story) story="${2:-}"; shift 2 || return 1 ;;
+            --project) _proof_tool_project_valid "${2:-}" || { echo "unavailable: --project needs a numeric GitLab project id"; return 1; }
+                       _PTG_PROJECT="${2:-}"; shift 2 || return 1 ;;
             *) echo "unavailable: unknown option '$1'"; return 1 ;;
         esac
     done
@@ -1197,12 +1340,23 @@ _proof_tool_lock() {
 # _proof_tool_unlock TOKFILE -> release the lock _proof_tool_lock took.
 _proof_tool_unlock() { rmdir "$1.lock" 2>/dev/null || true; }
 
+# _proof_tool_files_from LIST -> the paths of LIST (one per line, carriage returns and blank lines dropped), one per
+# output line, so a caller passes a list longer than a command line takes through a file (--files-from). rc 1 naming the
+# list when it cannot be read: a list that cannot be read is never an empty list.
+_proof_tool_files_from() {
+    [ -r "${1:-}" ] || { echo "proof-tool-gate.sh: the list file '${1:-}' given with --files-from cannot be read" >&2; return 1; }
+    tr -d '\r' < "$1" | grep -v '^$' || true
+}
+
 # proof_tool_emit DIM FILE... -> the TOOL calls this on a clean pass over FILE.... Records a content token = the
 # hash of exactly those files. Loud non-zero if NO file could be hashed, so a tool never silently emits an empty
 # (and therefore un-verifiable, trivially-satisfiable) token.
 # [RiskMitigation RA-03] The token and its root sidecar are written as a pair and restored together on a failure.
 proof_tool_emit() {
     local story="${KYKLOS_PROOF_STORY:-}" root_opt="" attach_opt="" capable_opt=0
+    # The project this emit keeps the token under: dynamic scope, so a --project of one emit never leaks into the next.
+    local _PTG_PROJECT="${_PTG_PROJECT:-}"
+    _proof_tool_project_valid "${KYKLOS_PROOF_PROJECT:-}" || { echo "proof_tool_emit: KYKLOS_PROOF_PROJECT='${KYKLOS_PROOF_PROJECT}' is not a numeric GitLab project id" >&2; return 1; }
     # Options in any order: --story <N> binds the story; --root <dir> is the repository the files belong to (a tree
     # the bridge measured outside its solution root). With --root every path is recorded relative to that repository
     # and a file outside it is refused, so a token can never carry a host path the container cannot resolve.
@@ -1212,6 +1366,8 @@ proof_tool_emit() {
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --story) story="${2:-}"; shift 2 || return 1 ;;
+            --project) _proof_tool_project_valid "${2:-}" && [ -n "${2:-}" ] || { echo "proof_tool_emit: --project needs a numeric GitLab project id, not '${2:-}'" >&2; return 1; }
+                       _PTG_PROJECT="$2"; shift 2 ;;
             --root) root_opt="${2:-}"; shift 2 || return 1
                     [ -n "$root_opt" ] || { echo "proof_tool_emit: --root needs a directory" >&2; return 1; } ;;
             --receipt-capable) capable_opt=1; shift ;;
@@ -1221,6 +1377,15 @@ proof_tool_emit() {
         esac
     done
     local dim="$1"; shift
+    # --files-from <list> right after the dimension: the files come from that list (one per line) instead of the command
+    # line, for a change too large for one; files given after it are kept too.
+    if [ "${1:-}" = --files-from ]; then
+        local _ff_list _ff_path _ff_args=()
+        _ff_list="$(_proof_tool_files_from "${2:-}")" || return 1
+        shift 2
+        while IFS= read -r _ff_path; do [ -n "$_ff_path" ] && _ff_args+=("$_ff_path"); done <<< "$_ff_list"
+        set -- "${_ff_args[@]}" "$@"
+    fi
     # With --root, a relative path names a file IN that repository (as documented), never one under the caller's
     # current directory: resolve it against --root before hashing and before the containment check.
     if [ -n "$root_opt" ]; then
@@ -1250,7 +1415,14 @@ proof_tool_emit() {
         story="$(_proof_tool_detect_story "$_fd")"
     fi
     [ -n "$story" ] || { echo "proof_tool_emit($dim): cannot tell which story these files belong to -> pass --story <N> (or set KYKLOS_PROOF_STORY)" >&2; return 1; }
+    # The project the files' repository belongs to keys the token (see "Tokens kept per project"; Test Discipline stays
+    # project-less).
+    if [ "$(_proof_tool_slug "$dim")" != test-discipline ]; then
+        if [ -n "$root_opt" ]; then _proof_tool_bind_project_for "$root_opt"; else
+            local _pd; _pd="$(dirname "$1" 2>/dev/null)"; [ -d "$_pd" ] || _pd="."; _proof_tool_bind_project_for "$_pd"; fi
+    fi
     dir="$(_proof_tool_dir)"; mkdir -p "$dir" 2>/dev/null || return 1
+    mkdir -p "$(dirname "$(_proof_tool_token_file "$dim" "$story" write)")" 2>/dev/null || return 1
     # A SHELL-side emit is agent-callable with no tool run, so every emission leaves a DURABLE greppable trail —
     # who/what/which files — via escape_audit AND a loud stderr line (the transcript is a second record the
     # state-dir eraser cannot reach). For a SEALED dimension (proof_tool_is_sealed) a container self-mint also fails
@@ -1311,7 +1483,7 @@ proof_tool_emit() {
     # container verify is UNCHANGED (content-only), while a keyed (host) verify additionally proves authenticity —
     # a self-mint has no key, so it cannot forge the MAC.
     local mac tokfile tmp
-    tokfile="$(_proof_tool_token_file "$dim" "$story")"
+    tokfile="$(_proof_tool_token_file "$dim" "$story" write)"
     # A shared-folder token is judged against the container start marker: make sure it exists BEFORE the token is
     # written, so a token minted in this container is never older than the marker (SessionStart normally made it).
     if _proof_tool_shared_dir >/dev/null; then container_start_marker_ensure >/dev/null || true; fi
@@ -1421,7 +1593,7 @@ proof_tool_verify() {
     # story-less legacy token (it cannot show which story it proves). [RiskMitigation RA-02]
     [ -n "$story" ] || { PROOF_TOOL_VERIFY_REASON="no-token: the story could not be determined (pass --story <N>)"; return 1; }
     tokfile="$(_proof_tool_token_file "$dim" "$story")"
-    [ -f "$tokfile" ] || { PROOF_TOOL_VERIFY_REASON="no-token: no token for story $story"; return 1; }
+    [ -f "$tokfile" ] || { PROOF_TOOL_VERIFY_REASON="$(_proof_tool_no_token_reason "$dim" "$story" "$tokfile")"; return 1; }
     # FRESHNESS in shared mode: a shared token dir (workspace-mounted) survives container restarts, so
     # dir lifetime no longer enforces "a fresh container must re-run the tool" — the token must be NEWER than this
     # container's start marker (container_start_marker_ensure: a file created once and never rewritten). The state
@@ -1522,7 +1694,7 @@ proof_tool_verify_at_result() {
     story="$(_proof_tool_story_key "${story:-${KYKLOS_PROOF_STORY:-}}")"
     [ -n "$story" ] || { PROOF_TOOL_VERIFY_REASON="no-token: the story could not be determined (pass --story <N>)"; return 1; }
     tokfile="$(_proof_tool_token_file "$dim" "$story")"
-    [ -f "$tokfile" ] || { PROOF_TOOL_VERIFY_REASON="no-token: no token for story $story"; return 1; }
+    [ -f "$tokfile" ] || { PROOF_TOOL_VERIFY_REASON="$(_proof_tool_no_token_reason "$dim" "$story" "$tokfile")"; return 1; }
     stored="$(cat "$tokfile" 2>/dev/null)"
     [ -n "$stored" ] || { PROOF_TOOL_VERIFY_REASON="unauthentic: the token file is empty"; return 1; }
     body="$(printf '%s\n' "$stored" | grep -v -e '^hmac:' -e '^root:' -e "^$_PTG_ATTACH_PREFIX" 2>/dev/null)"
@@ -1584,8 +1756,9 @@ proof_tool_applies() {
 # non-zero when none can be resolved. Candidates, in order of authority:
 #   1. KYKLOS_CHANGE_BASE_REF (an explicit ref; if set it is the ONLY candidate, so a typo fails instead of guessing);
 #   2. the merge request's target branch in CI (CI_MERGE_REQUEST_TARGET_BRANCH_NAME, as origin/<name> or <name>);
-#   3. the usual trunks origin/develop, origin/main, origin/master, each preceded by its local branch when that one
-#      is strictly ahead of it (_proof_tool_trunk_candidates).
+#   3. the repository's trunks (_proof_tool_trunk_candidates): the one the bridge's trunk resolver named for the run,
+#      else the ones the bridge names from GitLab (develop, the default branch), each as origin/<name>, preceded by its
+#      local branch when that one is strictly ahead of it.
 # Among the candidates that exist, the NEAREST merge-base wins (fewest commits between it and HEAD): a GitFlow feature
 # branch forked from develop is judged against develop, a hotfix against main. A merge of the trunk INTO the branch
 # moves the merge-base forward, so trunk changes merged in are never charged to the branch. A shallow clone whose
@@ -1598,7 +1771,9 @@ proof_tool_change_base() {
 # proof_tool_change_base_ref <repo> -> "<trunk-ref> <merge-base>": the trunk this branch forked from (the candidate
 # with the closest merge base) and that merge base; rc 1 when none resolves. One selection rule for every caller.
 # _proof_tool_trunk_candidates [REPO] -> the trunk refs a branch may have forked from, one per line, in order of
-# authority. In REPO, a local trunk branch (develop, main, master) comes before its remote copy when it holds
+# authority. The trunk names are the one the bridge named for the run (KYKLOS_PROOF_TRUNK_REF), else the ones the bridge
+# names from GitLab (item_trunk_names_of); only when no bridge can say, develop, main and master. In REPO, a local
+# trunk branch comes before its remote copy when it holds
 # everything the remote copy holds and more (strictly ahead; equal copies keep the remote one): a project that
 # merges into its trunk locally and pushes later has its stories' merges only there. A local trunk that is behind,
 # has diverged, or has no remote copy is never used.
@@ -1613,12 +1788,26 @@ _proof_tool_trunk_candidates() {
     elif [ -z "$repo" ]; then
         printf '%s\n' origin/develop origin/main origin/master
     else
-        # One read of the six trunk refs per listing; the ancestry checks are reused while those refs are unchanged
+        # The trunk names: the one the bridge's trunk resolver named for this run (KYKLOS_PROOF_TRUNK_REF), else the ones the
+        # bridge names from GitLab for the repository (item_trunk_names_of: develop when GitLab has it, and the default
+        # branch), never a branch merely named like a trunk; only when no bridge can be asked (and on the host, which names
+        # the trunk itself) the usual names.
+        local names=() asked
+        if _proof_tool_trunk_given; then
+            names=("${KYKLOS_PROOF_TRUNK_REF#origin/}")
+        elif [ -z "${KYKLOS_PROOF_HMAC_KEY:-}" ] && { command -v item_trunk_names_of >/dev/null 2>&1 || { [ -f "$_PTG_LIB_DIR/item-project.sh" ] && . "$_PTG_LIB_DIR/item-project.sh"; }; } \
+            && asked="$(item_trunk_names_of "$repo")"; then
+            mapfile -t names <<< "$asked"
+        else
+            names=(develop main master)
+        fi
+        # One read of the trunk refs per listing; the ancestry checks are reused while those refs are unchanged
         # (the token step lists the candidates several times, and its git calls must not grow with each listing).
-        local n refs loc rem out="" trunk_refs=(refs/heads/develop refs/heads/main refs/heads/master refs/remotes/origin/develop refs/remotes/origin/main refs/remotes/origin/master)
+        local n refs loc rem out="" trunk_refs=()
+        for n in "${names[@]}"; do trunk_refs+=("refs/heads/$n" "refs/remotes/origin/$n"); done
         refs="$(git -C "$repo" for-each-ref --format='%(refname) %(objectname)' "${trunk_refs[@]}" 2>/dev/null)"
-        if [ "${_PTG_TRUNK_CACHE_KEY:-}" != "$repo|$refs" ]; then
-            for n in develop main master; do
+        if [ "${_PTG_TRUNK_CACHE_KEY:-}" != "$repo|${names[*]}|$refs" ]; then
+            for n in "${names[@]}"; do
                 loc="$(printf '%s\n' "$refs" | awk -v r="refs/heads/$n" '$1 == r { print $2 }')"
                 rem="$(printf '%s\n' "$refs" | awk -v r="refs/remotes/origin/$n" '$1 == r { print $2 }')"
                 if [ -n "$loc" ] && [ -n "$rem" ] && [ "$loc" != "$rem" ] \
@@ -1627,7 +1816,7 @@ _proof_tool_trunk_candidates() {
                 fi
                 out="${out}origin/$n"$'\n'
             done
-            _PTG_TRUNK_CACHE_KEY="$repo|$refs"; _PTG_TRUNK_CACHE="$out"
+            _PTG_TRUNK_CACHE_KEY="$repo|${names[*]}|$refs"; _PTG_TRUNK_CACHE="$out"
         fi
         printf '%s' "$_PTG_TRUNK_CACHE"
     fi
@@ -2335,7 +2524,7 @@ proof_tool_verify_at_trunk_head() {
     PROOF_TOOL_VERIFY_REASON=""
     story="$(_proof_tool_story_key "$story")"
     tokfile="$(_proof_tool_token_file "$dim" "$story")"
-    [ -f "$tokfile" ] || { PROOF_TOOL_VERIFY_REASON="no-token: no token for story $story"; return 1; }
+    [ -f "$tokfile" ] || { PROOF_TOOL_VERIFY_REASON="$(_proof_tool_no_token_reason "$dim" "$story" "$tokfile")"; return 1; }
     top="$(_proof_tool_canon_path "$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null)")"
     root="$(sed -n 's/^root://p' "$tokfile" | head -1)"
     if [ -n "$root" ] && [ -d "$root" ]; then root="$(_proof_tool_canon_path "$root")"; else root="$(_proof_tool_root)"; fi
@@ -2625,7 +2814,13 @@ proof_tool_story_changed_lines() {
     fi
     command -v bridge_mcp_call >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 \
         || { echo "changed-lines: BRIDGE-UNREACHABLE: bridge unreachable: changed lines unknown (the bridge client is missing)" >&2; return 1; }
-    args="$(jq -cn --arg s "$key" --arg t "$proj" '{story:$s, tree:$t, files:$ARGS.positional}' --args "$@")" || return 1
+    # The files reach jq on its standard input, one per line, never as arguments: a long list fits no command line. A
+    # path holding a line break cannot be one line, so it is refused by name, never split into two paths.
+    local _cl_file
+    for _cl_file in "$@"; do
+        case "$_cl_file" in *$'\n'*|*$'\r'*) echo "changed-lines: the path '$_cl_file' holds a line break, so it cannot be passed as one path" >&2; return 1 ;; esac
+    done
+    args="$( { [ "$#" -eq 0 ] || printf '%s\n' "$@"; } | jq -Rsc --arg s "$key" --arg t "$proj" '{story:$s, tree:$t, files:(split("\n") | map(select(length > 0)))}')" || return 1
     wait="${KYKLOS_PROOF_VERIFY_TIMEOUT_SECONDS:-600}"
     case "$wait" in ''|*[!0-9]*|?????*) wait=600 ;; esac
     reply="$(bridge_mcp_call story_lines "$args" "$wait")"; rc=$?
@@ -2720,7 +2915,7 @@ proof_tool_verify_at() {
     PROOF_TOOL_VERIFY_REASON=""
     story="$(_proof_tool_story_key "$story")"
     tokfile="$(_proof_tool_token_file "$dim" "$story")"
-    [ -f "$tokfile" ] || { PROOF_TOOL_VERIFY_REASON="no-token: no token for story $story"; return 1; }
+    [ -f "$tokfile" ] || { PROOF_TOOL_VERIFY_REASON="$(_proof_tool_no_token_reason "$dim" "$story" "$tokfile")"; return 1; }
     top="$(_proof_tool_canon_path "$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null)")"
     root="$(sed -n 's/^root://p' "$tokfile" | head -1)"
     if [ -n "$root" ] && [ -d "$root" ]; then root="$(_proof_tool_canon_path "$root")"; else root="$(_proof_tool_root)"; fi
@@ -3227,13 +3422,34 @@ proof_tool_notpertinent_finding() {
 # token requires a concrete report file whose content still hashes identically. Distinct from the coverage
 # proof-tool token above: this proves a REVIEW ran, not that files were covered.
 #
-# _advreview_body STORY REPORTFILE -> the canonical bound string "advreview:<story>:<sha256(report)>" (or empty if
-# the report is unreadable). The token is a signature/hash OVER this body, so producer + verifier never drift.
+# The review token store is keyed by the GitLab project and the story, so two projects' stories of the same number never
+# share an entry, and the signed body names the project, so a token minted for one project never verifies for another.
+# The one format (shared with the bridge, which names the same entries; vectors in
+# hooks/tests/fixtures/review-token-format/vectors.txt):
+#   keyed  (a project is named): entry "advreview-p<project>-<story>", body "advreview:<project>/<story>:<sha256(report)>"
+#   legacy (no project named):   entry "advreview-<story>",            body "advreview:<story>:<sha256(report)>"
+# The legacy form stays readable so a bridge can carry its own project's older entries over to the keyed name.
+#
+# _advreview_key PROJECT STORY -> the entry name (without its .body/.token suffix); non-zero when the story is not a
+# number or a named project is not a numeric id.
+# [CySec] Prevents CWE-22 "Improper Limitation of a Pathname to a Restricted Directory": both parts become a file name,
+# so only digits pass.
+_advreview_key() {
+    local project="$1" story="$2"
+    [[ "$story" =~ ^[0-9]+$ ]] || return 1
+    if [ -z "$project" ]; then printf 'advreview-%s' "$story"; return 0; fi
+    [[ "$project" =~ ^[0-9]+$ ]] || return 1
+    printf 'advreview-p%s-%s' "$project" "$story"
+}
+
+# _advreview_body PROJECT STORY REPORTFILE -> the canonical bound string (above) for the report, or non-zero when the
+# report is unreadable. The token is a signature OVER this body, so producer + verifier never drift.
 _advreview_body() {
-    local story="$1" report="$2" h
+    local project="$1" story="$2" report="$3" h
     [ -n "$story" ] && [ -f "$report" ] || return 1
     h="$(_proof_tool_sha256 "$report")"; [ -n "$h" ] || return 1
-    printf 'advreview:%s:%s' "$story" "$h"
+    if [ -n "$project" ]; then printf 'advreview:%s/%s:%s' "$project" "$story" "$h"
+    else printf 'advreview:%s:%s' "$story" "$h"; fi
 }
 
 # _advreview_token BODY -> the token for a bound body: HMAC-SHA256 under the host-only signing key. There is NO keyless
@@ -3247,46 +3463,111 @@ _advreview_token() {
     printf '%s' "$mac"
 }
 
-# proof_advreview_emit STORY REPORTFILE -> mint + STORE the token for STORY bound to REPORTFILE, and PRINT it (for
-# embedding in the GitLab comment body AND the Proof "Token" metric). Loud non-zero if the report is unreadable, so
-# a review can never mint an empty/unbindable token. Stores the bound body so verify can recompute without the file.
+# _advreview_project_arg ARGS... -> sets _ADVREVIEW_PROJECT from a leading "--project <id>" and _ADVREVIEW_SHIFT to the
+# number of arguments it took (0 or 2).
+_advreview_project_arg() {
+    _ADVREVIEW_PROJECT=""; _ADVREVIEW_SHIFT=0
+    if [ "${1:-}" = "--project" ]; then _ADVREVIEW_PROJECT="${2:-}"; _ADVREVIEW_SHIFT=2; fi
+}
+
+# proof_advreview_emit [--project <id>] STORY REPORTFILE -> mint + STORE the token for STORY (of the project) bound to
+# REPORTFILE, and PRINT it (for embedding in the GitLab comment body AND the Proof "Token" metric). Loud non-zero if the
+# report is unreadable, so a review can never mint an empty/unbindable token. Stores the bound body so verify can
+# recompute without the file.
 proof_advreview_emit() {
-    local story="$1" report="$2" body tok dir
-    body="$(_advreview_body "$story" "$report")" || { echo "proof_advreview_emit($story): report not readable -> refusing to mint" >&2; return 1; }
+    _advreview_project_arg "$@"; shift "$_ADVREVIEW_SHIFT"
+    local project="$_ADVREVIEW_PROJECT" story="$1" report="$2" body tok dir key
+    key="$(_advreview_key "$project" "$story")" || { echo "proof_advreview_emit($project/$story): the story and the project must be numbers -> refusing to mint" >&2; return 1; }
+    body="$(_advreview_body "$project" "$story" "$report")" || { echo "proof_advreview_emit($story): report not readable -> refusing to mint" >&2; return 1; }
     tok="$(_advreview_token "$body")" && [ -n "$tok" ] \
         || { echo "proof_advreview_emit($story): no host signing key here - a review token is minted only by the bridge (run advreview, which asks it)" >&2; return 1; }
     dir="$(_proof_tool_dir)"; mkdir -p "$dir" 2>/dev/null || return 1
-    printf '%s\n' "$body" > "$dir/advreview-$story.body"
-    printf '%s\n' "$tok"  > "$dir/advreview-$story.token"
+    printf '%s\n' "$body" > "$dir/$key.body"
+    printf '%s\n' "$tok"  > "$dir/$key.token"
     printf '%s\n' "$tok"
 }
 
-# proof_advreview_verify STORY PRESENTED -> exit 0 iff PRESENTED matches the token recomputed from the STORED bound
-# body for STORY. Fail-CLOSED: no stored body, or a mismatch (a hand-typed / stale / wrong-key token), yields
-# non-zero. The gate calls this at close; a pass means a real emit happened for exactly this story's report.
+# _advreview_carry_mac PROJECT STORY LEGACYBODY -> the host-keyed mark that the bridge carried this legacy entry over to
+# PROJECT's keyed name (empty without the key). Only the bridge holds the key, so an entry copied by hand under another
+# project's name carries no valid mark and never verifies.
+_advreview_carry_mac() { _proof_tool_hmac "advreview-carry:$1/$2:$3"; }
+
+# proof_advreview_verify [--project <id>] STORY PRESENTED -> exit 0 iff PRESENTED matches the token recomputed from the
+# STORED bound body of that entry. Fail-CLOSED: no stored body, or a mismatch (a hand-typed / stale / wrong-key token),
+# yields non-zero. A keyed entry must name its own project and story in its body, or be a legacy body the bridge carried
+# over to this project's name (its "carried:" mark verifies), so an entry copied under another project's name never
+# verifies. The gate calls this at close; a pass means a real emit happened for exactly this story's report.
+# [CySec] Prevents CWE-639 "Authorization Bypass Through User-Controlled Key": a review token of one project's story is
+# never accepted for another project's story of the same number.
 proof_advreview_verify() {
-    local story="$1" presented="$2" dir body want
+    _advreview_project_arg "$@"; shift "$_ADVREVIEW_SHIFT"
+    local project="$_ADVREVIEW_PROJECT" story="$1" presented="$2" dir body want key carried
     [ -n "$story" ] && [ -n "$presented" ] || return 1
+    key="$(_advreview_key "$project" "$story")" || return 1
     dir="$(_proof_tool_dir)"
-    [ -f "$dir/advreview-$story.body" ] || return 1
-    body="$(cat "$dir/advreview-$story.body" 2>/dev/null)"; [ -n "$body" ] || return 1
+    [ -f "$dir/$key.body" ] || return 1
+    body="$(sed -n 1p "$dir/$key.body" 2>/dev/null)"; [ -n "$body" ] || return 1
+    case "$body" in
+        "advreview:$project/$story:"*) [ -n "$project" ] || return 1 ;;
+        "advreview:$story:"*)
+            if [ -n "$project" ]; then
+                carried="$(sed -n 's/^carried://p' "$dir/$key.body" 2>/dev/null | head -1)"
+                [ -n "$carried" ] && [ "$carried" = "$(_advreview_carry_mac "$project" "$story" "$body")" ] || return 1
+            fi ;;
+        *) return 1 ;;
+    esac
     want="$(_advreview_token "$body")" && [ -n "$want" ] || return 1   # no key here: only the bridge can verify
     [ "$presented" = "$want" ]
+}
+
+# proof_advreview_carry --project <id> -> HOST ONLY: carry every legacy entry ("advreview-<story>") over to the project's
+# keyed name, marked with the host key, when the keyed entry does not exist yet. Only a legacy entry whose stored token
+# still verifies is carried. A carried legacy entry is retired in the same step (renamed "advreview-<story>.carried-p<id>",
+# naming the project it went to), so a store that is shared or later serves another project can never carry the same old
+# review into a second project. Prints one "carried <story>" line per entry carried. A single-project bridge runs this for
+# its own project, the only project its legacy entries can belong to.
+proof_advreview_carry() {
+    _advreview_project_arg "$@"; shift "$_ADVREVIEW_SHIFT"
+    local project="$_ADVREVIEW_PROJECT" dir f story body tok mac key
+    [[ "$project" =~ ^[0-9]+$ ]] || { echo "proof_advreview_carry: name the project (--project <id>)" >&2; return 1; }
+    [ -n "${KYKLOS_PROOF_HMAC_KEY:-}" ] || { echo "proof_advreview_carry: no host signing key here - only the bridge carries review entries" >&2; return 1; }
+    dir="$(_proof_tool_dir)"; [ -d "$dir" ] || return 0
+    for f in "$dir"/advreview-*.body; do
+        [ -f "$f" ] || continue
+        story="${f##*/advreview-}"; story="${story%.body}"
+        [[ "$story" =~ ^[0-9]+$ ]] || continue
+        key="$(_advreview_key "$project" "$story")" || continue
+        [ -e "$dir/$key.body" ] && continue
+        body="$(sed -n 1p "$f" 2>/dev/null)"
+        case "$body" in "advreview:$story:"*) : ;; *) continue ;; esac
+        tok="$(sed -n 1p "$dir/advreview-$story.token" 2>/dev/null)"
+        [ -n "$tok" ] && [ "$tok" = "$(_advreview_token "$body")" ] || continue
+        mac="$(_advreview_carry_mac "$project" "$story" "$body")"; [ -n "$mac" ] || return 1
+        printf '%s\ncarried:%s\n' "$body" "$mac" > "$dir/$key.body.tmp" && printf '%s\n' "$tok" > "$dir/$key.token" \
+            && mv -f "$dir/$key.body.tmp" "$dir/$key.body" || { rm -f "$dir/$key.body.tmp"; return 1; }
+        # Retire the legacy entry: the body first (what a carry and a check look for), then its token.
+        mv -f "$f" "$dir/advreview-$story.carried-p$project" && mv -f "$dir/advreview-$story.token" "$dir/advreview-$story.token.carried-p$project" || return 1
+        printf 'carried %s\n' "$story"
+    done
+    return 0
 }
 
 # ------------------------------------------------------------------------------------------------------------------
 # CLI surface — when this file is EXECUTED (not sourced), dispatch a subcommand. This is the SINGLE source of truth
 # for the token format: a producer (the bridge's coverage path, a CI coverage step, a skill) shells out to
-#   proof-tool-gate.sh emit [--story <N>] [--root <dir>] [--receipt-capable] [--attachment "<record>"] <dimension> <file>...  # record the story-bound content token over the files
+#   proof-tool-gate.sh emit [--story <N>] [--project <id>] [--root <dir>] [--receipt-capable] [--attachment "<record>"] <dimension> <file>...  # record the story-bound content token over the files
 #                                                       (with --root a relative <file> is read in that repository; a path with '..' is refused;
-#                                                        --attachment records the coverage receipt the run posted)
-#   proof-tool-gate.sh attach --story <N> --attachment "<record>"  # HOST ONLY: record a shell coverage receipt in the story's token
-#   proof-tool-gate.sh receipt --story <N>              # HOST ONLY: "receipts: capable|legacy|none", then the records, once the MAC proves them
-#   proof-tool-gate.sh verify <dimension> [--story <N>] [--root <dir>] [--host-check] [--at-result] # exit 0 iff a fresh matching token
+#                                                        --attachment records the coverage receipt the run posted; --project keys it by the project,
+#                                                        else a container emit asks the bridge for the files' project)
+#   proof-tool-gate.sh attach --story <N> [--project <id>] --attachment "<record>"  # HOST ONLY: record a shell coverage receipt in the story's token
+#   proof-tool-gate.sh receipt --story <N> [--project <id>]   # HOST ONLY: "receipts: capable|legacy|none", then the records, once the MAC proves them
+#   proof-tool-gate.sh verify <dimension> [--story <N>] [--project <id>] [--carry-home <tree>] [--root <dir>] [--host-check] [--at-result] # exit 0 iff a fresh matching token
 #                                                       for the story exists (--host-check: the bridge's keyed check, no container session;
-#                                                        --at-result: the close's check, judged at the story's own merge, not the checkout)
-# proof-tool-gate.sh advreview-emit <story> <report-file> # mint+print the adversarial-review token
-# proof-tool-gate.sh advreview-verify <story> <token> # exit 0 iff the token verifies
+#                                                        --at-result: the close's check, judged at the story's own merge, not the checkout;
+#                                                        --carry-home: the bridge's home project carries a project-less token measured in <tree>)
+# proof-tool-gate.sh advreview-emit [--project <id>] <story> <report-file> # mint+print the adversarial-review token
+# proof-tool-gate.sh advreview-verify [--project <id>] <story> <token> # exit 0 iff the token verifies
+# proof-tool-gate.sh advreview-carry --project <id> # HOST ONLY: carry legacy review entries to the project's keyed name
 # proof-tool-gate.sh changed-lines <dir> --story <N> <file>... # per file, the line ranges the story's change made
 # proof-tool-gate.sh change-base <dir> --story <N> [--ranges]   # the commit the story's change starts from (the trunk base the
 #                                                     # coverage receipt's no-drop rule compares touched files against)
@@ -3303,10 +3584,13 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
         emit)             proof_tool_emit "$@" ;;
         verify)           # verify <dimension> [--story <N>] [--root <dir>] (options in any order). --root is the repository
                           # the token's relative paths belong to (a tree beside the solution root); default: the token root.
-                          _v_dim="${1:-}"; shift 2>/dev/null || true; _v_story=""; _v_root=""; _v_at_result=0
+                          _v_dim="${1:-}"; shift 2>/dev/null || true; _v_story=""; _v_root=""; _v_at_result=0; _v_carry=""
                           while [ "$#" -gt 0 ]; do
                               case "$1" in
                                   --story) _v_story="${2:-}"; shift 2 2>/dev/null || shift ;;
+                                  --project) _proof_tool_project_valid "${2:-}" && [ -n "${2:-}" ] || { echo "unavailable: --project needs a numeric GitLab project id"; exit 2; }
+                                             _PTG_PROJECT="$2"; shift 2 ;;
+                                  --carry-home) _v_carry="${2:-}"; shift 2 2>/dev/null || shift ;;
                                   --root)  _v_root="${2:-}"; shift 2 2>/dev/null || shift ;;
                                   --host-check) PROOF_TOOL_HOST_CHECK=1; shift ;;
                                   --at-result) _v_at_result=1; shift ;;
@@ -3314,6 +3598,12 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
                                   *) echo "proof-tool-gate.sh verify: unknown option '$1'" >&2; exit 2 ;;
                               esac
                           done
+                          # --carry-home <tree> (the bridge, for its home project): a project-less token measured in that tree is
+                          # carried to the project's key first; one measured elsewhere is refused.
+                          if [ -n "${_v_carry:-}" ]; then
+                              _v_carried="$(proof_tool_carry_projectless "$_v_dim" "$(_proof_tool_story_key "$_v_story")" "$_v_carry")" || { printf '%s\n' "$_v_carried"; exit 1; }
+                              [ -z "$_v_carried" ] || printf '%s\n' "$_v_carried" >&2
+                          fi
                           # On a refusal, say why on stdout (one "<verdict>: <what>" line): the bridge returns it as its answer.
                           # --at-result (the bridge's close): judged at the story's own result, not at the checkout.
                           if [ "${_v_at_result:-0}" = 1 ]; then
@@ -3325,6 +3615,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
         receipt)          proof_tool_receipts "$@" ;;   # receipt --story <N>: the keyed-checked receipt records
         advreview-emit)   proof_advreview_emit "$@" ;;
         advreview-verify) proof_advreview_verify "$@" ;;
+        advreview-carry)  proof_advreview_carry "$@" ;;   # advreview-carry --project <id> (host only, keyed)
         changed-files)    # changed-files <dir> [--story <N>] [--mr-files <list>]: with a story merged by a merge commit, its merged change
                           # (or, with --mr-files, the files of the story's own merge requests the bridge read from GitLab)
                           _cf_dir="${1:-.}"; shift 2>/dev/null || true; _cf_story=""
@@ -3346,16 +3637,19 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
                               esac
                           done
                           proof_tool_story_change_base "$_cb_dir" "$_cb_story" "$_cb_ranges" ;;
-        changed-lines)    # changed-lines <dir> --story <N> <file>...: the lines of each file the story's change made
+        changed-lines)    # changed-lines <dir> --story <N> [--files-from <list>] <file>...: the lines of each file the story's change made
                           _cl_dir="${1:-.}"; shift 2>/dev/null || true; _cl_story=""; _cl_files=()
                           while [ "$#" -gt 0 ]; do
                               case "$1" in
                                   --story) _cl_story="${2:-}"; shift 2 2>/dev/null || shift ;;
+                                  --files-from) _cl_list="$(_proof_tool_files_from "${2:-}")" || exit 2
+                                                while IFS= read -r _cl_path; do [ -n "$_cl_path" ] && _cl_files+=("$_cl_path"); done <<< "$_cl_list"
+                                                shift 2 2>/dev/null || shift ;;
                                   -*) echo "proof-tool-gate.sh changed-lines: unknown option '$1'" >&2; exit 2 ;;
                                   *) _cl_files+=("$1"); shift ;;
                               esac
                           done
                           proof_tool_story_changed_lines "$_cl_dir" "$_cl_story" "${_cl_files[@]}" ;;
-        *) echo "usage: proof-tool-gate.sh {emit [--story <N>] [--root <dir>] [--attachment <record>] <dimension> <file>...|attach --story <N> --attachment <record>|receipt --story <N>|verify <dimension> [--story <N>] [--root <dir>] [--host-check] [--at-result]|advreview-emit <story> <report>|advreview-verify <story> <token>|changed-files <dir> [--story <N>]|changed-lines <dir> --story <N> <file>...|change-base <dir> --story <N> [--ranges]}" >&2; exit 2 ;;
+        *) echo "usage: proof-tool-gate.sh {emit [--story <N>] [--project <id>] [--root <dir>] [--attachment <record>] <dimension> [--files-from <list>] <file>...|attach --story <N> [--project <id>] --attachment <record>|receipt --story <N> [--project <id>]|verify <dimension> [--story <N>] [--project <id>] [--carry-home <tree>] [--root <dir>] [--host-check] [--at-result]|advreview-emit [--project <id>] <story> <report>|advreview-verify [--project <id>] <story> <token>|advreview-carry --project <id>|changed-files <dir> [--story <N>]|changed-lines <dir> --story <N> [--files-from <list>] <file>...|change-base <dir> --story <N> [--ranges]}" >&2; exit 2 ;;
     esac
 fi

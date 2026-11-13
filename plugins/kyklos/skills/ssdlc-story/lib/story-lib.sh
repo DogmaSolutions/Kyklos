@@ -340,11 +340,22 @@ _rt_refresh_once() {  # best-effort fetch so stale remote-tracking refs do not c
   _RT_FETCHED=1
   _rt_fetch "$1" || true
 }
-# _rt_trunk_refs <repo> -> the remote-tracking refs that count as an integration TRUNK (one per line): origin/HEAD's
-# target when set, plus origin/{main,master,develop}. A deliverable is "shipped" only when it is reachable from one of
-# these, never merely from its own pushed feature branch.
+# _story_item_lib_loaded -> rc 0 when the plugin's item-project.sh (the bridge's one repository resolver, from the
+# container) is loaded, loading it once on first use.
+_story_item_lib_loaded() {
+  command -v item_trunk_refs_of >/dev/null 2>&1 && return 0
+  local lib; lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../hooks/lib/item-project.sh"
+  # shellcheck source=../../../hooks/lib/item-project.sh
+  [ -f "$lib" ] && . "$lib" && command -v item_trunk_refs_of >/dev/null 2>&1
+}
+
+# _rt_trunk_refs <repo> -> the remote-tracking refs that count as an integration TRUNK (one per line): the trunks the
+# bridge names from GitLab for the repository (item_trunk_refs_of: develop when GitLab has it, and the default branch);
+# only when no bridge can say, origin/HEAD's target when set, plus origin/{main,master,develop}. A deliverable is
+# "shipped" only when it is reachable from one of these, never merely from its own pushed feature branch.
 _rt_trunk_refs() {
-  local repo="$1" def ref
+  local repo="$1" def ref named
+  _story_item_lib_loaded && named="$(item_trunk_refs_of "$repo")" && { printf '%s\n' "$named" | sed '/^$/d'; return 0; }
   def="$(git -C "$repo" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)"   # e.g. origin/main
   [ -n "$def" ] && printf 'refs/remotes/%s\n' "$def"
   for ref in main master develop; do

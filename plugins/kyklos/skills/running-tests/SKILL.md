@@ -7,8 +7,11 @@ description: Protocol for running, investigating, and reporting .NET tests. Use 
 
 ## Build channel — interviewed once (`BUILD_EXECUTION`, no default)
 
-Before you build or test, this project must have declared HOW it builds — the `BUILD_EXECUTION` knob in
-`.claude/standards.env`. It has **no default**: ask ONCE, persist the answer, and reuse it every time.
+Before you build or test, this project must have declared HOW it builds — the `BUILD_EXECUTION` knob. It is read
+from the session's environment first (the KyklosLauncher passes the project configuration's `BUILD_EXECUTION` there),
+then from `.claude/standards.env`; a value in the environment wins. It has **no default**: a project that declares it
+nowhere (no value in the environment, no file) is blocked from a local build until it does. Ask ONCE, persist the
+answer, and reuse it every time.
 
 ```bash
 bash "$CLAUDE_PLUGIN_ROOT/skills/running-tests/has-build-execution.sh" .claude/standards.env   # exit 0 = configured, 1 = interview
@@ -27,7 +30,8 @@ If unset (exit 1), ask the developer the single question and write the answer:
 - `local` — builds/tests run locally with `dotnet` in this container.
 
 Persist it once to `.claude/standards.env` (e.g. `BUILD_EXECUTION=bridge`); it is runtime-editable, so a
-later change needs no container restart.
+later change needs no container restart. A project launched by the KyklosLauncher can set it in its configuration
+instead; that value reaches the session's environment at the next launch and takes precedence over the file.
 
 ## Local strong-name builds — `InternalsVisibleTo` / CS0281 (secret-free)
 

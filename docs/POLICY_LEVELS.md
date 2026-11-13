@@ -112,13 +112,25 @@ A configuration's **Policy** tab, beside **Settings**, holds the Corporate setti
 
 - **Check** reads the repository on the host and shows where Level 1 came from (address, commit, date, size), the three
   levels, and the overrides table (identifier, title, replaced or removed, reason, [hook](HOOKS_AND_SKILLS.md#how-a-hook-decides-one-hook-per-event-every-rule-in-the-bridge) still active), each row opening
-  the Kyklos original beside its replacement; or the exact error.
+  the Kyklos original beside its replacement; or the exact error. Beside Level 0 and Level 1, **Open the Kyklos
+  policy** and **Open the Corporate policy** show each file read-only: Level 0 is the policy shipped with the launcher,
+  which every launcher upgrade replaces (an organisation's changes belong in the Corporate policy); Level 1 is the
+  Corporate file the composition used (the local file, the repository copy, or its last good copy).
 - **Preview** shows the whole composed policy, with every override's line marked, from the values as entered, saved or
-  not. It uses the same composer as the launch, so the preview and the container's file cannot differ.
+  not. It uses the same composer as the launch, so the preview and the container's file cannot differ. The rule
+  markers (`<!-- kyklos:rule ... -->` comments) are hidden in this readable view; **Show exactly what the agent
+  receives** shows the raw file, markers included. The markers stay in the file: overrides find rules by them.
 
 The launch shows one line for Level 1 (`Corporate policy <commit> (<date>) from <address>: <n> Kyklos rules replaced,
 <m> removed`), a warning instead on the last-good fallback, and one line per overridden rule whose hook still enforces
 the original. The launch result of the API (`policy`) and `POST /api/configs/{name}/policy` carry the same overrides.
+
+## Without a launch
+
+To write the managed policy of a machine the launcher does not start, compose it with the same composer:
+`kyklos-launcher compose-policy <kyklos-policy.md> <corporate-policy.md> [<output file>]`, or the distribution's
+`dist/render-managed-policy.sh --product <kyklos-policy.md> --org <corporate-policy.md> --out /etc/claude-code/CLAUDE.md`,
+which calls it. The result is the file a launch writes, with LF line endings; a refused Corporate file writes nothing.
 
 ## Rule identifiers
 

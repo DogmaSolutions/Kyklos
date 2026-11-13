@@ -23,136 +23,24 @@
 
 _RMC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 . "$_RMC_DIR/cmd-strip.sh"   # _cmd_strip_heredocs: heredoc bodies are data
+. "$_RMC_DIR/shell-scan.sh"  # shell_scan: the simple commands of the text, words unquoted
 
 readonly RMC_MAX_DEPTH=8
 # Names a variable is commonly followed by when it points at a system root (e.g. "$PREFIX/usr").
 readonly RMC_TOP_LEVEL_NAMES=' bin boot dev etc home lib lib32 lib64 libx32 media mnt opt proc root run sbin srv sys tmp usr var Users Library System Applications Volumes private Windows '
-_RMC_PLAIN_RUN_RE=$'^[^\'"\\\\$`[:space:];|&<>(){}#]+'
-readonly _RMC_PLAIN_RUN_RE
-_RMC_DQ_RUN_RE=$'^[^"\\\\$`]+'
-readonly _RMC_DQ_RUN_RE
 readonly RMC_VAR_RE='\$([A-Za-z_][A-Za-z0-9_]*|[0-9@*]|\{[#!]?([A-Za-z_][A-Za-z0-9_]*|[0-9]+)([:]?[-?=+%#/^,][^}]*)?\})'
 
 RMC_REASON=""
 declare -A RMC_CWD_VARS=()
 
 # _rmc_match_close <text> <index-of-opening-char> <open> <close> -> RMC_POS = index of the matching close char
-# (quotes and nesting respected), or the text length when unbalanced.
-_rmc_match_close() {
-    local s="$1" i=$(($2 + 1)) open="$3" close="$4" n=${#1} depth=1 c
-    while (( i < n )); do
-        c="${s:i:1}"
-        case "$c" in
-            \\) i=$((i + 2)); continue ;;
-            "'") if [ "$open" != '`' ]; then local rest="${s:i+1}" ; local k="${rest%%\'*}"; i=$((i + ${#k} + 2)); continue; fi ;;
-            '"') local j=$((i + 1))
-                 while (( j < n )); do
-                     case "${s:j:1}" in \\) j=$((j + 2)); continue ;; '"') break ;; esac
-                     j=$((j + 1))
-                 done
-                 i=$((j + 1)); continue ;;
-        esac
-        if [ "$c" = "$close" ]; then
-            depth=$((depth - 1)); (( depth == 0 )) && { RMC_POS=$i; return 0; }
-        elif [ "$c" = "$open" ] && [ "$open" != "$close" ]; then
-            depth=$((depth + 1))
-        fi
-        i=$((i + 1))
-    done
-    RMC_POS=$n
-}
+# (quotes and nesting respected), or the text length when unbalanced. The shared scanner does the reading.
+_rmc_match_close() { shell_scan_match_close "$@"; RMC_POS=$SHELL_SCAN_POS; }
 
-# _rmc_scan <text> <depth> - split <text> into simple commands and judge each. Sets RMC_REASON on the first refusal.
+# _rmc_scan <text> <depth> - split <text> into simple commands (lib/shell-scan.sh) and judge each with _rmc_simple.
+# Stops at the first refusal (RMC_REASON set).
 _rmc_scan() {
-    local s="$1" depth="$2"
-    (( depth > RMC_MAX_DEPTH )) && return 0
-    local -a words=()
-    local w="" inw=0 i=0 n=${#1} c nx body end skipnext=0
-    _flush_word() {
-        if (( inw )); then
-            if (( skipnext )); then skipnext=0; else words+=("$w"); fi
-        fi
-        w=""; inw=0
-    }
-    _flush_cmd() {
-        _flush_word
-        (( ${#words[@]} )) && _rmc_simple "$depth" "${words[@]}"
-        words=()
-    }
-    while (( i < n )); do
-        [ -n "$RMC_REASON" ] && return 0
-        c="${s:i:1}"; nx="${s:i+1:1}"
-        case "$c" in
-            "'")
-                local rest="${s:i+1}"; local lit="${rest%%\'*}"
-                w+="$lit"; inw=1; i=$((i + ${#lit} + 2)) ;;
-            '"')
-                inw=1; i=$((i + 1))
-                while (( i < n )); do
-                    c="${s:i:1}"
-                    case "$c" in
-                        \\) case "${s:i+1:1}" in '"'|'\'|'$'|'`') w+="${s:i+1:1}" ;; *) w+="\\${s:i+1:1}" ;; esac; i=$((i + 2)) ;;
-                        '"') i=$((i + 1)); break ;;
-                        '$') if [ "${s:i+1:1}" = '(' ]; then
-                                 _rmc_match_close "$s" $((i + 1)) '(' ')'; end=$RMC_POS; body="${s:i+2:end-i-2}"
-                                 _rmc_scan "$body" $((depth + 1)); w+="\$($body)"; i=$((end + 1))
-                             elif [ "${s:i+1:1}" = '{' ]; then
-                                 _rmc_match_close "$s" $((i + 1)) '{' '}'; w+="${s:i:RMC_POS-i+1}"; i=$((RMC_POS + 1))
-                             else w+='$'; i=$((i + 1)); fi ;;
-                        '`') _rmc_match_close "$s" "$i" '`' '`'; end=$RMC_POS; body="${s:i+1:end-i-1}"
-                             _rmc_scan "$body" $((depth + 1)); w+="\$($body)"; i=$((end + 1)) ;;
-                        *) if [[ "${s:i:512}" =~ $_RMC_DQ_RUN_RE ]]; then w+="${BASH_REMATCH[0]}"; i=$((i + ${#BASH_REMATCH[0]}))
-                           else w+="$c"; i=$((i + 1)); fi ;;
-                    esac
-                done ;;
-            \\)
-                if [ "$nx" = $'\n' ]; then i=$((i + 2)); else w+="$nx"; inw=1; i=$((i + 2)); fi ;;
-            '$')
-                if [ "$nx" = '(' ]; then
-                    _rmc_match_close "$s" $((i + 1)) '(' ')'; end=$RMC_POS; body="${s:i+2:end-i-2}"
-                    _rmc_scan "$body" $((depth + 1)); w+="\$($body)"; inw=1; i=$((end + 1))
-                elif [ "$nx" = '{' ]; then
-                    _rmc_match_close "$s" $((i + 1)) '{' '}'; w+="${s:i:RMC_POS-i+1}"; inw=1; i=$((RMC_POS + 1))
-                else w+='$'; inw=1; i=$((i + 1)); fi ;;
-            '`')
-                _rmc_match_close "$s" "$i" '`' '`'; end=$RMC_POS; body="${s:i+1:end-i-1}"
-                _rmc_scan "$body" $((depth + 1)); w+="\$($body)"; inw=1; i=$((end + 1)) ;;
-            ' '|$'\t'|$'\r')
-                _flush_word; i=$((i + 1)) ;;
-            ';'|'|'|$'\n')
-                _flush_cmd; i=$((i + 1)) ;;
-            '&')
-                if [ "$nx" = '>' ]; then _flush_word; skipnext=1; i=$((i + 2)); [ "${s:i:1}" = '>' ] && i=$((i + 1))
-                else _flush_cmd; i=$((i + 1)); fi ;;
-            '<'|'>')
-                # A redirection: the word before it (a file descriptor number) and the word after it (the target) are
-                # not arguments. `>&2` / `2>&1` carry their target in the same token.
-                [[ "$w" =~ ^[0-9]*$ ]] && { w=""; inw=0; }
-                _flush_word; i=$((i + 1))
-                while [[ "${s:i:1}" == [\<\>\&\|] ]]; do i=$((i + 1)); done
-                skipnext=1
-                while [ "${s:i:1}" = ' ' ]; do i=$((i + 1)); done ;;
-            '(')
-                if (( inw )); then w+="$c"; i=$((i + 1))
-                else
-                    _flush_cmd
-                    _rmc_match_close "$s" "$i" '(' ')'; end=$RMC_POS; body="${s:i+1:end-i-1}"
-                    _rmc_scan "$body" $((depth + 1)); i=$((end + 1))
-                fi ;;
-            ')'|'{'|'}')
-                if (( inw )) && [ "$c" != ')' ]; then w+="$c"; i=$((i + 1)); else _flush_cmd; i=$((i + 1)); fi ;;
-            '#')
-                if (( inw )); then w+="$c"; i=$((i + 1))
-                else local rest="${s:i}"; local cm="${rest%%$'\n'*}"; i=$((i + ${#cm})); fi ;;
-            *)
-                # Take the whole run of ordinary characters at once (a per-character loop is slow on long commands).
-                if [[ "${s:i:512}" =~ $_RMC_PLAIN_RUN_RE ]]; then w+="${BASH_REMATCH[0]}"; i=$((i + ${#BASH_REMATCH[0]}))
-                else w+="$c"; i=$((i + 1)); fi
-                inw=1 ;;
-        esac
-    done
-    _flush_cmd
-    return 0
+    SHELL_SCAN_SIMPLE=_rmc_simple SHELL_SCAN_STOP_VAR=RMC_REASON SHELL_SCAN_MAX_DEPTH=$RMC_MAX_DEPTH shell_scan "$1" "$2" -1
 }
 
 # _rmc_is_cwd_source <value> -> rc 0 when an assigned value is the working directory: $(pwd), $(git rev-parse

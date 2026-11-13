@@ -96,7 +96,10 @@ flowchart TD
 
 The open work is read from the tracker by the [Bridge](COMPONENTS.md#kyklos-bridge) with its own token, never from the agent's word or a local file it can edit; a blocked story's recorded blocker is re-checked at each Stop
 (a block on an issue or merge request lifts by itself when that closes or merges). A blocked Stop only sends the agent back to work: the user sees nothing unless the agent then asks a real
-question. The number of identical Stops before the stuck-breaker releases is `CONTINUE_GUARD_STUCK_TURNS` (default 3). The switches above are opt-outs of the person (see
+question. The number of identical Stops before the stuck-breaker releases is `CONTINUE_GUARD_STUCK_TURNS` (default 3).
+Before the guard calls the Bridge down, it keeps asking for a retry window, `KYKLOS_BRIDGE_PROBE_WINDOW_SECONDS` (default 10): on a loaded machine opening the connection
+can take several seconds while the Bridge itself answers at once. An answer that took a second or more is reported as **slow**, apart from down, with the connect and answer times; the
+work goes on. Only no answer within the whole window reads as down, and that message names the window and the attempts made. The switches above are opt-outs of the person (see
 [Overrides](WORKFLOW.md#greppable-opt-out-switches)); no marker excuses the open-work check.
 
 The next item is not the agent's choice. The [`Kyklos Bridge`](COMPONENTS.md) computes it, in this order (the same rule as in [Stories and Epics](AGILE.md)):

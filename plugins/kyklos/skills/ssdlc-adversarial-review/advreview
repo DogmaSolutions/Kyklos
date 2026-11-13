@@ -15,7 +15,10 @@
 #   KYKLOS_ISSUES_API        - GitLab API base, e.g. https://gitlab.example.com/api/v4 (else STORY_GITLAB_API)
 #   KYKLOS_ISSUES_TOKEN_ENV  - name of the env var holding the API token (else STORY_GITLAB_TOKEN_ENV); only used by
 #                                a bridge without advreview_post
-#   KYKLOS_ADVREVIEW_PROJECT - the GitLab project id of the story (else STORY_GITLAB_PROJECT)
+#   KYKLOS_ADVREVIEW_PROJECT - the GitLab project id of the story, when the caller names it; else the bridge's one
+#                              repository resolver names the project of the reviewed repository (the working folder's),
+#                              and only when no bridge can say, that repository's own KYKLOS_ADVREVIEW_PROJECT or
+#                              STORY_GITLAB_PROJECT; the bridge keeps the review token under this project's own entry
 #   KYKLOS_BRIDGE_MCP_JSON            - the .mcp.json naming the bridge endpoint (default: the workspace .mcp.json)
 # bash + curl + jq only. Fail-HARD + loud on any missing prerequisite, including an unreachable bridge (never a
 # silent partial that yields a fillable-but-unverifiable row, and never a token minted without the key).
@@ -84,8 +87,32 @@ api="$(repo_setting KYKLOS_ISSUES_API || repo_setting STORY_GITLAB_API)" \
 # with its own token otherwise.
 _tokvar="$(repo_setting KYKLOS_ISSUES_TOKEN_ENV || repo_setting STORY_GITLAB_TOKEN_ENV)" || _tokvar=""
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../hooks/lib/gitlab-curl.sh"   # gitlab_curl: the token never leaves the helper
-pid="$(repo_setting KYKLOS_ADVREVIEW_PROJECT || repo_setting STORY_GITLAB_PROJECT)" \
-    || _die "the story's GitLab project is unknown: set KYKLOS_ADVREVIEW_PROJECT or STORY_GITLAB_PROJECT in $_where"
+# The story's project: the one the caller names (KYKLOS_ADVREVIEW_PROJECT in the environment), else the bridge's answer for
+# the reviewed repository (the working folder's), else, when no bridge can say, the reviewed repository's own settings
+# (KYKLOS_ADVREVIEW_PROJECT, then STORY_GITLAB_PROJECT). Never the session's settings: a review made from one project's
+# session in another project's repository keys its token under that repository's project.
+# [CySec] Prevents CWE-639 "Authorization Bypass Through User-Controlled Key": the token is keyed by the reviewed item's
+# own project, never by whichever project the session happens to belong to.
+pid="${KYKLOS_ADVREVIEW_PROJECT:-}"
+if [ -z "$pid" ]; then
+    _iplib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../hooks/lib/item-project.sh"
+    [ -f "$_iplib" ] || _die "item-project.sh not found (reinstall kyklos)"
+    # shellcheck source=../../hooks/lib/item-project.sh
+    . "$_iplib"
+    _top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+    _sroot="$(repo_root_of "$PWD")"   # the reviewed repository's settings root (a companion's, for its nested source)
+    if [ -n "$_sroot" ]; then _pwhere="the environment or $_sroot/.claude/standards.env"
+    else _pwhere="the environment (no workspace found: run inside the reviewed repository)"; fi
+    _pans="$(item_story_project_of "${_top:-.}")"; _prc=$?
+    case "$_prc" in
+        0) pid="$_pans" ;;
+        1) _die "the story's GitLab project could not be resolved for the repository at ${_top:-$(pwd)}: $_pans; name it with KYKLOS_ADVREVIEW_PROJECT" ;;
+        *) if [ -n "$_sroot" ]; then
+               pid="$(_rr_getkey "$_sroot/.claude/standards.env" KYKLOS_ADVREVIEW_PROJECT 2>/dev/null || _rr_getkey "$_sroot/.claude/standards.env" STORY_GITLAB_PROJECT 2>/dev/null || true)"
+           fi
+           [ -n "$pid" ] || _die "the story's GitLab project is unknown ($_pans): set KYKLOS_ADVREVIEW_PROJECT or STORY_GITLAB_PROJECT in $_pwhere" ;;
+    esac
+fi
 
 # 1) the bridge mints the token: it holds the host-only signing key, the container never does, so a token minted here
 #    could be computed by anyone. There is no local fallback: an unreachable or refusing bridge stops the review step.
@@ -103,7 +130,16 @@ _rbytes="$(wc -c < "$report" | tr -d '[:space:]')"
 _prepf="$(mktemp "${TMPDIR:-/tmp}/advreview-report.XXXXXX")" || _die "could not stage the review report"
 trap 'rm -f "$_prepf"' EXIT
 _advreview_strip_leading_title "$report" > "$_prepf" || _die "could not stage the review report"
-_margs="$(jq -cn --arg s "$story" --rawfile r "$_prepf" '{story:$s, report:$r}')" || _die "could not read the report file"
+# The review is kept under the story's own project, so a bridge serving several projects never mixes two projects'
+# stories of the same number. A bridge whose advreview_mint takes no project would ignore it: refuse by name instead.
+_trc=0; bridge_mcp_tool_takes advreview_mint project 30 || _trc=$?
+case "$_trc" in
+    0) : ;;
+    1) _die "BRIDGE-TOO-OLD: the KyklosBridge does not key review tokens by project yet (its advreview_mint takes no 'project'); update the bridge (relaunch the container from an updated launcher) - nothing was minted or posted" ;;
+    2) _die "the KyklosBridge is not configured: no bridge entry in $(bridge_mcp_json_path) (set KYKLOS_BRIDGE_MCP_JSON to the session's .mcp.json when running outside the session folder) - only the bridge can mint a review token; nothing was posted" ;;
+    *) _die "the KyklosBridge did not answer (rc $_trc) - only the bridge can mint a review token; nothing was posted" ;;
+esac
+_margs="$(jq -cn --arg p "$pid" --arg s "$story" --rawfile r "$_prepf" '{project:$p, story:$s, report:$r}')" || _die "could not read the report file"
 _mreply="$(bridge_mcp_call advreview_mint "$_margs" 120)"; _mrc=$?
 case "$_mrc" in
     0) : ;;

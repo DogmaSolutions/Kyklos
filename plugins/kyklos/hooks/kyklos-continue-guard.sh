@@ -102,24 +102,76 @@ emit_block() {
 # FIX it or STOP + surface it, instead of "keep rolling". Default-ON; opt out with KYKLOS_BRIDGE_HEALTH_CHECK=off.
 # FAIL-SAFE: any uncertainty (no .mcp.json, no http MCP server, no curl/jq, OR a real HTTP response) is treated as
 # NOT-down, so the normal guard is never weakened. CONTINUE_GUARD_BRIDGE_TEST is a hermetic seam (down|up) for tests.
-_cg_bridge_down() {
-    kyklos_control_off "${KYKLOS_BRIDGE_HEALTH_CHECK:-}" && return 1
-    case "${CONTINUE_GUARD_BRIDGE_TEST:-}" in down) return 0 ;; up) return 1 ;; esac
-    command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || return 1
+#
+# A slow connection is not a down bridge: on a loaded machine opening the connection can take several seconds (a
+# dropped connection request is sent again after 1, 3 and 7 s), while the bridge answers in milliseconds once
+# connected. So the probe keeps trying for a retry window (KYKLOS_BRIDGE_PROBE_WINDOW_SECONDS, default 10) before it
+# reads the bridge as down, and an answer that took a second or more reads as SLOW, reported apart from down with the
+# connect and answer times. _cg_bridge_probe sets _CG_BRIDGE_STATE (up | slow | down | unjudged) and _CG_BRIDGE_DETAIL.
+_CG_BRIDGE_STATE=unjudged
+_CG_BRIDGE_DETAIL=""
+readonly _CG_BRIDGE_SLOW_MS=1000
+# The shortest attempt worth making: with less of the window left, the probe stops instead of asking curl for a
+# time limit that rounds to 0.00 s (which curl reads as "no limit").
+readonly _CG_BRIDGE_MIN_ATTEMPT_MS=100
+# _cg_now_ms -> milliseconds of a monotonic-enough clock. CONTINUE_GUARD_TEST_CLOCK_FILE is a test seam, read once by
+# the probe and only in a sealed test shell (lib/seal-rule.sh, kyklos_test_seam): each call takes the next line of that
+# file as the time.
+_CG_TEST_CLOCK=""
+_cg_now_ms() {
+    if [ -n "$_CG_TEST_CLOCK" ] && [ -s "$_CG_TEST_CLOCK" ]; then
+        head -n 1 "$_CG_TEST_CLOCK"; sed -i 1d "$_CG_TEST_CLOCK"; return 0
+    fi
+    local t="${EPOCHREALTIME:-}"
+    if [ -n "$t" ]; then t="${t/[.,]/}"; printf '%s' "$((10#$t / 1000))"; else date +%s%3N; fi
+}
+_cg_seconds() { printf '%d.%02d' "$(($1 / 1000))" "$((($1 % 1000) / 10))"; }
+_cg_bridge_probe() {
+    _CG_BRIDGE_STATE=unjudged; _CG_BRIDGE_DETAIL=""
+    kyklos_control_off "${KYKLOS_BRIDGE_HEALTH_CHECK:-}" && return 0
+    case "${CONTINUE_GUARD_BRIDGE_TEST:-}" in down) _CG_BRIDGE_STATE=down; _CG_BRIDGE_DETAIL="test seam"; return 0 ;; up) _CG_BRIDGE_STATE=up; return 0 ;; esac
+    command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || return 0
     # The bridge's own address, found the one way every hook finds it (the KyklosBridge entry by name): the first http
     # server in .mcp.json can be another tool (a stopped test runner), which must never read as a down bridge.
     # [RiskMitigation RA-03] Only the KyklosBridge entry is probed; no entry, or a client library that cannot load,
     # means "not judged", never "down".
     command -v bridge_mcp_endpoint >/dev/null 2>&1 || . "$HERE/lib/bridge-mcp.sh" 2>/dev/null
-    command -v bridge_mcp_endpoint >/dev/null 2>&1 || return 1
-    local url; url="$(bridge_mcp_endpoint 2>/dev/null)" || return 1
-    [ -n "$url" ] || return 1
+    command -v bridge_mcp_endpoint >/dev/null 2>&1 || return 0
+    local url; url="$(bridge_mcp_endpoint 2>/dev/null)" || return 0
+    [ -n "$url" ] || return 0
     local base; base="$(printf '%s' "$url" | sed -E 's#^(https?://[^/]+).*#\1#')"
-    [ -n "$base" ] || return 1
-    local code; code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$base/api/status" 2>/dev/null)"
-    case "$code" in ''|000) return 0 ;; *) return 1 ;; esac   # no HTTP response => DOWN; any code => something is listening
+    [ -n "$base" ] || return 0
+    local window="${KYKLOS_BRIDGE_PROBE_WINDOW_SECONDS:-10}"
+    case "$window" in ''|*[!0-9]*|0) window=10 ;; esac
+    local LC_ALL=C start now left attempts=0 out code connect total
+    command -v kyklos_test_seam >/dev/null 2>&1 || . "$HERE/lib/seal-rule.sh" 2>/dev/null
+    _CG_TEST_CLOCK="$(kyklos_test_seam continue-guard CONTINUE_GUARD_TEST_CLOCK_FILE)"
+    start="$(_cg_now_ms)"
+    while :; do
+        now="$(_cg_now_ms)"; left=$((window * 1000 - (now - start)))
+        [ "$left" -ge "$_CG_BRIDGE_MIN_ATTEMPT_MS" ] || break
+        attempts=$((attempts + 1))
+        # One attempt may use the whole time left: the system itself repeats a dropped connection request meanwhile.
+        out="$(curl -s -o /dev/null -w '%{http_code} %{time_connect} %{time_total}' --connect-timeout "$(_cg_seconds "$left")" \
+            --max-time "$(_cg_seconds "$left")" "$base/api/status" 2>/dev/null)"
+        read -r code connect total <<< "$out"
+        case "${code:-000}" in
+            000) now="$(_cg_now_ms)"; [ $((window * 1000 - (now - start))) -gt 500 ] && sleep 0.5 ;;   # refused or no answer: try again
+            *)   # any HTTP code: something is listening and answered
+                now="$(_cg_now_ms)"
+                _CG_BRIDGE_DETAIL="answered after $(_cg_seconds $((now - start))) s over ${attempts} attempt(s); the answering attempt: connect $(printf '%.2f' "${connect:-0}") s, answer $(printf '%.2f' "${total:-0}") s"
+                if [ $((now - start)) -ge "$_CG_BRIDGE_SLOW_MS" ]; then _CG_BRIDGE_STATE=slow; else _CG_BRIDGE_STATE=up; fi
+                return 0 ;;
+        esac
+    done
+    _CG_BRIDGE_STATE=down
+    _CG_BRIDGE_DETAIL="no answer within the ${window} s retry window over ${attempts} attempt(s) to $base/api/status (last attempt: connect $(printf '%.2f' "${connect:-0}") s, answer $(printf '%.2f' "${total:-0}") s)"
+    return 0
 }
-
+_cg_bridge_down() {
+    _cg_bridge_probe
+    [ "$_CG_BRIDGE_STATE" = down ]
+}
 INPUT="$(cat || true)"
 
 # Shared prohibited-prioritization detector — the SAME one the ask-user-guard uses, so a prohibited
@@ -799,7 +851,13 @@ fi
 # about to force continuation. If the bridge is DOWN, that takes precedence over the backlog - the agent must fix
 # it or stop, never grind through unverifiable work.
 if _cg_bridge_down; then
-    emit_block "BLOCKED (continue-guard): the KyklosBridge MCP is NOT RESPONDING - the host-side bridge is DOWN, so you CANNOT reliably build or run tests through it. Do NOT 'keep rolling' through bridge-dependent work and do NOT silently work around it. EITHER (a) get the bridge restarted on the host and verify it answers /api/status, OR (b) STOP and surface the down bridge to the user (a real question about the outage is a valid awaiting-user stop). There are ${_count} open item(s) [${_sig}], but a broken CORE TOOL takes precedence over the backlog. (opt out: KYKLOS_BRIDGE_HEALTH_CHECK=off)"
+    emit_block "BLOCKED (continue-guard): the KyklosBridge MCP is NOT RESPONDING - the host-side bridge is DOWN (${_CG_BRIDGE_DETAIL}), so you CANNOT reliably build or run tests through it. Do NOT 'keep rolling' through bridge-dependent work and do NOT silently work around it. EITHER (a) get the bridge restarted on the host and verify it answers /api/status, OR (b) STOP and surface the down bridge to the user (a real question about the outage is a valid awaiting-user stop). There are ${_count} open item(s) [${_sig}], but a broken CORE TOOL takes precedence over the backlog. (opt out: KYKLOS_BRIDGE_HEALTH_CHECK=off)"
+fi
+# A slow bridge is reported apart from a down one: the work goes on, and the note names the times measured.
+_cg_slow_note=""
+if [ "$_CG_BRIDGE_STATE" = slow ]; then
+    _cg_slow_note=" Note: the KyklosBridge is SLOW, not down: it ${_CG_BRIDGE_DETAIL} (a loaded machine delays the connection; the bridge itself answers quickly once connected)."
+    log "the KyklosBridge is slow, not down: it ${_CG_BRIDGE_DETAIL}"
 fi
 
 # (6) BLOCK the unmotivated stop.
@@ -811,7 +869,7 @@ fi
 if [ -n "$_prev" ] && [ "$_sig" = "$_prev" ]; then
     _plural="s"; [ "$_count" = 1 ] && _plural=""
     _ns_short=""; [ -n "${_CG_NONSTORY:-}" ] && _ns_short=" (non-story to triage: ${_CG_NONSTORY})"
-    emit_block "BLOCKED (continue-guard): still ${_count} open in-scope work item${_plural} [${_sig}]${_ns_short} — the set is unchanged; keep working it (full doctrine in this set's first block; stuck-breaker ${_cnt}/${K})."
+    emit_block "BLOCKED (continue-guard): still ${_count} open in-scope work item${_plural} [${_sig}]${_ns_short} — the set is unchanged; keep working it (full doctrine in this set's first block; stuck-breaker ${_cnt}/${K}).${_cg_slow_note}"
 fi
 if [ "$_mode" = directive ]; then _why="a standing continue-directive (any open scope item is fair game  -  keep rolling)"; else _why="an in-progress story you started (story + status::doing) still open"; fi
 _plural="s"; [ "$_count" = 1 ] && _plural=""
@@ -820,4 +878,4 @@ _ns_hint=""
 if [ -n "${_CG_NONSTORY:-}" ]; then
     _ns_hint=" NON-STORY issue(s) among them [${_CG_NONSTORY}]: an open issue with no story label is STILL work — TRIAGE each: adopt it into the lifecycle ('story adopt <iid> --type <t> --epic <E0N>', with '--kind analysis|documentation' for a lightweight research/docs item), ROUTE it to its owner ('agent-msg route <iid> --to <agent>'), PARK it (the parked label), or CLOSE it with a disposition label (wontfix/duplicate/invalid). Silence is not an option: an unlabeled issue never goes invisible again."
 fi
-emit_block "BLOCKED (continue-guard): you are trying to STOP with ${_count} open in-scope work item${_plural} [${_sig}] and ${_why}  -  nothing is awaited from the user.${_ns_hint} Do NOT pause: pick up the next scope item and keep working (choose it with the bridge's next_work tool: it orders the open work and names the next item). If you are waiting on CI, that is NOT a stop  -  work another open item. If NOTHING else is open and you truly must wait for that pipeline, ARM A WATCH that will notify you the moment it lands (the Monitor tool, or a backgrounded 'bash' until-loop that exits on the terminal status) and keep the turn alive  -  there is NO external poller that re-invokes you on its own; nothing wakes you unless YOU arm it. The ONLY ways to stop are the two you cannot self-author: finish ALL scope work, or ASK the user a real question (awaiting-user). There is no agent-touchable stop marker  -  no 'stop-ok', no 'continue-blocked'. (stuck-breaker ${_cnt}/${K}: it auto-releases only if the open set is unchanged AND you make NO tool calls for ${K} stops — doing real work resets it, so this is not an escape.)"
+emit_block "BLOCKED (continue-guard): you are trying to STOP with ${_count} open in-scope work item${_plural} [${_sig}] and ${_why}  -  nothing is awaited from the user.${_ns_hint} Do NOT pause: pick up the next scope item and keep working (choose it with the bridge's next_work tool: it orders the open work and names the next item). If you are waiting on CI, that is NOT a stop  -  work another open item. If NOTHING else is open and you truly must wait for that pipeline, ARM A WATCH that will notify you the moment it lands (the Monitor tool, or a backgrounded 'bash' until-loop that exits on the terminal status) and keep the turn alive  -  there is NO external poller that re-invokes you on its own; nothing wakes you unless YOU arm it. The ONLY ways to stop are the two you cannot self-author: finish ALL scope work, or ASK the user a real question (awaiting-user). There is no agent-touchable stop marker  -  no 'stop-ok', no 'continue-blocked'. (stuck-breaker ${_cnt}/${K}: it auto-releases only if the open set is unchanged AND you make NO tool calls for ${K} stops — doing real work resets it, so this is not an escape.)${_cg_slow_note}"

@@ -104,8 +104,9 @@ to be kept carries no `Refs:` naming the story, or its branch is deleted after t
      anyway, so the note reads alike once the bridge is updated.
 2. **Mint the token + post the report** — do NOT hand-craft either, and never hand the report text to the author or the
    coordinator to carry. The reviewer posts its own report with two bridge verbs that take the report text as a
-   parameter, so no file is needed: `advreview_mint` (`story`, `report`) has the **KyklosBridge** mint the
-   content-bound token with its host-only signing key, then `advreview_post` (`iid`, `report`, `token`, `project`)
+   parameter, so no file is needed: `advreview_mint` (`project`, `story`, `report`) has the **KyklosBridge** mint the
+   content-bound token with its host-only signing key, kept under the story's own project (a bridge serving several
+   projects refuses a call without `project` with `PROJECT-REQUIRED`), then `advreview_post` (`iid`, `report`, `token`, `project`)
    posts the report **plus the token** as a GitLab comment on the story with the bridge's own token (so the container
    needs no GitLab token) and answers `{note_id, url}`; the comment's browser link is that `url`. The two values the
    Proof row needs are that `url` (Report) and the token. An unreachable or keyless bridge refuses the mint, and
@@ -127,8 +128,9 @@ to be kept carries no `Refs:` naming the story, or its branch is deleted after t
    close.
 5. **Fill the Proof row** from the FINAL (clean) run's helper output:
    `story proof <id> --set 'Adversarial Review=PROVEN|clean self-review, N iteration(s)|<kbd>Report:</kbd> <comment-url><br><kbd>Token:</kbd> <token><br>'`
-   The close gate has the bridge re-verify the Token with its key (MCP tool `advreview_check`); a hand-typed Token,
-   a missing Report link or an unreachable bridge refuses the close.
+   The close gate has the bridge re-verify the Token with its key (MCP tool `advreview_check`, under the story's
+   project); a hand-typed Token, a token of another project's story, a missing Report link, an unreachable bridge or a
+   bridge too old to key review tokens by project (`BRIDGE-TOO-OLD`) refuses the close.
 
 ## Why it can't be faked
 
@@ -159,9 +161,10 @@ the author never handles it; the verb claims no detection (any agent holding the
   or heading names another round is refused with `DESIGN-ROUND-MISMATCH`, naming the expected round: renumber the marker
   and the heading and post again. A refusal `DESIGN-OFF-TEMPLATE` names the offending line; an issue that is not a story is
   `NOT-A-STORY`.
-- A line that starts, after at most three spaces, with a slash and a letter (outside fenced code) is refused as
-  `DESIGN-OFF-TEMPLATE`, in a code review report too: GitLab runs such a line as a quick action (`/close`, `/label`, ...)
-  and strips it from the note. Rewrite the line (never escape it); a slash line inside a fence is fine.
+- A line that starts, in its first column and outside fenced code, with a slash and a command GitLab recognises
+  (`/close`, `/label`, `/assign`, ...) is refused as `DESIGN-OFF-TEMPLATE`, in a code review report too: GitLab runs
+  such a line as a quick action and strips it from the note. Rewrite the line (never escape it); a slash line inside a
+  fence, an indented one, or one starting with an unknown word such as a path (`/mnt/foo`) is fine.
 - **VERB-UNAVAILABLE.** The verb missing from the reviewer's tool list, or any unknown-tool or no-such-tool answer, in
   particular the bridge's `unknown tool: designreview_post`, means "verb unavailable" (an older bridge, or a reviewer
   without the bridge). It is not a failure of the report: the reviewer **returns its report text** as its final answer,

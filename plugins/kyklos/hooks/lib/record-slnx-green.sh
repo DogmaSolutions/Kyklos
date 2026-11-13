@@ -22,7 +22,8 @@
 # `dotnet` absent, not a git repo / HEAD unresolvable, a repo folder holding several *.slnx (name the solution),
 # a path that is not one of the repo's solutions, or the build fails.
 #
-# MODE-AWARE (BUILD_EXECUTION knob, read from $CLAUDE_PROJECT_DIR/.claude/standards.env — no default):
+# MODE-AWARE (BUILD_EXECUTION knob, no default; lib/build-execution.sh reads the session's environment first, then
+# $CLAUDE_PROJECT_DIR/.claude/standards.env):
 #   local  = today's behaviour: run a local `dotnet build <*.slnx>` and, on green, write the marker.
 #   bridge = do NOT run local dotnet (forbidden — the build runs on the real host). Instead call the bridge's
 #            `build` verb through lib/bridge-mcp.sh (bridge_mcp_call; it owns the endpoint resolution), and
@@ -54,17 +55,13 @@ WAIT_SECONDS="${RECORD_SLNX_GREEN_WAIT_SECONDS:-3600}"
 
 STATE_DIR="${KYKLOS_STATE_DIR:-/tmp/kyklos-state}"
 
-# read_build_execution — the interviewed BUILD_EXECUTION knob (bridge|local; NO default), from
-# $CLAUDE_PROJECT_DIR/.claude/standards.env. Prints the normalised value (or empty when unset/blank/invalid).
-read_build_execution() {
-    local dir="${CLAUDE_PROJECT_DIR:-$(pwd)}" cfg v
-    cfg="$dir/.claude/standards.env"
-    [ -f "$cfg" ] || return 0
-    v="$(grep -E "^[[:space:]]*BUILD_EXECUTION=" "$cfg" 2>/dev/null | grep -vE "^[[:space:]]*#" | tail -1 | sed -E 's/^[[:space:]]*BUILD_EXECUTION=//')"
-    v="${v%%#*}"
-    v="$(printf '%s' "$v" | sed -E 's/^[[:space:]]*//; s/[[:space:]]*$//; s/^"//; s/"$//; s/^'"'"'//; s/'"'"'$//')"
-    case "$v" in bridge|local) printf '%s' "$v" ;; *) return 0 ;; esac
-}
+# shellcheck source=build-execution.sh
+. "$(dirname "${BASH_SOURCE[0]}")/build-execution.sh"
+
+# read_build_execution — the BUILD_EXECUTION knob (bridge|local; NO default), read by the shared reader: the session's
+# environment first, then $CLAUDE_PROJECT_DIR/.claude/standards.env. Prints the normalised value (or empty when
+# unset/blank/invalid).
+read_build_execution() { build_execution_mode; }
 
 # bridge_build <arguments-json> — run the full-solution build ON THE HOST via the KyklosBridge, NOT local dotnet.
 # Calls the bridge's `build` verb through lib/bridge-mcp.sh (the same tools/call mcp__KyklosBridge__build issues)

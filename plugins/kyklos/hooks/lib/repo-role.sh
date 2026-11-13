@@ -263,6 +263,40 @@ repo_setting() {
     printf '%s' "$v"
 }
 
+# repo_root_of <dir> -> the workspace root of the repository at <dir>: its git toplevel, resolved UP to the companion root
+# when it is a companion's nested source (the settings never live inside the source repository); empty when <dir> is in no
+# repository. Unlike repo_workspace_root it never reads the session (CLAUDE_PROJECT_DIR): it names <dir>'s own repository.
+repo_root_of() {
+    local top
+    top="$(git -C "${1:-.}" rev-parse --show-toplevel 2>/dev/null || echo "")"
+    [ -n "$top" ] && top="$(repo_companion_root "$top")"
+    printf '%s' "$top"
+}
+
+# repo_setting_of <dir> <KEY> -> the value of <KEY> for the repository at <dir>: the exported environment value when set (a
+# deliberate override wins), else the value that repository's own .claude/standards.env declares (PARSED, never sourced,
+# CWE-829); never the session's settings file. rc 1 when neither has a value. Bare repo_setting stays for the session's own
+# switches; a tool acting on a repository (the story tool, a skill) reads that repository's settings through this.
+# [CySec] Prevents CWE-639 "Authorization Bypass Through User-Controlled Key": a repository's project and settings are
+# its own, never substituted by the session's.
+repo_setting_of() {
+    local dir="$1" k="$2" v root
+    case "$k" in ''|[!A-Za-z_]*|*[!A-Za-z0-9_]*) return 1 ;; esac
+    v="${!k:-}"
+    if [ -z "$v" ]; then
+        root="$(repo_root_of "$dir")"
+        [ -n "$root" ] && v="$(_rr_getkey "$root/.claude/standards.env" "$k")" || v=""
+    fi
+    [ -n "$v" ] || return 1
+    printf '%s' "$v"
+}
+
+# repo_story_project -> the GitLab project (id or path) the caller's stories belong to: KYKLOS_ADVREVIEW_PROJECT, else the
+# story tool's STORY_GITLAB_PROJECT, each from the environment or the workspace root's settings file (the workspace root
+# of a companion, never its nested source's origin). rc 1 when neither is declared. Every request that asks the bridge
+# about a story's tokens names this project, so a bridge serving several projects answers for the right one.
+repo_story_project() { repo_setting KYKLOS_ADVREVIEW_PROJECT || repo_setting STORY_GITLAB_PROJECT; }
+
 # repo_public_source_of <dir> -> print the git toplevel of <dir> and return 0 when it is a companion's nested source
 # (or a linked worktree of it) that is PUBLIC-bound: every companion source except one declared PriComPriSou (private
 # sources). An unknown or legacy-shape topology counts as public - the stricter reading. rc 1 otherwise. The topology is

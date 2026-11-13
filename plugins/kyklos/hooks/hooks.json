@@ -51,6 +51,10 @@
           },
           {
             "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/kyklos-test-run-bound-guard.sh\""
+          },
+          {
+            "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/kyklos-piped-script-guard.sh\""
           },
           {
@@ -362,6 +366,10 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/kyklos-shared-checkout-surface.sh\" stop"
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/kyklos-test-host-reaper.sh\""
           }
         ]
       }

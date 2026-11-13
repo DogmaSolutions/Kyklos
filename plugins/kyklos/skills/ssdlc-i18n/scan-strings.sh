@@ -7,7 +7,8 @@
 #   scan-strings.sh --find TEXT [--repo DIR]              find an existing RESX entry whose value is exactly TEXT
 #
 # List mode scans FILE... whole, or by default only the lines the branch changed since its merge-base with the trunk
-# (--base, else origin/HEAD, origin/main, origin/master, origin/develop, main, master, develop), plus untracked
+# (--base, else the trunk the bridge names from GitLab, else origin/HEAD, origin/main, origin/master, origin/develop,
+# main, master, develop), plus untracked
 # files. One line per literal: <file>:<line><TAB><CANDIDATE|EXCLUDED:<reason>><TAB><literal>; the tally goes to
 # stderr as "i18n scan: candidates=N excluded=M files=F". Script files (sh, ps1, bat, ...) are out of scope.
 # Exit: 0 ok; 2 usage error or no repository/trunk; 3 a changed source file is in a language this scanner does not
@@ -87,6 +88,14 @@ scan_file() {  # <path as reported> <comma-separated lines, empty = all> <path t
 changed_lines() {
   local ref merge_base
   git -C "$repo" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "not a git repository: $repo (pass FILE... to scan whole files)"
+  # The trunk the bridge names from GitLab for the repository comes first (item_trunk_refs_of: develop when GitLab has
+  # it, then the default branch); the usual names only when no bridge can say.
+  if [ -z "$base" ] && [ -f "$HERE/../../hooks/lib/item-project.sh" ]; then
+    # shellcheck source=../../hooks/lib/item-project.sh
+    . "$HERE/../../hooks/lib/item-project.sh"
+    local named
+    named="$(item_trunk_refs_of "$repo" 2>/dev/null)" && base="$(printf '%s\n' "$named" | sed '/^$/d' | head -n 1)"
+  fi
   if [ -z "$base" ]; then
     for ref in $TRUNK_CANDIDATES; do
       git -C "$repo" rev-parse --verify --quiet "$ref" >/dev/null && { base="$ref"; break; }

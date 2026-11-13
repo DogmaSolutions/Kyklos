@@ -6,36 +6,38 @@
 #   bridge = every build/test runs on the real host via the KyklosBridge (a local `dotnet build`/`test` is
 #            forbidden — it does not see the host SDK and fails on host-only target frameworks).
 #   local  = builds/tests run locally with `dotnet` in the container.
-# There is NO default: a project must be ASKED once and explicitly persist bridge|local to .claude/standards.env.
+# There is NO default: a project declares it once, in its KyklosLauncher configuration (which passes it into the
+# session's environment) or by persisting bridge|local to .claude/standards.env. The shared reader
+# (hooks/lib/build-execution.sh) reads the environment first, then the file, as the build-execution guard does.
 #
 # Decides whether the knob has already been configured: exit 0 if BUILD_EXECUTION is set to a VALID value
-# (bridge|local) — skip the first-run interview, just use it; exit 1 if the file is missing, the knob is
-# unset/blank, or the value is not one of bridge|local (run the interview, then persist the value). Makes
+# (bridge|local) — skip the first-run interview, just use it; exit 1 if neither the environment nor the file sets it,
+# it is blank, or the value is not one of bridge|local (run the interview, then persist the value). Makes
 # "interview once, then reuse" a systematic, testable gate. bash + grep only.
 #
 # Usage: has-build-execution.sh [path/to/standards.env]   (default: ./.claude/standards.env)
 set +e -uo pipefail
 FILE="${1:-.claude/standards.env}"
+. "$(dirname "${BASH_SOURCE[0]}")/../../hooks/lib/build-execution.sh"
 
-if [ ! -f "$FILE" ]; then
-  echo "absent: $FILE not found -> run the first-run BUILD_EXECUTION interview" >&2
+source_of="$(build_execution_source "$FILE")"
+if [ "$source_of" = none ]; then
+  echo "absent: BUILD_EXECUTION is not in the environment and $FILE was not found -> run the first-run BUILD_EXECUTION interview" >&2
   exit 1
 fi
 
-# Read the last non-comment assignment of BUILD_EXECUTION (the value the hooks' `source` would end with),
-# then trim surrounding whitespace/quotes so `bridge`, `"bridge"` and `bridge  ` all normalise identically.
-value="$(grep -E "^[[:space:]]*(export[[:space:]]+)?BUILD_EXECUTION=" "$FILE" | grep -vE "^[[:space:]]*#" | tail -1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?BUILD_EXECUTION=//')"
-value="${value%%#*}"
-value="$(printf '%s' "$value" | sed -E 's/^[[:space:]]*//; s/[[:space:]]*$//; s/^"//; s/"$//; s/^'"'"'//; s/'"'"'$//')"
+where="$FILE"
+[ "$source_of" = environment ] && where="the session's environment"
+value="$(build_execution_raw "$FILE")"
 
 case "$value" in
   bridge|local)
-    echo "present: BUILD_EXECUTION=$value in $FILE -> skip interview, use it"
+    echo "present: BUILD_EXECUTION=$value in $where -> skip interview, use it"
     exit 0 ;;
   "")
-    echo "absent: BUILD_EXECUTION unset/blank in $FILE -> run the first-run interview (no default)" >&2
+    echo "absent: BUILD_EXECUTION unset/blank in $where -> run the first-run interview (no default)" >&2
     exit 1 ;;
   *)
-    echo "absent: BUILD_EXECUTION='$value' in $FILE is not one of bridge|local -> run the first-run interview" >&2
+    echo "absent: BUILD_EXECUTION='$value' in $where is not one of bridge|local -> run the first-run interview" >&2
     exit 1 ;;
 esac

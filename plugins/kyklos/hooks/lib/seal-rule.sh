@@ -4,6 +4,7 @@
 #
 #   kyklos_test_sealed            -> rc 0 when the shell runs a test that must never reach a live system: one of
 #                                      KYKLOS_TEST_SEALED, STORY_GL_STUB_DIR or CI_ACCESS_STUB_DIR is set
+#   kyklos_test_seam <who> <NAME> -> the value of a test-only setting, only in a sealed test shell (else ignored, said)
 #   kyklos_url_host <url>         -> the URL's host as the network stack reads it: the authority is the text after
 #                                      "scheme://" up to the first / ? or #, without any userinfo before its last "@";
 #                                      a bracketed IPv6 host keeps its brackets; the port is dropped
@@ -27,6 +28,18 @@ kyklos_test_sealed() {
     [ -n "${KYKLOS_TEST_SEALED:-}" ] || [ -n "${STORY_GL_STUB_DIR:-}" ] || [ -n "${CI_ACCESS_STUB_DIR:-}" ]
 }
 
+# kyklos_test_seam <who> <NAME> -> prints the value of the test-only setting NAME when the shell is a sealed test shell.
+# Outside one, a set NAME is ignored and one stderr line says so: a test seam changes what a hook judges (which
+# processes it may end, which clock it reads), so a value left in a live session must never take effect.
+# [CySec] CWE-489 (Active Debug Code): test-only switches act only inside a sealed test shell.
+kyklos_test_seam() {
+    local who="$1" name="$2"
+    [ -n "${!name:-}" ] || return 0
+    if kyklos_test_sealed; then printf '%s' "${!name}"; return 0; fi
+    printf '%s: the test-only setting %s is ignored: it acts only in a sealed test shell (KYKLOS_TEST_SEALED).\n' "$who" "$name" >&2
+    return 0
+}
+
 # KYKLOS_SEAL_BRIDGE_VARS -- the ONE list of the bridge settings the plugin's code reads (the bridge client, the secret
 # reader, the scope and CI checks, the hooks). A live session carries them (the launcher sets the bridge's token, secret
 # list and identity pins); in a test shell any of them makes the result depend on the machine: a stand-in bridge is
@@ -34,7 +47,8 @@ kyklos_test_sealed() {
 # list complete (every KYKLOS_BRIDGE_* name the plugin reads is on it).
 KYKLOS_SEAL_BRIDGE_VARS=(KYKLOS_BRIDGE_ARGS KYKLOS_BRIDGE_AUTH_TOKEN KYKLOS_BRIDGE_CI_OFF_REASON KYKLOS_BRIDGE_FYI
                          KYKLOS_BRIDGE_HEALTH_CHECK KYKLOS_BRIDGE_MAX_REQUEST_BYTES KYKLOS_BRIDGE_MCP_JSON
-                         KYKLOS_BRIDGE_MCP_URL KYKLOS_BRIDGE_MUTATION_LEVEL KYKLOS_BRIDGE_PROJECT_NAME KYKLOS_BRIDGE_SECRETS
+                         KYKLOS_BRIDGE_MCP_URL KYKLOS_BRIDGE_MUTATION_LEVEL KYKLOS_BRIDGE_PROBE_WINDOW_SECONDS
+                         KYKLOS_BRIDGE_PROJECT_NAME KYKLOS_BRIDGE_SECRETS
                          KYKLOS_BRIDGE_SECRET_BIN KYKLOS_BRIDGE_SECRET_TIMEOUT_SECONDS KYKLOS_BRIDGE_SOLUTION_ROOT)
 
 # kyklos_seal_clear_bridge_env -> removes from this shell every variable of KYKLOS_SEAL_BRIDGE_VARS and any other
