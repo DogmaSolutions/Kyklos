@@ -498,6 +498,7 @@ write; see [Installing and configuring](INSTALL_AND_CONFIG.md)) or are set by th
 | `Agile:Proof:NamedCauseRequired` | `true` | `false`: an override no longer needs an [`Override cause:`](#the-owners-proof-override-label) line |
 | `Agile:Proof:CoverageReceiptRequired` | `true` | `false`: a PROVEN [Test Discipline](PROOF_DIMENSION_TEST_DISCIPLINE.md) row need not link the [coverage receipt](PROOF_DIMENSION_TEST_DISCIPLINE.md#shell-scripts-the-token-and-the-coverage-receipt) |
 | `Agile:Proof:FullSpecRequired` | `true` | `false`: a story may leave Requirements with spec sections empty |
+| `Agile:Proof:AskSearchedRequired` | `true` | `false`: a story may be blocked on the person without a `searched:` line in the reason saying what the agent looked at first |
 | `Agile:Proof:CrapApplicable` | `true` | `false`: the project has no computable [CRAP score](#glossary) (the metric leaves the proof) |
 | `Agile:Proof:CoverageFloorPercent` | `95` | the line coverage a PROVEN Test Discipline row must meet |
 | `Agile:Proof:TestDisciplineSource` | `ledger` | `token`: C# Test Discipline is answered by the token and receipt instead of the [content ledger](PROOF_DIMENSION_TEST_DISCIPLINE.md#the-content-ledger-what-the-bridge-records-after-every-passing-run) |

@@ -348,7 +348,7 @@ Creating labels, tokens and users needs the person's GitLab account, and the tok
 Then 🛑 **STOP**: the login and the secret values are the person's alone. **Ask the person** to:
 
 1. Open `http://127.0.0.1:8787/login` **now**, before anyone else can, and choose a username and a password of at least 12 characters. Until a login exists, whoever opens the page first chooses it.
-2. In the control panel's **Credentials and tokens** form, store each token from step 7 under the agreed name.
+2. On the control panel's **Reference** page, in the **Credential store** form, store each token from step 7 under the agreed name.
 3. Tell you when it is done. Do not tell you any value.
 
 **Check:** ask the person whether the form shows each name as stored.
@@ -540,7 +540,9 @@ Tell the person:
 - what was installed;
 - where the [Launcher](COMPONENTS.md#kyklos-launcher), the settings root and the workspace are;
 - that the organisation layer (`<settings-root>\CLAUDE.org.md`) is still the sample and should be filled in;
-- that the next step is the first story: in the agent session, ask for a small change in plain words. The agent works it the way the policy's operating manual ("How a story is worked, step by step") describes. This is section 9.4 of the [human guide](INSTALL_AND_CONFIG.md).
+- that the next step is the first story: in the agent session, ask for a small change in plain words. The agent works it the way the policy's operating manual ("How a story is worked, step by step") describes. This is section 9.4 of the [human guide](INSTALL_AND_CONFIG.md);
+- that before the agent asks them for a click, a permission or a credential, it first searches how the project's own tests and scripts already do the same thing (sign in, for example as the local development administrator; seed data; start the application) and uses that;
+- how to give the agent a credential it really lacks (an application login, a service password; a GitLab API token stays on the host, where the Launcher keeps it for the Bridge or refuses the launch), without ever pasting it into the conversation: (1) store the value in the Launcher's **Credentials and tokens** form under a name of their choice in environment-variable style (letters, digits and underscore, not starting with a digit; the Launcher adds its own credential-store prefix itself) and without the word `GITLAB`, because a name containing it is always treated as a GitLab token; (2) add that name to the project's `KYKLOS_SECRETS` setting (names separated by `;`) and, for a secret that is not a GitLab token, also to `KYKLOS_SECRETS_NOT_GITLAB`, otherwise the launch refuses it as a possible API token; (3) launch the project again. The agent then reads it with `$(bridge-secret <NAME>)` inside the one command that uses it and never prints it. This is the "Search before you ask" rule of the policy.
 
 ## Related pages
 

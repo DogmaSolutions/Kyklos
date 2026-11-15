@@ -51,8 +51,8 @@ flowchart TD
    proves that the change really has no fail-open path.
 2. **The draft.** [`proof_draft`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) accepts three kinds of evidence for a marker: a changed test whose running test name or
    `[Category]`, `[Trait]` or `[Property]` value carries it as a token (`[Property("Spec", "FAIL-HARD")]`), a host tool receipt,
-   or the newest [adversarial review](ADVERSARIAL_REVIEW.md) whose token the Bridge verifies and whose "Checked" section states the marker holding, with
-   no negative wording on that line. It leaves the row open with the prompt *judge that each FAIL-OPEN / FAIL-HARD choice holds;
+   or the newest [adversarial review](ADVERSARIAL_REVIEW.md) whose token the Bridge verifies and whose "Checked" section names the marker, with no finding
+   naming it and no `Not checked` label, heading, `(not checked)` or fixed not-checked phrase in its bullet or paragraph (broader wording is not read). It leaves the row open with the prompt *judge that each FAIL-OPEN / FAIL-HARD choice holds;
    name the test of each*, and lists the markers named and not named; the latter go into the signed draft record.
 3. **The write.** `proof_set` refuses a row with no real evidence text and a row that cites a marker the signed record lists as
    uncovered.

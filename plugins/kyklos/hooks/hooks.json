@@ -408,6 +408,11 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/kyklos-api-scope-surface.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/kyklos-doctor-surface.sh\"",
+            "timeout": 60
           }
         ]
       },

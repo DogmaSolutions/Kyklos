@@ -10,6 +10,7 @@
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
     echo "[kyklos] $(basename "$0"): the JSON reader hooks/lib/json-answer.sh did not load (broken install); the Kyklos's guards refuse until the kyklos plugin is reinstalled or repinned."
+    echo "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_line broken-install)"
     exit 0
 fi
 set +e -uo pipefail

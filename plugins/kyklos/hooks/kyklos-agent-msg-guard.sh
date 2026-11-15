@@ -49,9 +49,26 @@ trap 'printf %s "{\"decision\":\"block\",\"reason\":\"BLOCKED (broken kyklos ins
 . "$_AMG_HERE/lib/guard-prologue.sh" 2>/dev/null && declare -F guard_arm guard_load guard_load_optional guard_done guard_refuse >/dev/null \
   && guard_arm "the agent-msg guard" || exit 0
 guard_load "$_AMG_HERE/lib/issue-api-detect.sh" var:IAD_CLIENT_RE var:IAD_NORMALISER_BROKEN iad_normalize_cmd iad_refuse_broken_normaliser iad_cmd_is_issue_create iad_split_segments iad_seg_is_raw_issue_write iad_seg_hits_issue_item iad_seg_hits_notes || guard_refuse
+guard_load "$_AMG_HERE/lib/script-reader.sh" script_reader_files script_reader_text || guard_refuse
 guard_load_optional "$_AMG_HERE/lib/escape-audit.sh" || true   # escape_audit: durable trail for a consumed raw-issue escape
 guard_load_optional "$_AMG_HERE/lib/gitlab-api-base.sh" || true   # gitlab_api_base: the configured GitLab API URL
 guard_load_optional "$_AMG_HERE/lib/gitlab-curl.sh" || true       # gitlab_curl: the one authenticated request path
+# A local shell script the agent wrote and the command runs (bash notes.sh, ./close.sh, source x.sh, timeout 9 bash
+# x.sh) is read with it (lib/script-reader.sh: untracked or modified files and files outside any repository; committed,
+# unchanged code is not), so a raw write written in the script is judged exactly as one on the command line. Only its
+# lines that name a client or the issues API are kept, so a long script stays fast to judge. A command running more
+# scripts than the reader reads is refused: it would not judge them all.
+_amg_cwd="$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null || true)"
+[ -n "$_amg_cwd" ] && [ -d "$_amg_cwd" ] || _amg_cwd="${CLAUDE_PROJECT_DIR:-$PWD}"
+if ! _amg_files="$(script_reader_files iad_split_segments shell "$cmd" "$_amg_cwd")"; then
+    printf '{"decision":"block","reason":"BLOCKED: this command runs more than %s local scripts, so the raw-issue-write check cannot read them all. Run them in separate commands."}' "$SCRIPT_READER_MAX_FILES"
+    guard_done
+fi
+if [ -n "$_amg_files" ]; then
+    mapfile -t _amg_list <<< "${_amg_files%$'\n'}"
+    _amg_scripts="$(script_reader_text "${_amg_list[@]}" | grep -E "$IAD_CLIENT_RE|/issues|glab" || true)"
+    [ -n "$_amg_scripts" ] && cmd="$cmd"$'\n'"$_amg_scripts"
+fi
 # Program names and glab flags are read the way the shell and glab read them (c""url, glab -R a/b issue ...).
 cmd="$(iad_normalize_cmd "$cmd")"
 [[ $cmd == "$IAD_NORMALISER_BROKEN" ]] && { iad_refuse_broken_normaliser "agent-msg"; exit 0; }

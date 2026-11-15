@@ -285,11 +285,15 @@ used, the candidates triaged, and where duplicates were centralized.
 
 ## The Metrics column & the Metrics gate
 
-The Proof table carries a 4th **Metrics** column: for a tool-gated dimension, cite the tool + its output value as
-`<kbd>{Metric} ({Tool}):</kbd> {Value}<br>` (default `—`). It is a place to pin the *number behind the verdict*.
-A row is set with `story proof <id> --set 'Dimension=VERDICT|evidence|metrics'`; the unescaped `|` separates the
-three fields, so write a literal pipe inside the evidence or the metrics as `\|` (it is stored as `&#124;` so the
-table keeps its columns).
+The Proof table carries a 4th **Metrics** column: for a tool-gated dimension, cite the tool + its output value. It is
+a place to pin the *number behind the verdict*. **Never write the metric markup by hand: send structured entries and
+let the bridge render them.** A row is set with `story proof <id> --set 'Dimension=VERDICT|evidence'` followed by one
+`--metric 'Item|tool|value[|link]'` per metric of that row (for example `--metric 'R1|test|Sums_adds'`,
+`--metric 'Coverage|get_coverage|97.4%'`); through the bridge verb, `proof_set` takes `metrics` as
+`[{"item":"R1","tool":"test","value":"...","link":"..."}]`. The bridge writes the formal group
+(`<kbd>R1 (test):</kbd> value`, shown here only so you recognise it in a stored table) that the gates read. The
+unescaped `|` separates the fields, so write a literal pipe as `\|` (it is stored as `&#124;` so the table keeps its
+columns). A refusal for a missing citation names the structured entry to send.
 
 **The label is free text; only the value is read.** Every gate that reads a number from a Metrics cell reads it from
 the text AFTER the segment's `</kbd>`, never from the `{Metric} ({Tool})` label. So a job id, a commit sha, a run or

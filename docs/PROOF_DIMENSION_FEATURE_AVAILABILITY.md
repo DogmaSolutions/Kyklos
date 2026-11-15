@@ -45,7 +45,7 @@ flowchart TD
 1. **The draft.** `proof_draft` reads the story's `## Requirements` section and looks for evidence naming each `R` item: a changed
    test whose running test method (or its `[Category]`, `[Trait]` or `[Property]` value) carries the item as an exact token
    (`R1_export_command_retries`), a host tool receipt, or the newest [adversarial review](ADVERSARIAL_REVIEW.md) whose token the Bridge verifies and whose
-   "Checked" section states the item handled without negative wording. It leaves the row open with the prompt and with the lists
+   "Checked" section names the item, with no finding naming it and no `Not checked` label, heading, `(not checked)` or fixed not-checked phrase in its bullet or paragraph. It leaves the row open with the prompt and with the lists
    of named and unnamed items, and records the unnamed ones in its signed draft record (see
    [Completeness](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) for the record and its signature).
 2. **The write.** The agent writes the row with `story proof <id> --set 'Feature Availability=PROVEN|<evidence>|<metrics>'`.

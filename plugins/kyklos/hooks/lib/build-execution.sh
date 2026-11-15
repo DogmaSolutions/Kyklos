@@ -16,7 +16,17 @@
 #                                            empty).
 # build_execution_mode [<standards.env>]   — prints bridge or local, or nothing when the value is unset, blank or
 #                                            invalid.
-# The file defaults to $CLAUDE_PROJECT_DIR/.claude/standards.env (the working folder when CLAUDE_PROJECT_DIR is unset).
+# The file defaults to <workspace root>/.claude/standards.env, the root named by build_execution_root.
+#
+# build_execution_root [<dir>]             — prints the workspace root that owns .claude/standards.env and .mcp.json:
+#                                            CLAUDE_PROJECT_DIR when set; otherwise the working folder. Either is
+#                                            kept as it is, except that a folder in a companion's nested source
+#                                            (repo_inner_source_of, the resolver the guards use; it reads
+#                                            KYKLOS_SOURCE_DIR) resolves UP to the companion root. With
+#                                            CLAUDE_PROJECT_DIR unset, <dir> (the solution's repository) is also
+#                                            resolved that way when it is a nested source. An ordinary repository is
+#                                            never climbed. A solution in <workspace>/Repo (no .claude/ by design) is
+#                                            then judged by the companion's settings, never refused as "not set".
 
 build_execution_trim() {
     local v="$1"
@@ -24,7 +34,36 @@ build_execution_trim() {
     printf '%s' "$v" | sed -E 's/^[[:space:]]*//; s/[[:space:]]*$//; s/^"//; s/"$//; s/^'"'"'//; s/'"'"'$//'
 }
 
-build_execution_file() { printf '%s' "${1:-${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude/standards.env}"; }
+_BUILD_EXECUTION_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+
+# _build_execution_companion_of <dir> -> prints the companion root and rc 0 only when <dir> lies in a companion's
+# nested source (repo_inner_source_of); rc 1, nothing printed, for any other folder: an ordinary repository is never
+# climbed, so a project folder that is a subfolder of a repository stays that subfolder.
+_build_execution_companion_of() {
+    local dir="$1" inner
+    [ -d "$dir" ] || return 1
+    # The companion resolver is loaded only here, so a guard that passes its own file never loads it.
+    # shellcheck source=repo-role.sh
+    command -v repo_inner_source_of >/dev/null 2>&1 || . "$_BUILD_EXECUTION_LIB_DIR/repo-role.sh"
+    inner="$(repo_inner_source_of "$dir")" || return 1
+    [ -n "$inner" ] || return 1
+    repo_companion_root "$inner"
+}
+
+build_execution_root() {
+    if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+        _build_execution_companion_of "$CLAUDE_PROJECT_DIR" || printf '%s' "$CLAUDE_PROJECT_DIR"
+        return 0
+    fi
+    if [ -n "${1:-}" ] && _build_execution_companion_of "$1"; then return 0; fi
+    _build_execution_companion_of "$(pwd)" || pwd
+}
+
+# build_execution_file [<file>] [<dir>] — <file> when given, else the standards.env of build_execution_root <dir>.
+build_execution_file() {
+    if [ -n "${1:-}" ]; then printf '%s' "$1"; return 0; fi
+    printf '%s/.claude/standards.env' "$(build_execution_root "${2:-}")"
+}
 
 build_execution_source() {
     local cfg

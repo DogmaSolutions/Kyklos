@@ -65,7 +65,12 @@ fi
 
 # Gate 1: CLAUDE.md read recently.
 if stale "$CLAUDE_MD_READ"; then
-    printf '{"decision":"block","reason":"%s"}' "BLOCKED: CLAUDE.md has not been read recently (a fresh container, or >${STALE_MINUTES} min since the last read). Read CLAUDE.md to reload the project rules before continuing."
+    # Name the project's own CLAUDE.md (the workspace root's) by its full path. A bare "Read CLAUDE.md" let an agent
+    # satisfy the gate by reading the managed policy outside the workspace, which made Claude Code ask the person for
+    # permission to read a file the gate never needed. The marker logic above is unchanged: any CLAUDE.md read counts.
+    _claude_md="$PROJECT_DIR/CLAUDE.md"
+    _claude_md="${_claude_md//\\/\\\\}"; _claude_md="${_claude_md//\"/\\\"}"   # JSON-escape the path
+    printf '{"decision":"block","reason":"%s"}' "BLOCKED: the project rules have not been read recently (a fresh container, or >${STALE_MINUTES} min since the last read). Read the project's own CLAUDE.md at $_claude_md (the workspace root's, not a policy file outside the workspace) to reload the project rules before continuing."
     exit 0
 fi
 

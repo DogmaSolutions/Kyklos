@@ -82,6 +82,10 @@ Docs describing a change go in the **same commit** as the change (policy rule) â
 
     bash "$CLAUDE_PLUGIN_ROOT/skills/update-docs/audience-lint.sh" <consumer-facing-file>...
 
+A date the document publishes on purpose is not flagged: a changelog's release heading (`## [6.1] - <date>`,
+`## 6.1 (<date>)`) and a published-date field (`Published: <date>`, `Last updated: <date>`, a front matter `date:`),
+each alone on its line (`audience-lint-date-mask.sh`); a bare `Date:` field only in a public document (under dist/public, a README or a CHANGELOG). A date in prose stays a finding.
+
 Extend its pattern set from the project's audience policy. A hit is a finding to fix (move the detail to an
 internal doc), not to suppress. Passing the lint on every consumer-facing file is part of the dimension's PROVEN.
 

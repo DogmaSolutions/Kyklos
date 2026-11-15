@@ -30,13 +30,15 @@
 # and fall into a fail-open path, so the hook refuses by name instead (a broken install). [CySec] CWE-636
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
-    printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin."}\n' "$(basename "$0")"
+    printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
     exit 0
 fi
+. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null   # kyklos_help_*: the help line naming the troubleshooting guide's section
 set +e -uo pipefail
 _GD_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$_GD_HERE/lib/git-cmd-detect.sh"   # git_cmd_invokes: command-position git-subcommand detection (shared)
 . "$_GD_HERE/lib/push-refspec.sh"     # push_refspec_dest/src/is_delete/push_base: judge the PUSHED ref, not HEAD
+. "$_GD_HERE/lib/bridge-build-state.sh" # bridge_build_is_current: the bridge's own green build of exactly the pushed commit
 . "$_GD_HERE/lib/slnx-solutions.sh"   # slnx_list/affected/record: the solution <-> green-record map (shared with the recorder)
 RECORDER="$_GD_HERE/lib/record-slnx-green.sh"
 
@@ -144,6 +146,9 @@ fi
 MISSING=(); _details=""
 for _sol in "${AFFECTED[@]}"; do
     slnx_record_matches "$STATE_DIR" "$TOP" "$_sol" "${#SOLUTIONS[@]}" "$PUSHED_SHA" && continue
+    # The bridge's own green build of exactly this commit counts as well as the recorder's record. A bridge that cannot be
+    # asked, has no such build, or built another commit or tree leaves the recorder rule as it was (never fail-open).
+    bridge_build_is_current "$TOP" "$_sol" "${#SOLUTIONS[@]}" "$PUSHED_SHA" && continue
     MISSING+=("$_sol")
     _rec="$(slnx_record_sha "$STATE_DIR" "$TOP" "$_sol" "${#SOLUTIONS[@]}")"
     if [ -n "$_rec" ]; then
@@ -168,7 +173,7 @@ case "$(command -v build_execution_mode >/dev/null 2>&1 && build_execution_mode 
     local)  _route="With BUILD_EXECUTION=local the recorder runs that build locally, in this container." ;;
     *)      _route="BUILD_EXECUTION is not set (or not bridge or local), so the recorder cannot choose where to build: set it first (bridge builds on the host through the bridge, local builds in this container), then run the recorder." ;;
 esac
-reason="Push BLOCKED — the pushed $push_branch @ $PUSHED_SHA needs a recorded green full-solution build for ${#MISSING[@]} solution(s)$_scope_note:$_details A single-project build/test does NOT run the StyleCop solution-ruleset rules (SA1117 etc.); only a FULL-solution 'dotnet build <solution>.slnx' does — the same build CI's 'build' job runs. The recorder runs that build and, only on GREEN, records the current HEAD for that solution; then push. $_route For a single deliberate exception: bash $OVERRIDE_MARKER_CLI set $OK_NAME $OK_SCOPE_HINT"
+reason="Push BLOCKED — the pushed $push_branch @ $PUSHED_SHA needs a recorded green full-solution build for ${#MISSING[@]} solution(s)$_scope_note:$_details A single-project build/test does NOT run the StyleCop solution-ruleset rules (SA1117 etc.); only a FULL-solution 'dotnet build <solution>.slnx' does — the same build CI's 'build' job runs. Two things count as that proof: (1) the recorder runs that build and, only on GREEN, records the current HEAD for that solution; (2) a green build the bridge itself made of exactly this commit, with no change to the tree since (its build verb on that solution, run on the committed tree; the bridge's build_state verb answers whether it is still current). Either one, then push. $_route For a single deliberate exception: bash $OVERRIDE_MARKER_CLI set $OK_NAME $OK_SCOPE_HINT"
 reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
-printf '{"decision":"block","reason":"%s"}' "$reason"
+printf '{"decision":"block","reason":"%s%s"}' "$reason" "$(kyklos_help_json_suffix push-blocked-no-recorded-green-full-solution-build)"
 exit 0

@@ -18,6 +18,7 @@ usage() { echo "usage: bridge [--json] [list] | bridge [--json] <verb> [json-obj
 
 command -v jq >/dev/null 2>&1 || { echo "bridge: jq is required to talk to the bridge" >&2; exit 2; }
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../hooks/lib/bridge-mcp.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../hooks/lib/help-link.sh" 2>/dev/null || true   # kyklos_help_line
 
 as_json=0
 [ "${1:-}" = "--json" ] && { as_json=1; shift; }
@@ -38,8 +39,8 @@ esac
 reply="$(bridge_mcp_call front_door "$args" 300)"; rc=$?
 case "$rc" in
   0) : ;;
-  2) echo "bridge: no KyklosBridge is configured for this workspace (.mcp.json) — start the session through its launcher" >&2; exit 2 ;;
-  *) echo "bridge: the KyklosBridge did not answer (rc $rc)" >&2; exit 3 ;;
+  2) echo "bridge: no KyklosBridge is configured for this workspace (.mcp.json) — start the session through its launcher" >&2; kyklos_help_line bridge-unreachable >&2; echo >&2; exit 2 ;;
+  *) echo "bridge: the KyklosBridge did not answer (rc $rc)" >&2; kyklos_help_line bridge-unreachable >&2; echo >&2; exit 3 ;;
 esac
 text="$(bridge_mcp_text "$reply")"
 if ! printf '%s' "$reply" | json_test '.error | not'; then
@@ -47,7 +48,7 @@ if ! printf '%s' "$reply" | json_test '.error | not'; then
   exit 1
 fi
 case "$text" in
-  "unknown tool: front_door"*) echo "bridge: this KyklosBridge has no front door yet — relaunch the session to update it" >&2; exit 2 ;;
+  "unknown tool: front_door"*) echo "bridge: this KyklosBridge has no front door yet — relaunch the session to update it" >&2; kyklos_help_line bridge-unreachable >&2; echo >&2; exit 2 ;;
 esac
 if bridge_mcp_is_error "$reply"; then
   printf '%s\n' "$text" >&2

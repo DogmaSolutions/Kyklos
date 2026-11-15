@@ -21,9 +21,10 @@
 # install). [CySec] CWE-636
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
-    printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin."}\n' "$(basename "$0")"
+    printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
     exit 0
 fi
+. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null   # kyklos_help_*: the help line naming the troubleshooting guide's section
 set +e -uo pipefail
 _GD_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$_GD_HERE/lib/git-cmd-detect.sh"   # git_cmd_invokes: command-position git-subcommand detection (shared)
@@ -56,7 +57,7 @@ if ! kyklos_control_off "${KYKLOS_REQUIRE_REFS:-}"; then
     # opt-out above comes first: a repository that switched the footer rules off is not refused for a missing reader.
     # [CySec] CWE-636
     if ! command -v refs_footer_cited >/dev/null 2>&1 || ! command -v refs_rule_message_refusal >/dev/null 2>&1; then
-        printf '{"decision":"block","reason":"BLOCKED (%s): the footer reader hooks/lib/refs-footer.sh or hooks/lib/refs-rule.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin."}\n' "$(basename "$0")"
+        printf '{"decision":"block","reason":"BLOCKED (%s): the footer reader hooks/lib/refs-footer.sh or hooks/lib/refs-rule.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
         exit 0
     fi
     _rr_tgt="$(git_target_repo_dir "$cmd" "$HOOK_CWD" "$PROJECT_DIR")"
@@ -71,7 +72,7 @@ if ! kyklos_control_off "${KYKLOS_REQUIRE_REFS:-}"; then
     if [ -n "$_rr_why" ]; then
         reason="BLOCKED: $_rr_why"
         reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
-        printf '{"decision":"block","reason":"%s"}' "$reason"
+        printf '{"decision":"block","reason":"%s%s"}' "$reason" "$(kyklos_help_json_suffix commit-blocked)"
         exit 0
     fi
 fi
@@ -109,7 +110,7 @@ if [ -n "$subj" ] && ! printf '%s' "$subj" | grep -cE '^(feat|fix|docs|style|ref
     fi
     reason="${reason} This is the SAME rule as the CI validate-commit-message job — fixing it now avoids a wasted push + CI loop."
     reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
-    printf '{"decision":"block","reason":"%s"}' "$reason"
+    printf '{"decision":"block","reason":"%s%s"}' "$reason" "$(kyklos_help_json_suffix commit-blocked)"
     exit 0
 fi
 
@@ -122,7 +123,7 @@ fi
 if printf '%s' "$cmd" | grep -icE 'co-authored-by:.*(claude|anthropic)|claude-session:|generated with.*claude|--author=.*(claude|anthropic)' >/dev/null; then
     reason="BLOCKED (Tier-0, no AI attribution): this commit cites AI authorship — a Co-Authored-By/Claude-Session/'Generated with Claude' trailer or an AI --author. NEVER add an AI trace to a commit (message, body, footer, OR author); the author stays the local git identity. Remove the AI line(s) and re-commit. This is enforced mechanically now — there is no override."
     reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
-    printf '{"decision":"block","reason":"%s"}' "$reason"
+    printf '{"decision":"block","reason":"%s%s"}' "$reason" "$(kyklos_help_json_suffix commit-blocked)"
     exit 0
 fi
 
@@ -150,7 +151,7 @@ if ! kyklos_control_off "${KYKLOS_REQUIRE_REFS:-}"; then
         if ! printf '%s\n' "$_rf_leads" | grep -cxF -- "$(printf '%s' "$storynum" | sed -E 's/^0+([0-9])/\1/')" >/dev/null; then
             reason="BLOCKED: commit on story branch '$branch' is missing its 'Refs: #${storynum}' footer. Add a trailer line — a blank line, then 'Refs: #${storynum}' (the plain item first on its line; a project-qualified item is not accepted yet) — so the commit is tied to STORY-${storynum} (it must survive the merge to trunk and auto-link the GitLab issue). SAME rule as the CI validate-commit-message job. Example (bash ANSI-C quoting keeps the newlines):  git commit -m \$'feat(x): subject\\n\\n<body>\\n\\nRefs: #${storynum}'"
             reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
-            printf '{"decision":"block","reason":"%s"}' "$reason"
+            printf '{"decision":"block","reason":"%s%s"}' "$reason" "$(kyklos_help_json_suffix commit-blocked)"
             exit 0
         fi
     else
@@ -158,7 +159,7 @@ if ! kyklos_control_off "${KYKLOS_REQUIRE_REFS:-}"; then
         if [ -z "$_rf_leads" ]; then
             reason="BLOCKED: commit is missing a 'Refs: #<id>' footer citing the pertinent issue. EVERY commit must carry it — the branch name is LOST on a squash-merge and ABSENT in non-GitFlow repos, so the issue link must live in the commit message. Add a trailer: a blank line, then 'Refs: #<id>' (the issue this commit pertains to, a plain item first on its line; a project-qualified item is not accepted yet, SAME rule as the CI validate-commit-message job). If this repo genuinely has no issue tracker, set KYKLOS_REQUIRE_REFS=0 in .claude/standards.env. Example:  git commit -m \"feat(x): subject\" -m \"Refs: #123\""
             reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
-            printf '{"decision":"block","reason":"%s"}' "$reason"
+            printf '{"decision":"block","reason":"%s%s"}' "$reason" "$(kyklos_help_json_suffix commit-blocked)"
             exit 0
         fi
     fi

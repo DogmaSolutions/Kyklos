@@ -20,10 +20,12 @@
 #
 # Exits NON-ZERO (and writes nothing) when it cannot prove a green full-solution build: no *.slnx in the repo,
 # `dotnet` absent, not a git repo / HEAD unresolvable, a repo folder holding several *.slnx (name the solution),
-# a path that is not one of the repo's solutions, or the build fails.
+# a path that is not one of the repo's solutions, the build fails, or the record cannot be written. Exit 0 means the
+# record was written, and nothing else: an EXIT trap turns any other ending into a non-zero exit.
 #
 # MODE-AWARE (BUILD_EXECUTION knob, no default; lib/build-execution.sh reads the session's environment first, then
-# $CLAUDE_PROJECT_DIR/.claude/standards.env):
+# the workspace root's .claude/standards.env; for a solution in a companion's nested source, <workspace>/Repo, that
+# root is the companion root, build_execution_root):
 #   local  = today's behaviour: run a local `dotnet build <*.slnx>` and, on green, write the marker.
 #   bridge = do NOT run local dotnet (forbidden — the build runs on the real host). Instead call the bridge's
 #            `build` verb through lib/bridge-mcp.sh (bridge_mcp_call; it owns the endpoint resolution), and
@@ -31,7 +33,8 @@
 #            write nothing, exit non-zero (the slnx-green guard then blocks, correctly).
 #            A build that outlasts the bridge's bounded wait is answered pending=true + jobId; the recorder then collects it
 #            with the `get_job_result` verb (same client), at most one call per RECORD_SLNX_GREEN_POLL_SECONDS (default 60),
-#            for at most RECORD_SLNX_GREEN_WAIT_SECONDS (default 3600) overall. A wait that runs out, a pending reply without
+#            for at most RECORD_SLNX_GREEN_WAIT_SECONDS (default 3600) overall. A poll that fails on a transport error or an
+#            empty reply is not a failed build: it is retried within that same overall wait. A wait that runs out, a pending reply without
 #            a job id, an isError reply, or any reply without result.exitCode records nothing and exits non-zero with a named
 #            reason. The two settings are checked BEFORE any arithmetic: the wait is a whole number >= 1, the poll a
 #            non-negative number (fractions allowed); anything else is refused. A long build outlasts a foreground tool call
@@ -43,8 +46,23 @@
 . "$(dirname "${BASH_SOURCE[0]}")/json-answer.sh"   # json_test / json_read: an empty or cut answer is never valid
 set +e -uo pipefail
 
+# Exit status contract: 0 ONLY when the record was written. [CySec] Mitigates CWE-636 "Not Failing Securely": every
+# path that ends without a written record exits non-zero, including one that forgot to say so (a future bare `exit 0`,
+# an unchecked step), so a caller can never read "nothing recorded" as success.
+RECORDED=0
+_record_slnx_green_on_exit() {
+    local rc=$?
+    if [ "$RECORDED" != 1 ] && [ "$rc" -eq 0 ]; then
+        echo "record-slnx-green: ended without writing a record; nothing recorded (exit 8)." >&2
+        exit 8
+    fi
+}
+trap _record_slnx_green_on_exit EXIT
+
 # shellcheck source=bridge-mcp.sh
 . "$(dirname "${BASH_SOURCE[0]}")/bridge-mcp.sh"
+# shellcheck source=bridge-build-state.sh
+. "$(dirname "${BASH_SOURCE[0]}")/bridge-build-state.sh"   # bridge_tree_args: the folder argument of one solution (shared with the push check)
 # shellcheck source=slnx-solutions.sh
 . "$(dirname "${BASH_SOURCE[0]}")/slnx-solutions.sh"   # slnx_list/slnx_marker_path: the key the guard reads
 
@@ -91,7 +109,7 @@ bridge_build() {
     # odd value is refused instead of aborting the build path or being evaluated.
     [[ "$WAIT_SECONDS" =~ ^[1-9][0-9]*$ ]] || { echo "record-slnx-green: RECORD_SLNX_GREEN_WAIT_SECONDS='$WAIT_SECONDS' is not a whole number of seconds >= 1; nothing recorded." >&2; return 2; }
     [[ "$POLL_SECONDS" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "record-slnx-green: RECORD_SLNX_GREEN_POLL_SECONDS='$POLL_SECONDS' is not a non-negative number of seconds; nothing recorded." >&2; return 2; }
-    local deadline=$((SECONDS + WAIT_SECONDS)) job
+    local deadline=$((SECONDS + WAIT_SECONDS)) job _failed_poll=0
     while :; do
         # A JSON-RPC error envelope (e.g. -32001 unauthorized) => not a green build.
         if ! printf '%s' "$resp" | json_test '.error | not'; then
@@ -105,10 +123,26 @@ bridge_build() {
             echo "record-slnx-green: host build (job $job) still not finished after ${WAIT_SECONDS}s (RECORD_SLNX_GREEN_WAIT_SECONDS); nothing recorded. Collect it with get_job_result and re-run." >&2
             return 4
         fi
-        echo "record-slnx-green: host build (job $job) still running; polling again in ${POLL_SECONDS}s..." >&2
-        sleep "$POLL_SECONDS" || { echo "record-slnx-green: waiting between polls failed (RECORD_SLNX_GREEN_POLL_SECONDS='$POLL_SECONDS'); nothing recorded." >&2; return 4; }
-        resp="$(bridge_mcp_call get_job_result "$(jq -cn --arg jobId "$job" '{jobId: $jobId}')" 120)" || {
-            echo "record-slnx-green: get_job_result request for job $job failed (transport error or empty reply); nothing recorded." >&2; return 3; }
+        # After a failed poll the pause is at least 1 s, whatever the poll setting, so a bridge that fails at once is
+        # not asked in a tight loop until the deadline.
+        local nap="$POLL_SECONDS"
+        if [ "$_failed_poll" = 1 ] && ! [[ "$POLL_SECONDS" =~ ^0*[1-9][0-9]*(\.[0-9]+)?$ ]]; then nap=1; fi
+        echo "record-slnx-green: host build (job $job) still running; polling again in ${nap}s..." >&2
+        sleep "$nap" || { echo "record-slnx-green: waiting between polls failed (RECORD_SLNX_GREEN_POLL_SECONDS='$POLL_SECONDS'); nothing recorded." >&2; return 4; }
+        # A failed POLL is not a failed build: the job keeps running on the host. A transport error or an empty reply
+        # (rc 3) is retried within the same overall wait (the last pending reply stays in hand, so the deadline above
+        # still ends the wait); any other client failure (no tooling, no endpoint, a wrong bridge identity) stays final.
+        local poll _prc
+        poll="$(bridge_mcp_call get_job_result "$(jq -cn --arg jobId "$job" '{jobId: $jobId}')" 120)"; _prc=$?
+        _failed_poll=0
+        if [ "$_prc" -eq 0 ]; then
+            resp="$poll"
+        elif [ "$_prc" -eq 3 ]; then
+            _failed_poll=1
+            echo "record-slnx-green: get_job_result poll for job $job failed (transport error or empty reply); the build is still running on the host, polling again within the ${WAIT_SECONDS}s wait." >&2
+        else
+            echo "record-slnx-green: get_job_result request for job $job failed (client error $_prc); nothing recorded." >&2; return 3
+        fi
     done
     if bridge_mcp_is_error "$resp"; then
         echo "record-slnx-green: bridge reply is an error result (isError); nothing recorded." >&2; return 3
@@ -122,22 +156,6 @@ bridge_build() {
         return 1
     fi
     return 0
-}
-
-# bridge_tree_args <solution-abs> — the bridge `build` arguments that address that solution's folder, relative to the
-# project dir the bridge serves. Fails (rc 2, nothing printed) when the solution lies outside it: the bridge could
-# not reach it, and building its default solution instead would record a build of the WRONG solution.
-bridge_tree_args() {
-    local proj soldir tree
-    proj="$(cd "${CLAUDE_PROJECT_DIR:-$(pwd)}" 2>/dev/null && pwd -P)" || return 2
-    soldir="${1%/*}"
-    case "$soldir/" in
-        "$proj/"*) tree="${soldir#"$proj"}"; tree="${tree#/}"; [ -n "$tree" ] || tree="." ;;
-        *) return 2 ;;
-    esac
-    # [CySec] Mitigates CWE-78/CWE-88: the folder is a JSON argument built by jq, never interpolated into a shell or
-    # a JSON string by hand. [RiskMitigation RA-05]
-    jq -cn --arg tree "$tree" '{tree: $tree}'
 }
 
 ARG="${1:-.}"
@@ -157,6 +175,13 @@ TOP="$(git -C "$REPO_ARG" rev-parse --show-toplevel 2>/dev/null || echo "")"
 
 HEAD_SHA="$(git -C "$TOP" rev-parse HEAD 2>/dev/null || echo "")"
 [ -n "$HEAD_SHA" ] || { echo "record-slnx-green: cannot resolve HEAD in '$TOP'; nothing recorded." >&2; exit 3; }
+
+# The workspace root that owns this solution's settings (.claude/standards.env) and bridge connection (.mcp.json): the
+# session's project folder when set, else the working folder, kept as they are, except that a companion's nested
+# source (<workspace>/Repo, which holds no .claude/ by design; with the project folder unset, also the solution's own
+# repository) resolves UP to the companion root (build_execution_root). Exported so the channel reader, the bridge
+# client and the bridge `tree` all start from the same root, whatever folder the recorder was started from.
+CLAUDE_PROJECT_DIR="$(build_execution_root "$TOP")"; export CLAUDE_PROJECT_DIR
 
 # The interviewed build channel drives HOW we prove the green build. No default: refuse when unset.
 MODE="$(read_build_execution)"
@@ -219,7 +244,12 @@ fi
 mkdir -p "$STATE_DIR" 2>/dev/null
 MARKER="$(slnx_marker_path "$STATE_DIR" "$TOP" "$SOL_REL")"
 STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)"
-printf '%s\ntimestamp=%s\nrepo=%s\nsolution=%s\n' "$HEAD_SHA" "$STAMP" "$TOP" "$SOLUTION" > "$MARKER"
+if ! printf '%s\ntimestamp=%s\nrepo=%s\nsolution=%s\n' "$HEAD_SHA" "$STAMP" "$TOP" "$SOLUTION" > "$MARKER" 2>/dev/null \
+   || [ "$(head -n1 "$MARKER" 2>/dev/null)" != "$HEAD_SHA" ]; then
+    echo "record-slnx-green: the build was green, but the record '$MARKER' could not be written (KYKLOS_STATE_DIR='$STATE_DIR'); nothing recorded. Fix the folder and re-run." >&2
+    exit 8
+fi
+RECORDED=1
 
 echo "record-slnx-green: GREEN full-solution build of '$SOL_REL' recorded for HEAD $HEAD_SHA -> $MARKER" >&2
 exit 0

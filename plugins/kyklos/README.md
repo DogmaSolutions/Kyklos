@@ -21,18 +21,20 @@ and proof before work counts as done (mechanisms only; project specifics live in
 - **Hooks** (`hooks/*.sh`). Which hook runs on which event is `hooks/hooks.json`. Each hook states its own behaviour,
   its settings, its default and its one-shot override in its header comment; read the header, not a copy of it. The
   per-project settings are listed in `standards.env.sample`, the one-shot overrides in `hooks/lib/override-marker.sh`.
-  What each hook is for:
+  A refusal that has a section in the troubleshooting guide (`docs/TROUBLESHOOTING.md` of the public repository) ends
+  with one line `Help: <guide>#<section>`, written by `hooks/lib/help-link.sh` (the bridge's refusals by its
+  `TroubleshootingGuide`). What each hook is for:
 
   | Hook (`kyklos-` prefix dropped) | What it enforces |
   |---|---|
   | `gitflow-branch-guard` | GitFlow branch names, no edit or commit on a protected branch, a story-named branch, a Conventional-Commits inline `-m` message |
-  | `commit-message-guard` | the commit subject, the `Refs:` footer (one item per branch: a story branch cites only its story) and no AI attribution, at commit time |
+  | `commit-message-guard` | the commit subject, the `Refs:` footer (one item per branch: a story branch cites only its story; commits a trunk already holds, such as those a trunk merge brings in, are not the branch's own and are not judged) and no AI attribution, at commit time |
   | `no-push-guard` | `git push` only where the container is authorised to push, and only a branch whose commits cite one item |
   | `branch-cleanup-guard` | a finished branch is closed (merged and deleted) by the declared close mode |
   | `merge-green-guard` | no merge of a feature or hotfix branch into a trunk unless its pipeline is green, looked up in the project the merged repository's origin belongs to (a companion's nested source project, not the default one); its refusal names that project and the override that is honoured |
   | `mr-hands-off-guard` | a story merge request is armed when created and never merged by hand |
-  | `automerge-coverage-guard` | no auto-merge arming on changed production C# unless the content ledger shows every changed C# line run at that commit (or a valid Test Discipline token), plus the merged-result check (the rule itself lives in `hooks/lib/merged-result.sh`) |
-  | `slnx-green-guard` | no push of a branch touching a solution without a recorded green full-solution build (`hooks/lib/record-slnx-green.sh`) |
+  | `automerge-coverage-guard` | no auto-merge arming on changed production C# unless the content ledger shows every changed C# line run at that commit (or a valid Test Discipline token), plus the merged-result check (the rule itself lives in `hooks/lib/merged-result.sh`). A companion's nested source repository (a project the bridge does not serve, or serves without stories) has the session's story project for the one-shot override's Named Cause question and the ledger question: the bound project, else the tracker project, else the bridge's only story project (`hooks/lib/item-project.sh`, `item_story_project_of`). An arm of an existing merge request (the API, `mr_auto_merge`, a glab merge of the branch's open request) is refused while its head pipeline failed, was canceled or was skipped (a pipeline named only by its number is asked for its status). An arm written in a script the agent wrote and the command runs is judged the same way (`hooks/lib/script-reader.sh`). The owner's one-shot `automerge-coverage-ok` override, once spent, holds, for up to a day, for the same agent's retry of the same story's arm in that repository while the covered C# content is unchanged (each use audited and checked against the Named Cause); any change to that code needs the owner again |
+  | `slnx-green-guard` | no push of a branch touching a solution without a green full-solution build of exactly the pushed commit: either the recorder's record (`hooks/lib/record-slnx-green.sh`) or the bridge's own green build of that commit with no change since (the bridge's read-only `build_state` verb, asked through `hooks/lib/bridge-build-state.sh`). A bridge that cannot be asked, has no such build, or built another commit or tree never counts: the recorder's record then decides alone |
   | `script-lint-guard` | the script formal check (`hooks/lib/script-lint/`) on the scripts a pushed branch changes |
   | `public-push-artifact-guard` | no AI/agent artifact pushed into a public source repository |
   | `public-source-refs-guard` | no internal tracker reference written into a public source or another repository |
@@ -48,7 +50,7 @@ and proof before work counts as done (mechanisms only; project specifics live in
   | `build-execution-guard` | builds and tests run the way `BUILD_EXECUTION` declares (bridge or local) |
   | `scenario-gate` / `scenario-init` | a valid working scenario before build or test in a scenario-enabled project; first-run seeding |
   | `tool-first-guard` / `tool-catalog-surface` | a story issue's lifecycle runs through the `story` tool; the capability catalog at session start |
-  | `agent-msg-guard` | coordination issues only through `agent-msg`; no issue created by a raw API call (a POST, or a write whose method it cannot see, to an issues collection, or a GraphQL `createIssue`/`workItemCreate` mutation or GraphQL write whose document it cannot see; a note, a note edit or a PUT is no creation; a placeholder that ends the route, such as `/issues/$E`, is the collection) |
+  | `agent-msg-guard` | coordination issues only through `agent-msg`; no issue created by a raw API call (a POST, or a write whose method it cannot see, to an issues collection, or a GraphQL `createIssue`/`workItemCreate` mutation or GraphQL write whose document it cannot see; a note, a note edit or a PUT is no creation; a placeholder that ends the route, such as `/issues/$E`, is the collection); a local shell script the agent wrote and the command runs (`bash x.sh`, `./x.sh`, `source x.sh`, also through `timeout`, `env`, `sudo`, after a `cd`, `bash < x.sh`, `cat x.sh | bash`) is read with it, so a raw note written in the script is judged as one on the command line; a script unchanged since the branch forked from its remote trunk (committed repository code) is not read, while one the branch added or changed, committed or not, is, and a command running more than 8 scripts is refused (`hooks/lib/script-reader.sh`) |
   | `inbound-issues-guard` / `inbound-monitor-init` | a coordination issue with the ball in your court is answered before the turn ends; the idle monitor |
   | `epic-gate-guard` | an epic (GitLab milestone) is changed only through the epic verbs |
   | `proof-table-guard` | a proof table is written only through `story proof` |
@@ -60,7 +62,7 @@ and proof before work counts as done (mechanisms only; project specifics live in
   | `story-mirror-edit-guard` / `story-mirror-refresh` / `story-mirror-commit` / `story-mirror-stale-surface` | the on-disk `Stories/` mirror of GitLab: read-only, refreshed, committed, stale reads surfaced |
   | `phase-advance` | a story's `ssdlc:phase::` advances as the real work happens |
   | `proof-show-nudge` | after a `story close`, show its proof in the reply |
-  | `continue-guard` / `ask-user-guard` | no unmotivated stop on the agent's own or unassigned work (another user's issues are listed as owned elsewhere); no question that is not a genuine always-stop decision |
+  | `continue-guard` / `ask-user-guard` | no unmotivated stop on the agent's own or unassigned work (another user's issues are listed as owned elsewhere); no question that is not a genuine always-stop decision. A red doctor result is an allowed stop reason: the doctor hook records, per session, the checks that answered "no"; the guard allows a stop while such a record of THIS session stands, a live doctor re-run still says "no" for one of them, and the agent's closing message names it (a doctor that could not run leaves no record) |
   | `idle-work-nudge` | use a long pipeline wait for independent work |
   | `session-continuation-guard` | `CLAUDE.md` is re-read periodically |
   | `session-boundary-stamp` | records the session start for the close-time gates |
@@ -68,7 +70,8 @@ and proof before work counts as done (mechanisms only; project specifics live in
   | `fork-bridge-surface` | a bridge run verb from another git tree must name its `tree` |
   | `override-bind` | a one-shot override belongs to the agent that set it |
   | `mutation-timing` | advisory: whether a mutation run is required or due (`skills/measuring-test-coverage/mutation-due.sh`) |
-  | `clone-staleness-surface` / `fetch-latest-surface` / `shared-checkout-surface` / `api-scope-surface` | session-start notices: a stale plugin clone, branches behind their upstream, work left in a shared checkout, the tokens the agent can read |
+  | `clone-staleness-surface` / `fetch-latest-surface` / `shared-checkout-surface` | session-start notices: a stale plugin clone, branches behind their upstream, work left in a shared checkout |
+  | `doctor-surface` | session start: runs the health checks itself and asks the bridge's `doctor` verb, then puts every finding in the agent's starting context as its first message to the person. It runs the token-scope check (at most 15 seconds; a check that runs out of time is reported as failed, never silent) and reads the story-mirror stale marker, both of which used to warn from `api-scope-surface` and `story-mirror-refresh`; the bridge call is bounded too (15 seconds at most), and a bridge that is absent or older gives one neutral line. Nothing passes between hooks and nothing is cached: every start, resume and compact checks afresh. A failure part-way still prints the findings gathered. Off-switch: `KYKLOS_DOCTOR_SURFACE=off` (the two hooks then warn on their own, as before); `KYKLOS_DOCTOR_TIMEOUT_SECONDS` and `KYKLOS_DOCTOR_TOKEN_CHECK_SECONDS` set the bounds |
 
   Ask First works in two layers. The FIRST layer reads each command or edit before it runs and asks the user, so the
   user chooses up front. It judges each statement on its own: a statement that names no settings file (`git branch`,
@@ -120,6 +123,13 @@ and proof before work counts as done (mechanisms only; project specifics live in
   file written earlier, a name assembled from pieces such as `n=NAME; export $n=0`), numeric thresholds (a coverage
   floor, a CRAP ceiling), and a guard's own inline variable that is not read through `kyklos_control_off` (such as
   `STORY_ALLOW_JUNK_SLUG=1 story new`), which is no derived control.
+
+  The guard splits a command into pipeline stages by the shell's own quoting: a quoted or backslash-escaped `|`, `;`, `&` or `#`
+  (a `grep` pattern such as `"a\|# b"`) is part of an argument, never a stage or a program. The one exception is a command
+  that reads its arguments as shell text again (`eval`, `watch`, `ssh`, `su`, `xargs`, a shell) as its program, or after a
+  wrapper (`sudo`, `env`, `timeout`, ...): there an escaped pipe or semicolon becomes a real one, so a download piped
+  through it after `eval` is still refused. Such a name that is only an argument of another command (`grep -E sh\|bash`)
+  is a pattern, never a program.
 
   **What the piped-script guard does not catch.** The guard reads the command text before it runs
   (`hooks/lib/piped-script.sh`) with the shared command normaliser: quotes and backslashes inside a word are removed,

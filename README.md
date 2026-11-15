@@ -95,7 +95,8 @@ The following sections illustrate how *Kyklos* works and how it helps to keep th
 14. [Similar projects, and how Kyklos compares](docs/SIMILAR_PROJECTS.md)
 15. [Manually install and configure Kyklos on Windows](docs/INSTALL_AND_CONFIG.md)
 16. [Installing Kyklos with an agent: step-by-step instructions an agent can follow](docs/AGENT_INSTALL.md)
-17. [Knowledge base](docs/KB.md)
+17. [Troubleshooting: find your problem by the message you see](docs/TROUBLESHOOTING.md)
+18. [Knowledge base](docs/KB.md)
 
 ---  
 

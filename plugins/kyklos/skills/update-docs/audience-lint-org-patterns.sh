@@ -247,9 +247,38 @@ _al_org_drop_own() {
             n = split(names, list, " "); for (i = 1; i <= n; i++) own[list[i]] = 1
             if (!whole) { lines = 0; while ((getline row < file) > 0) text[++lines] = tolower(row); close(file) }
         }
+        # inside_own(text, hit) -> 1 when every occurrence of hit in text lies inside an occurrence of an own name (a
+        # shorter organisation entry contained in the project'"'"'s own name, such as its first part, is the own name there).
+        function inside_own(text, hit,   start, at, covered, o, ostart, oat) {
+            # A hit its line does not literally hold proves nothing about the own name: it is kept.
+            if (hit == "" || index(text, hit) == 0) return 0
+            start = 0
+            while ((at = index(substr(text, start + 1), hit)) > 0) {
+                at += start; covered = 0
+                for (o in own) {
+                    ostart = 0
+                    while ((oat = index(substr(text, ostart + 1), o)) > 0) {
+                        oat += ostart
+                        # Only a whole occurrence of the own name counts (the same boundary as embedded() above).
+                        if (oat <= at && at + length(hit) <= oat + length(o) \
+                            && !(oat > 1 && substr(text, oat - 1, 1) ~ /[a-z0-9_]/) \
+                            && substr(text, oat + length(o), 1) !~ /[a-z0-9_]/) { covered = 1; break }
+                        ostart = oat
+                    }
+                    if (covered) break
+                }
+                if (!covered) return 0
+                start = at
+            }
+            return 1
+        }
         {
             name = tolower($3)
-            if (!(name in own)) { print; next }
+            if (!(name in own)) {
+                # Line 0 is "not checked" (the patterns could not run on the file): never exempted.
+                if (!whole && n > 0 && $1 + 0 > 0 && inside_own(text[$1 + 0], name)) next
+                print; next
+            }
             if (!whole && embedded(text[$1 + 0], name)) print
         }'
 }

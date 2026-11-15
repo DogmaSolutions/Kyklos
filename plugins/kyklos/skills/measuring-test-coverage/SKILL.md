@@ -102,10 +102,15 @@ Discipline / Risk Assessment Proof rows when a high-CRAP method is accepted rath
     content ledger to show every changed C# line of the story run by a passing test at the commit being armed
     (`test_facts` for the story: `gap 0, expired 0`), the same answer the close reads. Get there with `get_coverage`
     WITHOUT `story` and a `filter` over the tests that run the changed lines; runs add up, so run only what covers the
-    remaining GAP lines. A Test Discipline token from a whole-suite `get_coverage` with `story` is still accepted
+    remaining GAP lines. For a large suite this is the DEFAULT route: take the test projects `test_facts` names and run
+    `get_coverage` WITHOUT `story` and with `projects` (only those projects are built and started), then `test_facts`
+    again. A Test Discipline token from a whole-suite `get_coverage` with `story` is for small suites or declared test
+    shards (the bridge refuses it before anything runs when the recorded durations of the test projects put it above
+    the run's time limit); it is still accepted
     (`hooks/kyklos-automerge-coverage-guard.sh` refuses the arm when neither settles it; off switch for the ledger
     path only: `KYKLOS_AUTOMERGE_LEDGER=off`). A plain push to let CI run is still fine.
-  - **Bind the proof token to your story:** pass `story` (e.g. `42`). Without it the Test Discipline token takes
+  - **Bind the proof token to your story (small suites and declared shards; a large suite uses the ledger route above):**
+    pass `story` (e.g. `42`). Without it the Test Discipline token takes
     its story from the branch name or last commit, which finds none on a trunk such as `develop`. The result's
     `proofToken` field says whether a token was issued and, if not, why. A token is issued only for a GREEN run:
     fix the failures and measure again.

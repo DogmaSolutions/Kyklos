@@ -76,6 +76,21 @@ change touches:
 - a namespace: `--filter FullyQualifiedName~Classification`
 - everything: (no filter)
 
+## Large suites: earn the Test Discipline evidence through the ledger
+
+For a large suite (dozens of test projects) the default way to earn the story's Test Discipline evidence is the
+**content ledger route**, not a whole-suite run with `story`: call `test_facts` for the story (it names the test
+projects that reach the changed lines and gives the call), then `get_coverage` WITHOUT `story` and with `projects`
+(the named test projects; a `projects` run builds and starts only those), and repeat `test_facts` until it answers
+`gap 0, expired 0`. Runs add up, so each run measures only what is still open. A whole-suite run with `story` (the
+token route) is for small suites, or for a suite whose committed run settings declare test shards; the bridge refuses
+it before anything runs when the recorded durations of the test projects say it cannot fit the run's time limit, and
+says so. Do not size the time limit by hand to make it fit.
+
+A run ends what it started: when the run's own process has ended, the bridge ends any process it recorded for the run
+that is still alive and names it in the run's output, so no `kill_process` is needed after a run. A process it could
+not end is named as a survivor; only then use `kill_process` with that run's id.
+
 ## One run at a time
 
 Never run your own tests concurrently: not two runs of your project, fixture or test at once. Overlapping runs

@@ -23,9 +23,10 @@
 # and fall into a fail-open path, so the hook refuses by name instead (a broken install). [CySec] CWE-636
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
-    printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin."}\n' "$(basename "$0")"
+    printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
     exit 0
 fi
+. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null   # kyklos_help_*: the help line naming the troubleshooting guide's section
 set +e -uo pipefail
 
 MODE="${1:-edit}"
@@ -172,7 +173,7 @@ if [ "$MODE" = bridge ]; then
   fi
   _r="BLOCKED (story-before-coding): a KyklosBridge build/run_tests without a ready in-progress story -- ${reason} This is the SSDLC-side interceptor of the call to the bridge (the bridge itself is not gated). Open + FULLY author a story first (story new ... / story adopt <id>), OR for a deliberate non-story build run: bash ${OVERRIDE_MARKER_CLI} set build-without-story-ok <your-working-folder> in a SEPARATE prior step (spent once), OR set KYKLOS_STORY_BEFORE_CODING=0."
   _r="${_r//\\/\\\\}"; _r="${_r//\"/\\\"}"; _r="$(printf '%s' "$_r" | tr '\n' ' ')"
-  printf '{"decision":"block","reason":"%s"}' "$_r"
+  printf '{"decision":"block","reason":"%s%s"}' "$_r" "$(kyklos_help_json_suffix commit-blocked)"
   exit 0
 fi
 

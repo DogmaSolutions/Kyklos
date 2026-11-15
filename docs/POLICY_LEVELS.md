@@ -112,12 +112,14 @@ A configuration's **Policy** tab, beside **Settings**, holds the Corporate setti
 
 - **Check** reads the repository on the host and shows where Level 1 came from (address, commit, date, size), the three
   levels, and the overrides table (identifier, title, replaced or removed, reason, [hook](HOOKS_AND_SKILLS.md#how-a-hook-decides-one-hook-per-event-every-rule-in-the-bridge) still active), each row opening
-  the Kyklos original beside its replacement; or the exact error. Beside Level 0 and Level 1, **Open the Kyklos
-  policy** and **Open the Corporate policy** show each file read-only: Level 0 is the policy shipped with the launcher,
-  which every launcher upgrade replaces (an organisation's changes belong in the Corporate policy); Level 1 is the
-  Corporate file the composition used (the local file, the repository copy, or its last good copy).
-- **Preview** shows the whole composed policy, with every override's line marked, from the values as entered, saved or
-  not. It uses the same composer as the launch, so the preview and the container's file cannot differ. The rule
+  the Kyklos original beside its replacement; or the exact error. Beside each level, **Open the Kyklos policy**, **Open
+  the Corporate policy** and **Open the project policy** show its file read-only: Level 0 is the policy shipped with the
+  launcher, which every launcher upgrade replaces (an organisation's changes belong in the Corporate policy); Level 1 is
+  the Corporate file the composition used (the local file, the repository copy, or its last good copy); Level 2 is the
+  project's own `CLAUDE.md` at its workspace root, shown when the workspace holds one.
+- **Preview** shows the whole composed policy, with every override's line marked (a replaced rule and a removed rule
+  each in its own colour), from the values as entered, saved or not. The launcher's **Check** window shows the same
+  preview of the saved configuration. It uses the same composer as the launch, so the preview and the container's file cannot differ. The rule
   markers (`<!-- kyklos:rule ... -->` comments) are hidden in this readable view; **Show exactly what the agent
   receives** shows the raw file, markers included. The markers stay in the file: overrides find rules by them.
 
@@ -207,6 +209,7 @@ own tests. A section's identifier names the whole section, its rules included.
 | `response.surface-deliverable` | rule | Surface the deliverable — never "it's in the file". |  |
 | `response.proof-as-rendered` | rule | Show the proof as the tool renders it — never restructure the canonical artifact by hand. |  |
 | `response.full-context-asks` | rule | Asking the user anything — give full context and the reason, always. |  |
+| `response.search-before-asking` | rule | Search before you ask; a missing credential is forwarded through the Launcher. |  |
 | `response.ask-on-the-story` | rule | A story's question is asked on the story, and the terminal points to it. |  |
 | `response.tickable-asks` | rule | Asking in GitLab text — a tickable option per item, always. |  |
 | `response.no-bare-hash-numbers` | rule | Numbering your own items in GitLab text — never a bare `#N`. |  |

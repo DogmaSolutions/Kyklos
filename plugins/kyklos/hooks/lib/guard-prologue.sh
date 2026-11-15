@@ -28,6 +28,8 @@ guard_arm() {
   _KYKLOS_GUARD_DECIDED="${_KYKLOS_GUARD_DECIDED:-0}"
   builtin trap - RETURN
   builtin trap _guard_on_exit EXIT
+  # Stopped from outside (the hook's time limit) is not a broken install: the refusal says it was stopped.
+  builtin trap '_KYKLOS_GUARD_STOPPED=1; exit 0' TERM INT HUP
 }
 
 # trap -> while a guard runs, a library cannot replace or clear the guard's EXIT trap or set a RETURN trap: those two
@@ -50,6 +52,14 @@ trap() {
 _guard_on_exit() {
   [ "${_KYKLOS_GUARD_DECIDED:-0}" = 1 ] && return 0
   local why="${REQUIRE_LIB_PROBLEM:-}" r
+  if [ "${_KYKLOS_GUARD_STOPPED:-0}" = 1 ]; then
+    r="BLOCKED: ${_KYKLOS_GUARD_WHAT:-a kyklos guard} was stopped before it decided (it ran past the hook's time limit), so this command is refused this time. Retry it; if it keeps happening, split the command (a long script it runs is read in full)."
+    printf '[kyklos] %s\n' "$r" >&2
+    r="${r//\\/\\\\}"; r="${r//\"/\\\"}"
+    printf '{"decision":"block","reason":"%s"}' "$r"
+    _KYKLOS_GUARD_DECIDED=1
+    exit 0
+  fi
   [ -n "$why" ] || why="it ended before it decided (a library it loads ended the shell while loading)"
   r="BLOCKED (broken kyklos install): ${_KYKLOS_GUARD_WHAT:-a kyklos guard} cannot run its check: $why. Until it can, it refuses every command, because it can no longer tell a raw API write from any other command. Edit and Write still work, so a library can be repaired in place. Repair: relaunch the container so the kyklos plugin is installed again, or report the broken library to the kyklos owner."
   printf '[kyklos] %s\n' "$r" >&2

@@ -64,7 +64,8 @@ STORY="$(dirname "${BASH_SOURCE[0]}")/../skills/ssdlc-story/story"
 # [json-answer-required] The story tool loads the JSON reader and exits 1 without it, the same code as a real finding,
 # so a broken install would be reported as a story to restructure. Name the missing reader instead. [CySec] CWE-636
 if ! bash -c '. "$1" 2>/dev/null && command -v json_test >/dev/null 2>&1' _ "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh"; then
-  printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so the story tool cannot check the story structure. Reinstall or repin the kyklos plugin."}\n' "$(basename "$0")"
+  _help="$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
+  printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so the story tool cannot check the story structure. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$_help"
   exit 0
 fi
 

@@ -643,6 +643,12 @@ proof_section_text() {
   printf '%s\n' "$1" | awk -v pre="$2" -f "$_PROOF_DIM_DIR/proof-section-text.awk"
 }
 
+# proof_item_tokens -> the spec-item tokens of standard input, one per line, by the one token rule
+# (proof-item-tokens.awk, the same as the bridge's): exact upper case, no letter or digit touching the id.
+proof_item_tokens() {
+  awk -f "$_PROOF_DIM_DIR/proof-item-tokens.awk"
+}
+
 # proof_section_ids <body> <section prefix> <id-pattern> [<id-pattern2>] -> sorted-unique, UPPER-cased whole-token
 # identifiers matching the pattern(s) inside that section (e.g. UC1 UC2; RA-1; FAIL-OPEN FAIL-HARD).
 proof_section_ids() {
@@ -662,7 +668,8 @@ proof_section_ids() {
     } | sort -u
     return 0
   fi
-  proof_section_text "$body" "$prefix" | grep -oiE "($pat)" | tr '[:lower:]' '[:upper:]' | sort -u
+  # The tokens of the section by the one rule, then those of this section's kind (the whole token is the pattern).
+  proof_section_text "$body" "$prefix" | proof_item_tokens | { grep -xE "($pat)" || true; } | sort -u
 }
 
 # proof_dimension_metrics_cell <proof-text> <dimension> -> the Metrics cell (4th content cell / awk $5 on a 4-column
@@ -690,8 +697,8 @@ proof_correlation_problems() {
     kbdlabels="$(printf '%s' "$cell" | grep -oiE '<kbd>[^<]*</kbd>' | tr '\n' ' ')"
     while IFS= read -r id; do
       [ -n "$id" ] || continue
-      printf '%s' "$kbdlabels" | grep -ciE "(^|[^A-Za-z0-9_-])$id([^A-Za-z0-9_-]|$)" \
- >/dev/null        || printf 'dimension "%s" is PROVEN but story item "%s" (declared in "%s") is not cited inside a FORMAL <kbd>…</kbd> metric group — cite it as "<kbd>%s (<tool>):</kbd> <value>", not loose prose\n' "$dim" "$id" "$prefix" "$id"
+      printf '%s\n' "$kbdlabels" | proof_item_tokens | grep -cxF -- "$id" \
+ >/dev/null        || printf 'dimension "%s" is PROVEN but story item "%s" (declared in "%s") is not cited as a formal metric of that row, only in loose prose or not at all - send it as the structured metric {"item":"%s","tool":"<tool>","value":"<value>"} in proof_set '"'"'metrics'"'"' (story tool: --metric '"'"'%s|<tool>|<value>'"'"' after its --set), and the bridge writes the formal group\n' "$dim" "$id" "$prefix" "$id" "$id"
     done <<IDS
 $ids
 IDS

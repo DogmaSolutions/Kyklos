@@ -42,6 +42,20 @@ _refs_rule_trunk_base() {
     done
 }
 
+# _refs_rule_own_commits REPO BASE -> the commits of the checked-out branch since BASE that are the branch's own work,
+# oldest first, merges skipped: a commit a remote trunk already holds (origin/develop, origin/main, origin/master) is
+# not. A branch that merges a trunk in (a release train bringing the trunk's commits of several stories, a story branch
+# catching up with main) never has those commits judged as its own items: each was judged on its own branch. Only the
+# remote trunks count: a local trunk may hold a branch merged there and never pushed, whose commits are still judged
+# when that branch is reused for another item.
+_refs_rule_own_commits() {
+    local repo="$1" base="$2" t not=()
+    for t in origin/develop origin/main origin/master; do
+        git -C "$repo" rev-parse --verify -q "${t}^{commit}" >/dev/null 2>&1 && not+=("$t")
+    done
+    git -C "$repo" rev-list --reverse --no-merges "$base..HEAD" ${not[@]+--not "${not[@]}"} 2>/dev/null
+}
+
 # refs_rule_story_answer REPO N -> "story" when item N of REPO's story tracker is a story, "issue" when it is a plain
 # issue (with no STORY_BACKEND, as for a local tracker: no story folder, no story), "unknown: <why>" when that cannot be told. A GitLab
 # tracker is asked through the bridge (story_get, whose last field says story or issue); a local tracker is the story
@@ -108,7 +122,7 @@ refs_rule_message_refusal() {
     done <<< "$nums"
     base="$(_refs_rule_trunk_base "$repo")"
     [ -n "$base" ] || return 0
-    prior="$(refs_rule_numbers "$(git -C "$repo" log --no-merges --format=%B "$base..HEAD" 2>/dev/null)" "$own")"
+    prior="$(refs_rule_numbers "$(_refs_rule_own_commits "$repo" "$base" | while read -r c; do git -C "$repo" log -1 --format=%B "$c" 2>/dev/null; done)" "$own")"
     [ -n "$prior" ] || return 0
     while read -r n; do [ -n "$n" ] && ! printf '%s\n' "$prior" | grep -cxF -- "$n" >/dev/null && foreign="$foreign $(_refs_rule_label "$n")"; done <<< "$nums"
     [ -z "$foreign" ] || printf "one branch, one item: the commits of '%s' already cite %s, and this commit cites%s. Commit that work on its own branch (a branch carrying two items' work makes each item's merge request hold the other's change).\n" "$branch" "$(_refs_rule_labels "$prior")" "$foreign"
@@ -116,7 +130,7 @@ refs_rule_message_refusal() {
 }
 
 # refs_rule_branch_refusal REPO -> the refusal (one line) for the first commit of the checked-out branch (since its fork
-# point from a trunk, merges skipped) that breaks the rule, each judged against the commits before it; nothing otherwise.
+# point from a trunk, merges and commits a trunk already holds skipped) that breaks the rule, each judged against the commits before it; nothing otherwise.
 refs_rule_branch_refusal() {
     local repo="$1" branch base story c msg nums n first="" foreign="" own
     own="$(refs_footer_own_project "$repo")"
@@ -144,6 +158,6 @@ refs_rule_branch_refusal() {
             _rr_why="$(refs_rule_message_refusal "$repo" "$branch" "$msg")"
             case "$_rr_why" in *"is a story"*|*"cannot be told"*) printf '%s\n' "$_rr_why"; return 0 ;; esac
         fi
-    done < <(git -C "$repo" rev-list --reverse --no-merges "$base..HEAD" 2>/dev/null)
+    done < <(_refs_rule_own_commits "$repo" "$base")
     return 0
 }

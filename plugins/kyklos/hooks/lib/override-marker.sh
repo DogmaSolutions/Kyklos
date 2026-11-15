@@ -20,8 +20,18 @@
 #                                                 an empty or unreadable input (no identity, no override)
 #   override_take <name> <scope> <hook-json>   -> 0 and the marker is removed if THIS agent set it for this scope and it
 #                                                 is fresh; 1 otherwise, with a line on stderr saying why
+#   override_hold_keep <name> <scope> <hook-json> <item> <content>
+#                                              -> after a guard spent a marker on <item> (a story), keep what it excused:
+#                                                 <content> is a fingerprint of the code the override covered
+#   override_hold_admits <name> <scope> <hook-json> <item> <content>
+#                                              -> 0 when the same agent's spent override for <item> in <scope> excused
+#                                                 exactly <content>; a hold for other content is dropped, said on stderr
 # Marker file: $KYKLOS_STATE_DIR/<name>.<key> (key from agent + scope), lines "scope=", "agent=", "expires=".
 # Lifetime: KYKLOS_OVERRIDE_TTL_SECONDS (default 600). Handoff lifetime: 60 seconds.
+# Hold file: $KYKLOS_STATE_DIR/.held/<name>.<key> (key from agent + scope + item), lines "scope=", "agent=", "item=",
+# "content=", "set=", "expires=". A hold lasts KYKLOS_OVERRIDE_HOLD_SECONDS (default 86400, a day) from the spend. An owner's override excuses CODE, not one attempt: retrying the same arm (a refused push, a merge
+# of the trunk that changed none of the covered files) must not need the owner again, so a spent override holds for as
+# long as the covered content is the same; any change to it ends the hold.
 
 # The command a guard's message shows for setting an override (an absolute path, so it can be pasted as-is).
 # shellcheck source=lib/json-answer.sh
@@ -157,6 +167,56 @@ override_take() {
     fi
     rm -f "$file" 2>/dev/null
     return 0
+}
+
+# _override_hold_file <name> <agent> <scope> <item> -> the hold file of that agent's spent override for <item> in <scope>.
+_override_hold_file() { printf '%s/.held/%s.%s' "$(override_state_dir)" "$1" "$(printf '%s\n%s\n%s' "$2" "$3" "$4" | sha256sum | cut -c1-16)"; }
+
+# override_hold_keep <name> <scope> <hook-json> <item> <content> -> records that the agent of <hook-json> spent its
+# override <name> on <item> in <scope> for exactly <content>. Best effort: a hold that cannot be written only means the
+# owner is asked again on a retry. rc 1 without an agent, an item or a content.
+override_hold_keep() {
+    local name="$1" scope="$2" agent file item="${4:-}" content="${5:-}"
+    agent="$(override_agent_of "${3:-}")" || return 1
+    [ -n "$item" ] && [ -n "$content" ] || return 1
+    case "$item$content" in *[!A-Za-z0-9_.:-]*) return 1 ;; esac
+    file="$(_override_hold_file "$name" "$agent" "$scope" "$item")"
+    mkdir -p "$(dirname "$file")" 2>/dev/null || return 1
+    local ttl="${KYKLOS_OVERRIDE_HOLD_SECONDS:-86400}"
+    case "$ttl" in ''|*[!0-9]*) ttl=86400 ;; esac
+    printf 'scope=%s\nagent=%s\nitem=%s\ncontent=%s\nset=%s\nexpires=%s\n' "$scope" "$agent" "$item" "$content" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(( $(date +%s) + ttl ))" > "$file" 2>/dev/null
+}
+
+# override_hold_admits <name> <scope> <hook-json> <item> <content> -> rc 0 when this agent's override <name>, spent on
+# <item> in <scope>, excused exactly <content> and has not run out (OVERRIDE_HOLD_SET then says when it was spent). A hold
+# for other content (the covered code changed since) or past its time is removed and said on stderr; anything unreadable
+# admits nothing.
+# [CySec] Prevents CWE-863 "Incorrect Authorization": a hold admits only the agent, scope, item and content it was spent
+# on; any change to the covered code needs the owner's decision again. [RiskMitigation RA-01]
+OVERRIDE_HOLD_SET=""
+override_hold_admits() {
+    local name="$1" scope="$2" agent file item="${4:-}" content="${5:-}" line s="" a="" i="" c="" t="" e=""
+    OVERRIDE_HOLD_SET=""
+    agent="$(override_agent_of "${3:-}")" || return 1
+    [ -n "$item" ] && [ -n "$content" ] || return 1
+    file="$(_override_hold_file "$name" "$agent" "$scope" "$item")"
+    [ -f "$file" ] && [ ! -L "$file" ] || return 1
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in scope=*) s="${line#scope=}" ;; agent=*) a="${line#agent=}" ;; item=*) i="${line#item=}" ;; content=*) c="${line#content=}" ;; set=*) t="${line#set=}" ;; expires=*) e="${line#expires=}" ;; esac
+    done < "$file"
+    # A hold written before holds had a time limit carries no expiry: it runs out a day after the file was written.
+    if ! [[ "$e" =~ ^[0-9]+$ ]]; then e="$(( $(stat -c %Y -- "$file" 2>/dev/null || echo 0) + 86400 ))"; fi
+    if [ "$(date +%s)" -gt "$e" ]; then
+        rm -f "$file" 2>/dev/null
+        echo "[kyklos] override '$name' spent on $item no longer holds: its time ran out (spent ${t:-at an unknown time}; a spent override holds for a day), so it needs the owner's decision again." >&2
+        return 1
+    fi
+    if [ "$s" = "$scope" ] && [ "$a" = "$agent" ] && [ "$i" = "$item" ] && [ -n "$c" ] && [ "$c" = "$content" ]; then
+        OVERRIDE_HOLD_SET="$t"; return 0
+    fi
+    rm -f "$file" 2>/dev/null
+    echo "[kyklos] override '$name' spent on $item no longer holds: the code it covered changed since (spent ${t:-at an unknown time}), so it needs the owner's decision again." >&2
+    return 1
 }
 
 # CLI

@@ -14,10 +14,14 @@
 #   item_story_project_of <dir>
 #       as item_project_of, for the project that holds the stories of the work in <dir>: the repository's own project
 #       when the bridge serves its stories, else (a companion's nested source, whose project serves only pipelines) the
-#       one story project the bridge serves; a bridge serving several story projects then answers PROJECT-REQUIRED.
+#       one story project the bridge serves; a bridge serving several story projects then answers PROJECT-REQUIRED. A
+#       repository the bridge does not serve at all (PROJECT-NOT-SERVED) is treated the same way. The session's bound story
+#       project (item_bound_story_project) is used first when set.
 #
 # [CySec] Prevents CWE-639 "Authorization Bypass Through User-Controlled Key": the project of an item is the bridge's
-# answer for the item's own repository, never the session's settings.
+# answer for the item's own repository. Only the STORY project of a repository whose stories the bridge does not keep
+# (a companion's nested source) falls back to the session's bound story project; a one-shot override stays scoped to the
+# one repository it was set for, so that fallback never lets an override of one repository pass another's arm.
 
 _IP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 # shellcheck source=/dev/null
@@ -79,13 +83,32 @@ item_project_of() {
     _ip_id "$text"
 }
 
+# item_bound_story_project -> the story project the session names itself: the bound one (KYKLOS_PROOF_PROJECT), else the
+# tracker project its stories are issues of (STORY_GITLAB_PROJECT); a numeric id, leading zeros dropped; nothing when neither
+# is set. The one rule for a token check and for the story project of a companion's nested source repository.
+item_bound_story_project() {
+    local p="${_PTG_PROJECT:-${KYKLOS_PROOF_PROJECT:-}}"
+    case "$p" in ''|*[!0-9]*) p="" ;; esac
+    if [ -z "$p" ]; then
+        case "${STORY_GITLAB_PROJECT:-}" in ''|*[!0-9]*) ;; *) p="$STORY_GITLAB_PROJECT" ;; esac
+    fi
+    [ -n "$p" ] || return 0
+    printf '%s' "$p" | sed -E 's/^0+([0-9])/\1/'
+}
+
 item_story_project_of() {
     local dir="${1:-.}" args text rc=0 out
     args="$(_ip_args "$dir" "")" || { printf 'the repository facts of %s could not be read' "$dir"; return 2; }
     text="$(_ip_ask "$dir" "$args")" || { rc=$?; printf '%s' "$text"; return "$rc"; }
     out="$(_ip_id "$text" stories)"; rc=$?
-    [ "$rc" -eq 3 ] || { printf '%s' "$out"; return "$rc"; }
-    # The repository's project serves no stories (a companion's nested source): the story project is the bridge's only one.
+    # A repository whose project serves no stories, or is not served at all (a companion's nested source repository: its
+    # project is not the story project), has the session's story project.
+    local notserved=0
+    [ "$(printf '%s' "$text" | jq -r '.code // empty' 2>/dev/null)" = PROJECT-NOT-SERVED ] && notserved=1
+    [ "$rc" -eq 3 ] || [ "$notserved" = 1 ] || { printf '%s' "$out"; return "$rc"; }
+    local bound; bound="$(item_bound_story_project)"
+    if [ -n "$bound" ]; then printf '%s' "$bound"; return 0; fi
+    # Nothing is bound: the story project is the bridge's only one.
     text="$(_ip_ask "the stories of $dir" '{"purpose":"item"}')" || { rc=$?; printf '%s' "$text"; return "$rc"; }
     out="$(_ip_id "$text" stories)"; rc=$?
     [ "$rc" -ne 3 ] || { printf 'the bridge answered a project that serves no stories for the stories of %s' "$dir"; return 1; }

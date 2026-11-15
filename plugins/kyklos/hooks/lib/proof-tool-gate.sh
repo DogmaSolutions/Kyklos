@@ -414,7 +414,7 @@ _proof_tool_measured_lines() {
     if [ -n "${KYKLOS_PROOF_HMAC_KEY:-}" ]; then
         mac="$(printf '%s\n' "$stored" | sed -n 's/^mac://p' | head -1)"
         tmac="$(sed -n 's/^hmac://p' "$1" 2>/dev/null | head -1)"
-        [ -n "$mac" ] && [ -n "$tmac" ] && [ "$mac" = "$(_proof_tool_hmac "$(printf '%s\n%s' "$tmac" "$lines")")" ] || return 0
+        [ -n "$mac" ] && [ -n "$tmac" ] && _proof_tool_mac_matches "$mac" "$(printf '%s\n%s' "$tmac" "$lines")" || return 0
     fi
     printf '%s\n' "$lines" | sed '/^$/d'
 }
@@ -456,7 +456,7 @@ _proof_tool_measured_trunk_lines() {
         signed="$(_proof_tool_signed_sidecar_lines "$stored")"
         mac2="$(printf '%s\n' "$stored" | sed -n 's/^mac2://p' | head -1)"
         tmac="$(sed -n 's/^hmac://p' "$1" 2>/dev/null | head -1)"
-        [ -n "$mac2" ] && [ -n "$tmac" ] && [ "$mac2" = "$(_proof_tool_hmac "$(printf '%s\n%s' "$tmac" "$signed")")" ] || return 0
+        [ -n "$mac2" ] && [ -n "$tmac" ] && _proof_tool_mac_matches "$mac2" "$(printf '%s\n%s' "$tmac" "$signed")" || return 0
     fi
     printf '%s\n' "$stored" | grep -E "$_PTG_TRUNK_LINE_RE" 2>/dev/null
     return 0
@@ -992,8 +992,62 @@ _proof_tool_batch_entry_holds() {
 # MAC covers the sorted content-hash lines (the token body), so it is bound to exactly those files+hashes.
 _proof_tool_hmac() {
     [ -n "${KYKLOS_PROOF_HMAC_KEY:-}" ] || return 0
-    command -v openssl >/dev/null 2>&1 || return 0
-    printf '%s' "$1" | openssl dgst -sha256 -hmac "$KYKLOS_PROOF_HMAC_KEY" 2>/dev/null | sed -E 's/^.*= *//' | tr -d '[:space:]'
+    _proof_tool_hmac_with "$KYKLOS_PROOF_HMAC_KEY" "$1"
+}
+
+# _proof_tool_sha256_stdin -> the SHA-256 (lower-case hex) of standard input, from the first of sha256sum, shasum and
+# openssl the host has; empty when it has none. No secret ever reaches its command line: the data comes on stdin.
+_proof_tool_sha256_stdin() {
+    if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1
+    elif command -v shasum >/dev/null 2>&1; then shasum -a 256 | cut -d' ' -f1
+    elif command -v openssl >/dev/null 2>&1; then openssl dgst -sha256 | sed -E 's/^.*= *//' | tr -d '[:space:]'
+    fi
+}
+
+# _proof_tool_hash_tool -> rc 0 iff the host has a SHA-256 tool _proof_tool_sha256_stdin can use.
+_proof_tool_hash_tool() { command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 || command -v openssl >/dev/null 2>&1; }
+
+# _proof_tool_hmac_with KEY TEXT -> HMAC-SHA256(TEXT) hex under KEY (RFC 2104 over the key's bytes, the value
+# `openssl dgst -sha256 -hmac KEY` gives), or empty without a SHA-256 tool. The one computation.
+# [CySec] Prevents CWE-214 "Invocation of Process Using Visible Sensitive Information": the key never appears on a
+# command line (the process table shows every argument to every user of the host). The padded key blocks are built with
+# the shell's own printf (a builtin, no process) and reach the hash tool only on its standard input.
+_proof_tool_hmac_with() {
+    _proof_tool_hash_tool || return 0
+    { local _ph_xt="$-"; set +x; } 2>/dev/null
+    local LC_ALL=C key="$1" i n byte ipad="" opad="" inner esc=""
+    local -a bytes=()
+    if [ "${#key}" -gt 64 ]; then
+        # A key longer than the block is replaced by its hash, as RFC 2104 says (the hash goes in through stdin).
+        inner="$(printf '%s' "$key" | _proof_tool_sha256_stdin)"
+        for ((i = 0; i < 64; i += 2)); do bytes+=($((16#${inner:i:2}))); done
+    else
+        for ((i = 0; i < ${#key}; i++)); do printf -v byte '%d' "'${key:i:1}"; bytes+=($((byte & 255))); done
+    fi
+    for ((i = 0; i < 64; i++)); do
+        n="${bytes[i]:-0}"
+        printf -v byte '\\x%02x' $((n ^ 0x36)); ipad+="$byte"
+        printf -v byte '\\x%02x' $((n ^ 0x5c)); opad+="$byte"
+    done
+    key=""; bytes=()
+    inner="$({ printf "$ipad"; printf '%s' "$2"; } | _proof_tool_sha256_stdin)"
+    if [ "${#inner}" -eq 64 ]; then
+        for ((i = 0; i < 64; i += 2)); do esc+="\\x${inner:i:2}"; done
+        { printf "$opad"; printf "$esc"; } | _proof_tool_sha256_stdin
+    fi
+    ipad=""; opad=""
+    case "$_ph_xt" in *x*) set -x ;; esac
+}
+
+# _proof_tool_mac_matches MAC TEXT -> rc 0 iff MAC is the HMAC of TEXT under the host key, or under the key it replaced at
+# the last rotation (KYKLOS_PROOF_HMAC_KEY_PREVIOUS, held host-side like the key): what the previous key signed still
+# verifies, and nothing new is signed with it (_proof_tool_hmac signs with the current key only).
+# [CySec] CWE-324 / CWE-345: the previous key only verifies; without the current key nothing verifies at all.
+_proof_tool_mac_matches() {
+    [ -n "$1" ] && [ -n "${KYKLOS_PROOF_HMAC_KEY:-}" ] || return 1
+    [ "$1" = "$(_proof_tool_hmac "$2")" ] && return 0
+    [ -n "${KYKLOS_PROOF_HMAC_KEY_PREVIOUS:-}" ] || return 1
+    [ "$1" = "$(_proof_tool_hmac_with "$KYKLOS_PROOF_HMAC_KEY_PREVIOUS" "$2")" ]
 }
 
 # ---- Coverage receipts ------------------------------------------------------------------------------------------
@@ -1030,7 +1084,7 @@ _proof_tool_stored_mac_holds() {
     body="$(printf '%s\n' "$stored" | grep -v -e '^hmac:' -e '^root:' -e "^$_PTG_ATTACH_PREFIX" 2>/dev/null)"
     atts="$(_proof_tool_attachments "$stored")"
     mac="$(printf '%s\n' "$stored" | sed -n 's/^hmac://p' | head -1)"
-    [ -n "$mac" ] && [ "$mac" = "$(_proof_tool_hmac "$(_proof_tool_signed_text "$body" "$atts")")" ]
+    [ -n "$mac" ] && _proof_tool_mac_matches "$mac" "$(_proof_tool_signed_text "$body" "$atts")"
 }
 
 # _proof_tool_attachment_valid LINE -> rc 0 iff LINE (without the prefix) is a well-formed attachment record.
@@ -1104,7 +1158,7 @@ proof_tool_attach() {
     story="$(_proof_tool_story_key "$story")"
     [ -n "$story" ] || { echo "proof_tool_attach: pass --story <N>" >&2; return 1; }
     _proof_tool_attachment_valid "$line" || { echo "proof_tool_attach: '$line' is not '<dotnet|shell> <sha256> <note id> <figure|-> /uploads/<secret>/<file>'" >&2; return 1; }
-    [ -n "${KYKLOS_PROOF_HMAC_KEY:-}" ] && command -v openssl >/dev/null 2>&1 || { echo "proof_tool_attach: no host signing key here: only the bridge records a coverage receipt" >&2; return 1; }
+    [ -n "${KYKLOS_PROOF_HMAC_KEY:-}" ] && _proof_tool_hash_tool || { echo "proof_tool_attach: no host signing key here: only the bridge records a coverage receipt" >&2; return 1; }
     tokfile="$(_proof_tool_token_file "$dim" "$story")"
     mkdir -p "$(dirname "$tokfile")" 2>/dev/null || return 1
     _proof_tool_lock "$tokfile" || { echo "proof_tool_attach: could not lock the token of story $story" >&2; return 1; }
@@ -1148,7 +1202,7 @@ proof_tool_receipts() {
     done
     story="$(_proof_tool_story_key "$story")"
     [ -n "$story" ] || { echo "unavailable: the story is unknown (pass --story <N>)"; return 1; }
-    [ -n "${KYKLOS_PROOF_HMAC_KEY:-}" ] && command -v openssl >/dev/null 2>&1 || { echo "unavailable: no host signing key here, so the receipts cannot be authenticated"; return 1; }
+    [ -n "${KYKLOS_PROOF_HMAC_KEY:-}" ] && _proof_tool_hash_tool || { echo "unavailable: no host signing key here, so the receipts cannot be authenticated"; return 1; }
     tokfile="$(_proof_tool_token_file "Test Discipline" "$story")"
     [ -f "$tokfile" ] || { echo "receipts: none"; return 0; }
     stored="$(cat "$tokfile" 2>/dev/null)"
@@ -2032,7 +2086,14 @@ proof_tool_bridge_seal() {
     [ "$wait" -le "$left" ] || wait="$left"
     # The purpose tells the bridge what a trunk it cannot fetch means: an arm refuses, a Stop keeps the patch-id verdict
     # with a note. A bridge without the reuse rule ignores it.
-    reply="$(bridge_mcp_call verify_proof_token "$(jq -cn --arg d "$dim" --arg s "$story" --arg p "$purpose" '{dimension:$d, story:$s, purpose:$p}')" "$wait")"; rc=$?
+    # The story's own project goes with the question: the bound one, else the tracker project the story is an issue of. A
+    # bridge holding a token of the same story number under two projects refuses to choose (PROJECT-REQUIRED), so a check
+    # that named none could never read the right one.
+    # shellcheck source=/dev/null
+    command -v item_bound_story_project >/dev/null 2>&1 || { [ -f "$_PTG_LIB_DIR/item-project.sh" ] && . "$_PTG_LIB_DIR/item-project.sh"; }
+    local seal_project; seal_project="$(item_bound_story_project)"
+    reply="$(bridge_mcp_call verify_proof_token "$(jq -cn --arg d "$dim" --arg s "$story" --arg p "$purpose" --arg proj "$seal_project" \
+        '{dimension:$d, story:$s, purpose:$p} + (if $proj != "" then {project:$proj} else {} end)')" "$wait")"; rc=$?
     if [ "$rc" -ne 0 ]; then
         PROOF_TOOL_SEAL_REASON="the bridge could not be reached, or did not answer within ${wait}s, to check the token's signature (bridge client rc $rc); a large change takes longer to check: raise KYKLOS_PROOF_VERIFY_TIMEOUT_SECONDS, or start the bridge (or relaunch), then retry"
         return 1
@@ -2825,8 +2886,12 @@ proof_tool_story_changed_lines() {
     case "$wait" in ''|*[!0-9]*|?????*) wait=600 ;; esac
     reply="$(bridge_mcp_call story_lines "$args" "$wait")"; rc=$?
     text="$(bridge_mcp_text "$reply" 2>/dev/null | tr -d '\r')"
-    if [ "$rc" -ne 0 ] || bridge_mcp_is_error "$reply" || [ -z "$text" ]; then
+    if [ "$rc" -ne 0 ] || [ -z "$text" ]; then
         echo "changed-lines: BRIDGE-UNREACHABLE: bridge unreachable: changed lines unknown (bridge client rc $rc)" >&2; return 1
+    fi
+    # A refusal is the bridge's own answer: its words are the reason (its code first), never "unreachable".
+    if bridge_mcp_is_error "$reply"; then
+        echo "changed-lines: the bridge refused story_lines: $(printf '%s' "$text" | head -1 | cut -c1-300)" >&2; return 1
     fi
     case "$text" in
         "unknown tool: story_lines"*) echo "changed-lines: BRIDGE-UNREACHABLE: bridge unreachable: changed lines unknown (the bridge has no story_lines verb: update the bridge)" >&2; return 1 ;;
@@ -3490,7 +3555,10 @@ proof_advreview_emit() {
 # _advreview_carry_mac PROJECT STORY LEGACYBODY -> the host-keyed mark that the bridge carried this legacy entry over to
 # PROJECT's keyed name (empty without the key). Only the bridge holds the key, so an entry copied by hand under another
 # project's name carries no valid mark and never verifies.
-_advreview_carry_mac() { _proof_tool_hmac "advreview-carry:$1/$2:$3"; }
+_advreview_carry_mac() { _proof_tool_hmac "$(_advreview_carry_text "$1" "$2" "$3")"; }
+
+# _advreview_carry_text PROJECT STORY LEGACYBODY -> the text the carry mark signs (one place for mint and check).
+_advreview_carry_text() { printf 'advreview-carry:%s/%s:%s' "$1" "$2" "$3"; }
 
 # proof_advreview_verify [--project <id>] STORY PRESENTED -> exit 0 iff PRESENTED matches the token recomputed from the
 # STORED bound body of that entry. Fail-CLOSED: no stored body, or a mismatch (a hand-typed / stale / wrong-key token),
@@ -3512,12 +3580,13 @@ proof_advreview_verify() {
         "advreview:$story:"*)
             if [ -n "$project" ]; then
                 carried="$(sed -n 's/^carried://p' "$dir/$key.body" 2>/dev/null | head -1)"
-                [ -n "$carried" ] && [ "$carried" = "$(_advreview_carry_mac "$project" "$story" "$body")" ] || return 1
+                _proof_tool_mac_matches "$carried" "$(_advreview_carry_text "$project" "$story" "$body")" || return 1
             fi ;;
         *) return 1 ;;
     esac
     want="$(_advreview_token "$body")" && [ -n "$want" ] || return 1   # no key here: only the bridge can verify
-    [ "$presented" = "$want" ]
+    # A review signed before the last key rotation still verifies under the previous key (CWE-324 without CWE-345).
+    _proof_tool_mac_matches "$presented" "$body"
 }
 
 # proof_advreview_carry --project <id> -> HOST ONLY: carry every legacy entry ("advreview-<story>") over to the project's
@@ -3541,7 +3610,7 @@ proof_advreview_carry() {
         body="$(sed -n 1p "$f" 2>/dev/null)"
         case "$body" in "advreview:$story:"*) : ;; *) continue ;; esac
         tok="$(sed -n 1p "$dir/advreview-$story.token" 2>/dev/null)"
-        [ -n "$tok" ] && [ "$tok" = "$(_advreview_token "$body")" ] || continue
+        _proof_tool_mac_matches "$tok" "$body" || continue
         mac="$(_advreview_carry_mac "$project" "$story" "$body")"; [ -n "$mac" ] || return 1
         printf '%s\ncarried:%s\n' "$body" "$mac" > "$dir/$key.body.tmp" && printf '%s\n' "$tok" > "$dir/$key.token" \
             && mv -f "$dir/$key.body.tmp" "$dir/$key.body" || { rm -f "$dir/$key.body.tmp"; return 1; }

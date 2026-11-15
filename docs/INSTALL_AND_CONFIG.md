@@ -124,11 +124,11 @@ The Launcher reads a few values from the `appsettings.json` next to its program 
 | Setting | Purpose | Effect |
 |---------|---------|--------|
 | `Launcher:Marketplace:RepositoryUrl` | the clone address of the marketplace the `Kyklos Plugin` is installed from | at every launch, the container installs the Plugin from there; a project may name another one with `KYKLOS_MARKETPLACE_URL` |
-| `Launcher:Marketplace:TokenName` | optional: the name of the token that clones a private marketplace (for example a preview marketplace on a GitLab server) | the Launcher reads that token from the credential store and gives it to the Plugin install only; leave it out for the public marketplace |
+| `Launcher:Marketplace:TokenName` | optional: the name of the token that clones a private marketplace (for example a marketplace of your own on a GitLab server) | the Launcher reads that token from the credential store and gives it to the Plugin install only; leave it out for the public marketplace |
 | `Launcher:Projects:PolicyOrganisationLayer` | your organisation layer (part 2) | composed into every container's policy |
 | `Launcher:Projects:SettingsRoot` | the folder of reviewed Bridge settings (part 6) | the Launcher reads each project's Bridge settings only from there |
 
-**Where the `Kyklos Bridge` comes from.** The Launcher downloads it from the [Kyklos releases page](https://github.com/DogmaSolutions/Kyklos/releases), checks it against the checksum published with the release, and needs no token and no setting for it (`Launcher:Bridge:ReleaseUrl` holds that address). To use a GitLab package registry instead (for early previews), set `Launcher:Bridge:GitLabUrl` (the GitLab address), `Launcher:Bridge:PackageProjectId` (the number of the project whose package registry publishes the Bridge) and `Launcher:Bridge:TokenName` (the name of the token that reads that registry).
+**Where the `Kyklos Bridge` comes from.** The Launcher downloads it from the [Kyklos releases page](https://github.com/DogmaSolutions/Kyklos/releases), checks it against the checksum published with the release, and needs no token and no setting for it (`Launcher:Bridge:ReleaseUrl` holds that address). To use a GitLab package registry instead (for example to try a build that is not released yet), set `Launcher:Bridge:GitLabUrl` (the GitLab address), `Launcher:Bridge:PackageProjectId` (the number of the project whose package registry publishes the Bridge) and `Launcher:Bridge:TokenName` (the name of the token that reads that registry).
 
 
 The same releases page carries Bridge builds for Windows, Linux and macOS (Apple silicon). Of these, only the Windows Bridge program and the Windows Launcher program inside `kyklos-launcher-win-x64.zip` carry a code signature from Dogma Solutions; the other builds are not signed, so check them against `SHA256SUMS.txt` on the same page.
@@ -303,7 +303,7 @@ Kyklos splits credentials by purpose (see [Secrets](SECRETS.md)): the agent can 
 | **Story token** | the companion project (or the group) | `api` | The Bridge reads and writes stories, notes, labels and milestones, and creates and arms merge requests. Stays on the host. |
 | **CI token** | the source project (or the group) | `read_api` (`api` if the agent should create and arm merge requests there) | The Bridge reads pipelines, jobs, logs and test reports of the source project. Stays on the host. |
 | **Push token** | the group that holds the companion and the source (a group access token), or the one project of a single-repository topology | `write_repository` only | The agent pushes its story branches, and in a companion topology the companion's trunk, with this one token: the Launcher wires it for the source repository (`KYKLOS_PUSH_REPO_URL`) and the companion repository (`KYKLOS_COMPANION_PUSH_REPO_URL`). The Launcher refuses to start a project whose push token could also call the API. |
-| **Distribution read token** | wherever the Kyklos components are published for you | `read_api`, `read_repository` | Only for a preview marketplace or a Bridge from a GitLab package registry. Not needed for the public Kyklos repository. |
+| **Distribution read token** | wherever the Kyklos components are published for you | `read_api`, `read_repository` | Only for a marketplace of your own or a Bridge from a GitLab package registry. Not needed for the public Kyklos repository. |
 
 A project access token reaches only its own project, so a single push token for two projects is a **group** access token on the group that holds both (a group with only those two projects keeps its reach narrow). How the Launcher checks each token at every launch is shown in [Secrets](SECRETS.md#how-the-secrets-travel-and-where-they-are-checked).
 
@@ -330,7 +330,7 @@ Then tell the Launcher the name, so the agent recognises its own replies: set `K
 
 Start the Launcher. It opens its control panel in your browser (it listens on your machine only; the address is printed too). The first time, the page asks you to choose a username and a password of at least 12 characters. **Do this right after the first start, before anything else.** Until a login exists, the page offers the form to whoever reaches it first, and that person chooses the login. Once it is set, everyone must log in. The Launcher keeps the username and a salted hash of the password in the Windows Credential Manager (entries `Kyklos:Launcher:Username` and `Kyklos:Launcher:Password`), never the password itself. Forgot the password? Delete those two entries and reload the page to choose a new login. If an organisation setting is missing, the Launcher says which one.
 
-On the control panel's home page, use the **Credentials and tokens** section to store each token in the credential store, under a name of your choice, for example:
+On the control panel's **Reference** page, use the **Credential store** form to store each token in the credential store, under a name of your choice, for example:
 
 | Name | Value |
 |------|-------|
@@ -342,6 +342,35 @@ On the control panel's home page, use the **Credentials and tokens** section to 
 The configuration you create in part 6, and the organisation settings of part 1, refer to these **names**, never to the values. The values stay in the credential store; the Launcher reads them at launch time and hands each one only to the component that needs it.
 
 **On Linux** there is no Windows Credential Manager: the same names are stored in a secrets server (`Launcher:Secrets:OpenBaoUrl`) or in the encrypted file vault (`Launcher:Secrets:VaultPath`), and the control panel says which one took each value. Once either is configured, they are the only places a secret is read from: a token that exists only in the Launcher's environment is reported as missing, including the registry token the Launcher itself uses to download the Bridge. The environment is read only on a host that configures neither.
+
+### 4.5 The proof signing key, and sharing it between workstations
+
+The Bridge signs every proof token and every line of its coverage ledger with a **proof signing key**. Nobody types it: on the first launch the Launcher creates a random key and keeps it in this machine's credential store (`KYKLOS_PROOF_HMAC_KEY`), and it hands the key only to the Bridge process, never to the container or to the code the Bridge builds and tests. A token signed on one machine verifies only where the same key is held.
+
+**One workstation needs nothing more.** Share the key only when a story may move between workstations (another developer, a second machine): then a token minted on one verifies on the other, and the coverage a run measured on one counts on the other.
+
+To share it:
+
+1. Configure a secrets manager for the Bridge (the `Secrets` section, OpenBao or the encrypted file vault, see the Bridge README) with a Read rule whose pattern matches the shared entry's name (the setting `KYKLOS_PROOF_KEY_SECRET_NAME`, see the Appendix) and that name followed by `_PREVIOUS` and whose `AgentAccess` is `Deny`, plus a Write rule for the same names. The Bridge refuses to start on a shared key the agent could read, and the agent may never change a key its read rule denies it.
+2. On the first workstation, open the control panel (the configuration's **Proof signing key** panel) or the Bridge page (**Settings**, **Proof signing key**) and choose **Export to the secrets manager**. The panel names what changes and asks for a confirmation.
+3. On every workstation, set `KYKLOS_PROOF_KEY_SOURCE` to `secrets-manager` in the configuration (Bridge section; the **Proof signing key** panel's **Change the key source** opens the field), and `KYKLOS_PROOF_KEY_SECRET_NAME` when the entry has another name; the Launcher hands both to the Bridge it starts (or choose **Import from the secrets manager** to copy the shared key into the machine's own credential store instead). After the next start, every panel shows the same **fingerprint** (`sha256:` and 16 characters); that is how you check the machines agree. A key itself is never shown, logged or sent.
+
+**The doctor checks it.** The Launcher's **Check** button, the Bridge's **Health** page and the agent's `health` skill all run the check `keys.proof-signing-key` from the same check engine. It reports whether this workstation holds a key, where the key comes from (this machine's credential store or the secrets manager) and its fingerprint, never the key. With `KYKLOS_PROOF_KEY_SOURCE` set to `secrets-manager` it also reads the shared entry and compares the fingerprints. Each "no" names the panel button that fixes it:
+
+| The doctor finds | Fix in the **Proof signing key** panel (Launcher configuration, or Bridge **Settings**) |
+|---|---|
+| this workstation holds no key | **Set a new key**, or **Import from the secrets manager** to take the shared one |
+| the shared entry holds no key | **Export to the secrets manager**, on the workstation whose key everyone should share |
+| the shared entry and this workstation hold different keys | **Import from the secrets manager** to use the shared key here, or **Export to the secrets manager** to share this workstation's key; a Bridge uses the change from its next start |
+| the key is shared but no secrets manager is configured | configure one, or set `KYKLOS_PROOF_KEY_SOURCE` to `host` |
+
+A store that cannot be read, or a secrets manager that does not answer within the check's time limit, is reported as "cannot tell" with the reason, never as a pass.
+
+**Rotation.** **Set a new key** writes a new random key to the store the configuration uses (`host`: this machine's credential store; `secrets-manager`: the shared entry) and keeps the replaced key as the **previous key** (`KYKLOS_PROOF_HMAC_KEY_PREVIOUS`, or the shared entry's name followed by `_PREVIOUS`). The previous key still verifies what it signed and never signs anything new, so a rotation does not invalidate open stories at once. A Bridge picks every change up at its next start. **Retire the previous key** removes it, so what it signed stops verifying (in the Bridge whose page retired it at once, elsewhere at the next start). **After a leak: set a new key, then retire the previous one.**
+
+**Who may change the key.** Only you, at the Launcher's or the Bridge's page: the Launcher's key actions need its login session and anti-forgery token and refuse a request made with the Launcher's token (the agent's requests through its Bridge carry that token), and a request that changes `KYKLOS_PROOF_KEY_SOURCE` or `KYKLOS_PROOF_KEY_SECRET_NAME` with that token is refused too. No setting of any configuration may name an entry the key is kept under (the Launcher's own entries, the default shared entry and every shared entry any configuration names, each with its `_PREVIOUS`), and the Launcher never reads such an entry for a launch, a check or a forward. The Launcher remembers every shared entry name it has protected in a record in its own state folder, so deleting, renaming or changing the configuration that named one leaves it protected; a request made with its token may not delete, rename or restore such a configuration, and if the record cannot be read, the Launcher reads no secret by a name taken from a setting until it is fixed. No configuration may serve a name the key is kept under to the agent (`KYKLOS_SECRETS`), and the Bridge refuses to start when its secrets routing would serve one to the agent, under any name or case that reaches the same stored entry.
+
+**A story that moved.** A coverage run posts a receipt on the story; the receipt also carries the run's ledger lines, signed with the key. On the new workstation, the agent calls `coverage_receipt_import` with the story and the receipt comment's note id: the Bridge checks the archive against the fingerprint the receipt records and every line against the key (or the previous key), refuses anything else whole, and adds the facts to its own ledger, re-signed with the current key, so the story needs no new run. Facts that verify only with a retired key are refused.
 
 ---
 
@@ -468,7 +497,7 @@ The [`Kyklos Bridge`](COMPONENTS.md#kyklos-bridge) builds and tests the project 
 | `KYKLOS_BRIDGE_SOLUTION_FILE` | the solution the Bridge builds and tests | without it, the Launcher looks for a single solution file in the workspace and does not guess between several |
 | `COVERAGE_THRESHOLD` | the line-coverage floor the changed code must meet | a story whose changed lines are below it cannot earn its Test Discipline proof |
 
-For long or special suites: `KYKLOS_BRIDGE_RUN_TIMEOUT_SECONDS` (the time limit of one run), `KYKLOS_BRIDGE_RUNSETTINGS` (a `.runsettings` file for every run), `KYKLOS_BRIDGE_SEQUENTIAL` (one test host at a time, for suites that share a device) and `KYKLOS_BRIDGE_RESOURCES` (a host resource, such as a shared database, held by one run at a time). The [appendix](#appendix-every-project-setting) lists the rest.
+For long or special suites: `KYKLOS_BRIDGE_RUN_TIMEOUT_SECONDS` (the time limit of one run), `KYKLOS_BRIDGE_RUNSETTINGS` (a `.runsettings` file for every run), `KYKLOS_BRIDGE_SEQUENTIAL` (one test host at a time, for suites that share a device), `KYKLOS_BRIDGE_CAP_ADVISORY` (mute the advice about build-node caps), `KYKLOS_BRIDGE_RUN_PRIORITY` (`normal` turns off the lowered priority of runs) and `KYKLOS_BRIDGE_RESOURCES` (a host resource, such as a shared database, held by one run at a time). The [appendix](#appendix-every-project-setting) lists the rest.
 
 ---
 
@@ -569,6 +598,14 @@ Describe a small change in plain words, for example: "add a `Greeter` class that
 
 Anything the agent may not do on its own (publishing outward, deleting shared things, a new blocking gate) stops for you, with a question on the story itself.
 
+Before the agent asks you for a click, a permission or a credential, it searches how the project's own tests and scripts already do the same thing (sign in, for example as the local development administrator the tests use; seed data; start the application) and uses that, and its question says what it searched. When it really lacks a credential, it never asks you to paste the value; it asks you to forward it through the Launcher. These steps are for credentials other than GitLab tokens (an application login, a service password): a GitLab API token stays on the host, where the Launcher keeps it for the Bridge or refuses the launch.
+
+1. In the control panel's **Credentials and tokens** section (section 4.4), store the value under a name of your choice in environment-variable style: letters, digits and underscore, not starting with a digit, and without the word `GITLAB`, because a name containing it is always treated as a GitLab token. The Launcher adds its own credential-store prefix itself.
+2. Add that name to the project's `KYKLOS_SECRETS` setting (names separated by `;`). For a secret that is not a GitLab token, add it also to `KYKLOS_SECRETS_NOT_GITLAB`; otherwise the launch refuses it as a possible API token.
+3. Launch the project again.
+
+The agent then reads the value with `$(bridge-secret <NAME>)` inside the one command that uses it, and never prints it. This is the "Search before you ask" rule of the policy.
+
 ## When something does not work
 
 - **The [Launcher](COMPONENTS.md#kyklos-launcher) refuses to launch:** the configuration check names every missing setting, secret, folder or tool in one answer, and the configuration's secrets view shows which secrets are missing. A launch that stops later marks the step that failed and shows the reason on it.
@@ -601,8 +638,8 @@ Every setting a project configuration can hold, as the Launcher's configuration 
 
 | Setting | What it is for, and what it changes | Default |
 |---|---|---|
-| `KYKLOS_MARKETPLACE_URL` | The marketplace repository the Kyklos plugin is installed from. Set in a project's configuration, it is that project's marketplace; otherwise Launcher:Marketplace:RepositoryUrl, then this launcher host environment variable, give every project's. The public marketplace needs no token; a private (preview) one needs KYKLOS_MARKETPLACE_TOKEN_NAME. |  |
-| `KYKLOS_MARKETPLACE_TOKEN_NAME` | Optional: the credential-store name of the token that reads a private marketplace (for example a preview marketplace on a GitLab server). A public marketplace needs none and is cloned without credentials. The launcher reads the token from the credential store and gives it to the container's plugin install only; it is not a GitLab API token and needs no entry in KYKLOS_SECRETS. A project that sets KYKLOS_MARKETPLACE_URL takes its token name from its own configuration only; otherwise Launcher:Marketplace:TokenName, then this launcher host environment variable. The name only, never the token. |  |
+| `KYKLOS_MARKETPLACE_URL` | The marketplace repository the Kyklos plugin is installed from. Set in a project's configuration, it is that project's marketplace; otherwise Launcher:Marketplace:RepositoryUrl, then this launcher host environment variable, give every project's. The public marketplace needs no token; a private one needs KYKLOS_MARKETPLACE_TOKEN_NAME. |  |
+| `KYKLOS_MARKETPLACE_TOKEN_NAME` | Optional: the credential-store name of the token that reads a private marketplace (for example a marketplace of your own on a GitLab server). A public marketplace needs none and is cloned without credentials. The launcher reads the token from the credential store and gives it to the container's plugin install only; it is not a GitLab API token and needs no entry in KYKLOS_SECRETS. A project that sets KYKLOS_MARKETPLACE_URL takes its token name from its own configuration only; otherwise Launcher:Marketplace:TokenName, then this launcher host environment variable. The name only, never the token. |  |
 
 ### The Corporate policy and the policy mode
 
@@ -614,6 +651,7 @@ Every setting a project configuration can hold, as the Launcher's configuration 
 | `KYKLOS_CORPORATE_POLICY_TOKEN_NAME` | Optional: the credential-store name of the token that reads a private Corporate policy repository. When it is empty, the launcher uses the project's Git token (KYKLOS_PUSH_TOKEN_ENV). The launcher reads the repository on the host; the token is never given to the container for it and is never written to a log or a message. The name only, never the token. |  |
 | `KYKLOS_ENV` | Semicolon-separated list of the environment-variable NAMES the launcher forwards into the container. |  |
 | `KYKLOS_SSDLC_MODE` | Selects the mode of the story stack the project's bridge runs. Left unset it is on for a GitLab story project (a story project is named and the story backend is not filesystem) and off otherwise. Setting off is the only way to opt out: shadow runs the stack without writing and needs the same inputs as on (the GitLab address, the story project, the story token's name, bridge or both secrets mode and the token among the served secrets). |  |
+| `KYKLOS_DOCTOR` | Switches the launcher's doctor: the checks the Check button and every launch run on this project's configuration (the host, the policy, the tokens, the repositories, the push and the capabilities). On by default; off is the one opt-out, and the launch then shows that nothing was checked. | `on` |
 
 ### Pushing and the agent's identity
 
@@ -697,7 +735,7 @@ Every setting a project configuration can hold, as the Launcher's configuration 
 | `CONTINUE_GUARD_LABEL` | Only issues carrying this label count towards the continue-guard scope. |  |
 | `CONTINUE_GUARD_SCOPE_ALL` | The label whose open issues are counted across every project the token can see, rather than only within the configured projects and groups - the widest continue-guard scope. Leave empty to count nothing instance-wide. |  |
 | `KYKLOS_INTERNAL_REPOS` | Repositories, by their path inside the container, that the write guard treats as internal: they may carry the infrastructure details they need, while every other repository is held to the external-audience bar. Separate several with ';'. |  |
-| `KYKLOS_OWN_NAMES` | The project's own product and customer names. The write guard lets these names into the project's own nested source although they are on the organisation's sealed list, and nowhere else; every other organisation name and every internal reference stays refused there. Leave empty to exempt nothing. When set, the launcher forwards it to the container together with KYKLOS_SOURCE_DIR. |  |
+| `KYKLOS_OWN_NAMES` | The project's own product and customer names. The write guard lets these names into the project's own nested source although they are on the organisation's sealed list, and nowhere else; every other organisation name and every internal reference stays refused there. The project's own name (PROJECT_NAME_OVERRIDE, else the configuration's name) and its parts of three or more characters always count too, so leaving it empty still exempts them. The launcher forwards the names to the container together with KYKLOS_SOURCE_DIR. |  |
 | `CONTINUE_GUARD_STUCK_TURNS` | Identical-open-set stops before the continue-guard stuck-breaker auto-releases. | `3` |
 | `CONTINUE_GUARD_PARKED_STRICT` | 1 = a parked story is excused from the keep-rolling set only when someone other than the agent applied the park label. |  |
 
@@ -738,12 +776,14 @@ Every setting a project configuration can hold, as the Launcher's configuration 
 | `KYKLOS_SECRETS` | Semicolon-separated list of the secret NAMES the launcher serves to the container (names only, never values). |  |
 | `KYKLOS_SECRETS_MODE` | How secrets reach the container: forwarded as environment variables (env), served on demand by the project's bridge (bridge), or both during a time-boxed transition (both). | `env` |
 | `KYKLOS_SECRETS_FALLBACK_DAYS` | How many days (1 to 30) the 'both' transition keeps forwarding secret values before behaving as 'bridge'; also how many observed days without a read the GitLab API tokens need before they can stay on the host. | `14` |
-| `KYKLOS_API_TOKEN_IN_CONTAINER` | Keeps this configuration's GitLab API tokens inside the container. Without it, every served GitLab token that can call the API (or whose scopes GitLab does not confirm) stays on the host: the bridge uses it and the agent cannot read it. The value is allow\|`<reason>`; the launch shows it. |  |
+| `KYKLOS_API_TOKEN_IN_CONTAINER` | WARNING, a security exception: keeps this configuration's GitLab API tokens inside the container, so the agent can call GitLab directly, outside the bridge's verbs and their checks. Without it, every served GitLab token that can call the API (or whose scopes GitLab does not confirm) stays on the host: the bridge uses it and the agent cannot read it. Leave it empty unless you must. The value is allow\|`<reason>`, so a reason is always written down; the launch and the doctor show it. The launcher's editor offers it in the token settings. |  |
 | `KYKLOS_SECRETS_NOT_GITLAB` | The served secrets (KYKLOS_SECRETS) that are not GitLab tokens, separated by semicolons. They are never sent to GitLab and are forwarded as they are. A served secret that no token setting names, whose value has no GitLab token prefix and whose name does not contain GITLAB must be listed here, otherwise the launch is refused: it could be an API token the launcher cannot recognise. |  |
 | `KYKLOS_ALLOW_UNPERSISTED_HMAC` | Explicit opt-out read by the bridge step (native or its script fallback): when the proof-token key cannot be stored in the credential store, the bridge runs with an EPHEMERAL key instead of refusing (proof tokens will not survive a restart); when the bridge auth token cannot be stored, the bridge starts without one. |  |
 | `KYKLOS_CLAUDE_CODE_NPM_SPEC` | The npm version spec Claude Code is refreshed to inside the container before the session starts (e.g. @latest, @^2), or 'off' to skip the refresh. | `@latest` |
 | `KYKLOS_AGENT_ARGUMENTS` | The arguments the agent is started with inside this project's container, replacing the launcher-wide default for this project. Empty (the default) starts the agent with its normal permission prompts. Add --dangerously-skip-permissions to run without prompts (the agent then acts with no confirmation inside its container) and --remote-control to follow the session from another device. |  |
 | `DISCLOSURE_PATTERNS_FILE` | The organisation's disclosure pattern file: names, domains, paths and hosts that must never reach a public-bound file. The launcher reads it at every launch and hands the container's write guard a form that holds no name in clear text. |  |
+
+To give the agent a credential it lacks, store it under a name of your choice, then list that name in `KYKLOS_SECRETS` and, for a secret that is not a GitLab token, in `KYKLOS_SECRETS_NOT_GITLAB`; section 9.4 gives the steps.
 
 ### The Kyklos Bridge
 
@@ -766,7 +806,10 @@ Every setting a project configuration can hold, as the Launcher's configuration 
 | `KYKLOS_BRIDGE_COVERAGE_STORE_TOKEN_ENV` | The name of the environment variable that holds the token the bridge uses to read and push the store branch over HTTPS. Unset: git's own credentials. |  |
 | `KYKLOS_BRIDGE_RUNSETTINGS` | A .runsettings file the bridge applies to test runs; when unset run_tests auto-detects one. |  |
 | `KYKLOS_BRIDGE_SEQUENTIAL` | Run one test host at a time in run_tests and get_coverage, for suites that share a device or start many processes. | `0` |
+| `KYKLOS_BRIDGE_CAP_ADVISORY` | Add one advisory line to run_tests, build and get_coverage answers when the project sets no build-node cap of its own (RunConfiguration.MaxCpuCount in its .runsettings, -maxcpucount in a Directory.Build.rsp). Never changes a run; 0, false or off mutes it, and the default cap stays. | `1` |
+| `KYKLOS_BRIDGE_RUN_PRIORITY` | Process priority of the bridge's build and test runs and everything they start (Windows job priority; a lowered priority elsewhere). below-normal keeps the host usable while a run is going; normal turns it off. | `below-normal` |
 | `KYKLOS_BRIDGE_GUI_AUTOLAUNCH` | Auto-open the bridge GUI in a browser when the listener binds; turn off on a headless host. | `1` |
+| `KYKLOS_BRIDGE_DOCTOR` | Switches the bridge's doctor: the checks of its Health page and of its doctor verb (the projects it serves, its tokens and their scopes, the agent's identity, the test runner, CI access and its tool families). On by default; off is the one opt-out, and a check then reports that nothing was checked. | `on` |
 | `KYKLOS_BRIDGE_MUTATION_LEVEL` | The mutation-testing level the bridge requests. |  |
 | `KYKLOS_BRIDGE_RESOURCES` | Named host resources (e.g. a shared SQL database) each run holds through a host-wide lock. |  |
 | `KYKLOS_BRIDGE_COVERAGE_EXCLUDED_FIXTURES` | Test fixtures left out of coverage runs only (they run their code in another process, so no coverage can be captured from them); the normal test run still runs them. |  |
@@ -776,6 +819,8 @@ Every setting a project configuration can hold, as the Launcher's configuration 
 | `KYKLOS_BRIDGE_SOLUTION_FILE` | Explicitly pins the solution file the bridge builds/tests. |  |
 | `KYKLOS_BRIDGE_SOLUTION_SOURCE` | An authoritative label for how the solution root was configured (returned verbatim in diagnostics). |  |
 | `KYKLOS_BRIDGE_TRUNK_REPOSITORY_URL` | The address of the trunk repository a bridge without GitLab story tracking mirrors to check out base runs (https, ssh or file; no credential or user name in it). |  |
+| `KYKLOS_PROOF_KEY_SOURCE` | Where the Bridge takes its proof signing key from: `host` uses the key the Launcher keeps in this machine's credential store; `secrets-manager` reads the shared key from the Bridge's secrets manager, so a token minted on one workstation verifies on another. A Bridge set to `secrets-manager` that cannot read the key, or whose routing lets the agent read it, refuses to start. | `host` |
+| `KYKLOS_PROOF_KEY_SECRET_NAME` | The name of the shared proof signing key in the secrets manager; the previous key is kept under the same name followed by `_PREVIOUS`. | `PROOF_SIGNING_KEY` |
 | `KYKLOS_BRIDGE_TOOL_WAIT_SECONDS` | How long a bridge MCP tool call waits for an in-flight job before returning. |  |
 | `KYKLOS_BRIDGE_BASH` | Alternate override for the bash executable the bridge uses. |  |
 

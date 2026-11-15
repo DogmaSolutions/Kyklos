@@ -31,7 +31,8 @@
 # The ledger path is default ON too; KYKLOS_AUTOMERGE_LEDGER=off leaves only the token path.
 # One-shot override of the COVERAGE verdict only (never of the merged-result check): a marker set in a separate
 # command, bound to one repository and to the agent that sets it, spent by the first arm it admits, expiring
-# (override-marker.sh), audited:
+# (override-marker.sh), audited. Once spent it holds for that agent's retry of the same story's arm in that repository
+# while the covered C# content is unchanged (override_hold_admits), so a retry never needs the owner again:
 #   bash hooks/lib/override-marker.sh set automerge-coverage-ok <repo-dir>
 # It exists for the cases no token can settle: a change to the token builder itself, measured by the previous build,
 # or a change for which no proportionate token exists yet (the full shard set is the only measurement).
@@ -40,9 +41,10 @@
 # and fall into a fail-open path, so the hook refuses by name instead (a broken install). [CySec] CWE-636
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
-    printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin."}\n' "$(basename "$0")"
+    printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
     exit 0
 fi
+. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null   # kyklos_help_*: the help line naming the troubleshooting guide's section
 set +e -uo pipefail
 
 _AC_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -57,6 +59,7 @@ _AC_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$_AC_HERE/lib/merged-result.sh"    # merged_result_git_verdict: the one rule for a branch behind its target
 . "$_AC_HERE/lib/push-refspec.sh"     # push_positionals / push_refspec_src: the commit a push actually sends
 . "$_AC_HERE/lib/story-mr-target.sh"  # story_mr_target_refusal: a story branch's request lands on develop
+. "$_AC_HERE/lib/script-reader.sh"    # script_reader_files / script_reader_text: the scripts the agent wrote and a command runs
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 INPUT="$(cat || true)"
@@ -128,30 +131,42 @@ case "$TOOL_NAME" in
         _mode=bridge-target
         _bridge_proj="$(printf '%s' "$INPUT" | jq -r '.tool_input.project // empty' 2>/dev/null || true)" ;;
 esac
-# Arming written inside a local script the command runs (bash|sh|python3 <file>, ./<file>): apply the same test.
+# Arming written inside a local script the agent wrote and the command runs (bash|sh|python3 <file>, ./<file>, through
+# timeout/env/sudo, after a cd, `bash < f`, `cat f | bash`): the same test on its text (lib/script-reader.sh, shared with
+# the raw-note guard; committed, unchanged code is not read). A command running more scripts than the reader reads is
+# refused: it would not judge them all.
 if [ -z "$_mode" ] && [ -n "$CMD_REAL" ]; then
-    set -f   # split the command into words WITHOUT glob expansion: `rm *.sh` must not read every script in the folder
-    # A line of text-only commands runs no script (`git add arm.sh`, `cat arm.sh`); any other line may run every script it
-    # names, also through a pipe (`cat arm.sh | bash`), so all of its words are read.
-    _scan_words=""; mr_only_text_commands "$CMD_REAL" || _scan_words="$(mr_command_segments "$CMD_REAL")"
-    for _tok in $_scan_words; do
-        case "$_tok" in *.sh|*.bash|*.py|./*) : ;; *) continue ;; esac
-        _sf="$_tok"; [ "${_sf#/}" != "$_sf" ] || _sf="$HOOK_CWD/$_sf"
-        [ -f "$_sf" ] || continue
-        _sbody="$(cmd_drop_comments "$(head -c 262144 "$_sf" 2>/dev/null)")"   # a script's comments are not run either
+    command -v script_reader_files >/dev/null 2>&1 || { printf '{"decision":"block","reason":"BLOCKED (%s): the script reader hooks/lib/script-reader.sh did not load (broken install), so a script this command runs cannot be checked. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"; exit 0; }
+    if ! _sfiles="$(script_reader_files mr_command_segments any "$CMD_REAL" "$HOOK_CWD")"; then
+        printf '{"decision":"block","reason":"Auto-merge check BLOCKED: this command runs more than %s local scripts, so the guard cannot read them all for an auto-merge arm. Run them in separate commands.%s"}' "$SCRIPT_READER_MAX_FILES" "$(kyklos_help_json_suffix merge-or-arming-blocked-branch-behind-its-target)"
+        exit 0
+    fi
+    while IFS= read -r _sf; do
+        [ -n "$_sf" ] || continue
+        _sbody="$(cmd_drop_comments "$(script_reader_text "$_sf")")"   # a script's comments are not run either
         _mode="$(arming_mode "$_sbody")"
         [ -n "$_mode" ] && { _arm_text="$_sbody"; break; }
-    done
-    set +f
+    done <<< "$_sfiles"
 fi
 [ -n "$_mode" ] || exit 0
 
 block() {
-    local reason="$1"
+    local reason="$1" help
     reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
-    if [ -n "${_AC_REFUSAL:-}" ]; then printf '{"decision":"block","reason":"%s","refusal":"%s"}' "$reason" "$_AC_REFUSAL"
-    else printf '{"decision":"block","reason":"%s"}' "$reason"; fi
+    help="$(kyklos_help_json_suffix "$(_ac_help_anchor "$1")")"
+    if [ -n "${_AC_REFUSAL:-}" ]; then printf '{"decision":"block","reason":"%s%s","refusal":"%s"}' "$reason" "$help" "$_AC_REFUSAL"
+    else printf '{"decision":"block","reason":"%s%s"}' "$reason" "$help"; fi
     exit 0
+}
+# _ac_help_anchor MESSAGE -> the troubleshooting guide's section for a refusal: a broken install; the coverage evidence
+# (coverage, its token, the content ledger: also every refusal of refuse_coverage); otherwise the merged-result check
+# (a branch behind its target, its head, a shallow clone, a target that cannot be read).
+_ac_help_anchor() {
+    case "$1" in
+        *"(broken install)"*) printf 'broken-install' ;;
+        *[Cc]overage*|*"Test Discipline"*|*ledger*) printf 'auto-merge-arming-blocked-coverage' ;;
+        *) printf 'merge-or-arming-blocked-branch-behind-its-target' ;;
+    esac
 }
 # block_state MESSAGE -> a refusal over the STATE of the change (its coverage, its merged result, the target or GitLab
 # not readable right now), marked "refusal":"state". The mr-hands-off probe lets an unarmed create through with a note
@@ -224,13 +239,33 @@ story_target_check_named() {
     story_target_check "$(_story_repo_of_cwd)" "$3" "$4"
 }
 
+# _mr_ref_args <merge request> -> the mr_get arguments that name the SAME merge request as the checked bridge call: its
+# project, repository and tree, exactly as the call gave them (a companion's nested source is named by repository or
+# tree, not by the session's own project). Every bridge read of this guard builds its arguments here, so no path asks
+# the bridge a narrower question than the call it checks.
+_mr_ref_args() {
+    printf '%s' "$INPUT" | jq -c --arg n "${1:-}" --arg p "${_bridge_proj:-}" '
+        (.tool_input // {}) as $t
+        | {merge_request: $n}
+        + (if $p != "" then {project: $p} else {} end)
+        + (if (($t.repository // "") | tostring) != "" then {repository: ($t.repository | tostring)} else {} end)
+        + (if (($t.tree // "") | tostring) != "" then {tree: ($t.tree | tostring)} else {} end)' 2>/dev/null \
+        || jq -cn --arg n "${1:-}" '{merge_request: $n}'
+}
+
+# _bridge_reason -> " The bridge said: <its refusal>." when the last bridge read failed with a reason, else nothing.
+_bridge_reason() {
+    local r; r="$(command -v coordination_read_reason >/dev/null 2>&1 && coordination_read_reason)"
+    [ -n "$r" ] && printf ' The bridge said: %s.' "$r"
+}
+
 # _story_bridge_check -> the target rule on the merge request a bridge call names, as the bridge's own mr_get describes
 # it (an older bridge without mr_get: the container token reads it). Blocks when it cannot be described (fail closed).
 _story_bridge_check() {
     . "$_AC_HERE/lib/coordination-read.sh" 2>/dev/null || true
     _b_mr="$(printf '%s' "$INPUT" | jq -r '.tool_input.merge_request // empty' 2>/dev/null)"
     _b_repo="$(printf '%s' "$INPUT" | jq -r '.tool_input.repository // empty' 2>/dev/null)"
-    _b_args="$(jq -cn --arg p "${_bridge_proj:-}" --arg r "$_b_repo" --arg n "$_b_mr" '{merge_request:$n} + (if $p != "" then {project:$p} else {} end) + (if $r != "" then {repository:$r} else {} end)')"
+    _b_args="$(_mr_ref_args "$_b_mr")"
     _b_text=""; _b_rc=3
     command -v coordination_read >/dev/null 2>&1 && { _b_text="$(coordination_read mr_get "$_b_args" 2>/dev/null)"; _b_rc=$?; }
     # An older bridge without mr_get: the container token reads the request of the work tree's project (transition path).
@@ -251,7 +286,7 @@ _story_bridge_check() {
     _b_url="$(printf '%s' "$_b_text" | jq -r 'select(type == "object") | (.url // .web_url) // empty' 2>/dev/null)"
     _b_tgt="$(printf '%s' "$_b_text" | jq -r 'select(type == "object") | .target_branch // empty' 2>/dev/null)"
     { [ "$_b_rc" -eq 0 ] && [ -n "$_b_src" ] && [ -n "$_b_tgt" ]; } \
-        || block "Merge BLOCKED: the bridge could not describe merge request !${_b_mr:-?} (its source and target branch), so the guard cannot tell whether it is a story branch that must land on develop. Retry once the bridge answers."
+        || block "Merge BLOCKED: the bridge could not describe merge request !${_b_mr:-?} (its source and target branch), so the guard cannot tell whether it is a story branch that must land on develop.$(_bridge_reason) Retry once the bridge answers."
     story_target_check_named "${_bridge_proj:-$_b_repo}" "$_b_url" "$_b_src" "$(printf 'decided\n%s' "$_b_tgt")"
 }
 
@@ -274,10 +309,14 @@ fi
 # [CySec] [RiskMitigation RA-01] [RiskMitigation RA-02] Bounds the only per-arm way past the coverage verdict (CWE-863):
 # one arm, one repository, expiring, audited; it never lifts the merged-result check (RA-03).
 readonly OK_NAME=automerge-coverage-ok
-# refuse_coverage REPO STORY MESSAGE -> the coverage verdict for REPO is a refusal: spend a one-shot override set for
-# exactly that repository (audited, admits this one arm), else block with MESSAGE and the override's name.
+# refuse_coverage REPO STORY MESSAGE [CONTENT] -> the coverage verdict for REPO is a refusal: spend a one-shot override
+# set for exactly that repository (audited, admits this one arm), else block with MESSAGE and the override's name.
+# CONTENT is the fingerprint of the code the verdict judged (covered_content). An owner's override excuses that code, not
+# one attempt: once spent, it keeps admitting a retry of the same agent's arm of the same story in the same repository for
+# as long as that content is unchanged (a refused push, a trunk merge that changed none of those files), each use audited
+# and still checked against the Named Cause; any change to the covered code needs the owner again (override_hold_admits).
 refuse_coverage() {
-    local repo="$1" story="$2" msg="$3"
+    local repo="$1" story="$2" msg="$3" content="${4:-}"
     [ "$_AC_PROBE" = 1 ] && block_state "$msg"
     # Named Cause: the one-shot override is spent only on a story that names the cause of its gap (an open item that
     # removes it, or the owner's accepted figure); the bridge decides it, and without its answer the marker stays unspent.
@@ -296,15 +335,35 @@ refuse_coverage() {
     fi
     if override_take "$OK_NAME" "$(override_scope_of "$repo")" "$INPUT"; then
         command -v escape_audit >/dev/null 2>&1 && escape_audit "$OK_NAME" "mode=$_mode story=$story repo=$repo arm=$(printf '%s' "$_arm_text" | grep -oE 'merge_requests/[0-9]+' | head -1)" 2>/dev/null || true
-        echo "[kyklos] auto-merge coverage guard: OVERRIDDEN once ($OK_NAME spent) for story ${story:-?} in $repo: this arm passes WITHOUT a covering Test Discipline token. Refusal it replaced: $msg" >&2
+        override_hold_keep "$OK_NAME" "$(override_scope_of "$repo")" "$INPUT" "$story" "$content" 2>/dev/null || true
+        echo "[kyklos] auto-merge coverage guard: OVERRIDDEN ($OK_NAME spent) for story ${story:-?} in $repo: this arm passes WITHOUT a covering Test Discipline token, and a retry passes too while the covered code stays as it is. Refusal it replaced: $msg" >&2
         return 0
     fi
-    block "$msg One-shot override, only when the user decides so and no token can settle it: a change to the token builder itself, or a change for which no proportionate token exists yet (the full shard set is the only measurement), where the user's one-shot approval is the path. It is spent by one arm and audited: bash $OVERRIDE_MARKER_CLI set $OK_NAME <repo-dir>, in a separate command."
+    if override_hold_admits "$OK_NAME" "$(override_scope_of "$repo")" "$INPUT" "$story" "$content"; then
+        override_cause_named "$_ocp" "$story" "$OK_NAME" \
+            || block_state "$msg The $OK_NAME override spent on story ${story:-?} would still hold for this unchanged code, but $OVERRIDE_CAUSE_WHY."
+        command -v escape_audit >/dev/null 2>&1 && escape_audit "$OK_NAME-held" "mode=$_mode story=$story repo=$repo spent=$OVERRIDE_HOLD_SET" 2>/dev/null || true
+        echo "[kyklos] auto-merge coverage guard: the owner's $OK_NAME override for story ${story:-?} (spent $OVERRIDE_HOLD_SET) still holds: the code it covered is unchanged, so this arm passes again WITHOUT a covering Test Discipline token. Refusal it replaced: $msg" >&2
+        return 0
+    fi
+    block "$msg One-shot override, only when the user decides so and no token can settle it: a change to the token builder itself, or a change for which no proportionate token exists yet (the full shard set is the only measurement), where the user's one-shot approval is the path. It is spent by the first arm it admits and audited, and then holds for a retry while the covered code is unchanged: bash $OVERRIDE_MARKER_CLI set $OK_NAME <repo-dir>, in a separate command."
 }
 # defer_refusal REPO STORY MESSAGE -> note a coverage refusal; the verdict is given once every repository is judged, so a
 # marker is never spent on an arm that another repository refuses anyway.
-_ref_repo=(); _ref_story=(); _ref_msg=()
-defer_refusal() { _ref_repo+=("$1"); _ref_story+=("$2"); _ref_msg+=("$3"); }
+# The fingerprint of the code being judged rides along (_covered), set per repository before each refusal.
+_ref_repo=(); _ref_story=(); _ref_msg=(); _ref_content=(); _covered=""
+defer_refusal() { _ref_repo+=("$1"); _ref_story+=("$2"); _ref_msg+=("$3"); _ref_content+=("$_covered"); }
+# covered_content REPO JUDGED HERE FILE... -> one fingerprint of the files' content at the judged head (the work tree's
+# content when the judged head is the checkout): what an override of this verdict excuses. A file that cannot be read
+# counts as "missing", so its later appearance changes the fingerprint.
+covered_content() {
+    local repo="$1" judged="$2" here="$3" f id; shift 3
+    for f in "$@"; do
+        if [ "$judged" = "$here" ]; then id="$(git -C "$repo" hash-object -- "$repo/$f" 2>/dev/null)"
+        else id="$(git -C "$repo" rev-parse -q --verify "$judged:$f" 2>/dev/null)"; fi
+        printf '%s\t%s\n' "$f" "${id:-missing}"
+    done | LC_ALL=C sort | sha256sum | cut -c1-64
+}
 
 # ---- 1b. Merged-result check (owner-approved blocking rule, independent of the coverage opt-out) ----------------
 # GitLab CE has no merged-results pipelines: a merge request pipeline tests the branch head, not the merge into the
@@ -330,8 +389,8 @@ if [ "$_mode" = "api" ] || [ "$_mode" = "apimerge" ]; then
         # The project goes as the API address names it (a numeric id or a path); the bridge resolves either to the
         # configured project it is, and refuses one it does not serve. The request's state, arm and the project's CI
         # state travel along, so the hand-merge and no-CI rules below judge the bridge's answer as they judge GitLab's.
-        [ "$_mrrc" -eq 0 ] && _mr_json="$(printf '%s' "$_mr_text" | jq -c '{diverged_commits_count: .behind_target, target_branch: .target_branch, merged_result_ok: .merged_result_ok, overlap_files: .overlap_files, merged_result_refusal: .merged_result_refusal, state: .state, auto_merge: .auto_merge, merge_request: .merge_request, sha: .sha, project_ci: .project_ci, source_branch: .source_branch, url: .url}' 2>/dev/null || true)"
-        [ "$_mrrc" -eq 3 ] && block_state "Merge BLOCKED: the bridge could not read merge request !$_mr_iid, so the guard cannot check that it contains its target's current head. It never lets a merge through unchecked; retry once the bridge answers."
+        [ "$_mrrc" -eq 0 ] && _mr_json="$(printf '%s' "$_mr_text" | jq -c '{diverged_commits_count: .behind_target, target_branch: .target_branch, merged_result_ok: .merged_result_ok, overlap_files: .overlap_files, merged_result_refusal: .merged_result_refusal, state: .state, auto_merge: .auto_merge, merge_request: .merge_request, sha: .sha, project_ci: .project_ci, source_branch: .source_branch, url: .url, head_pipeline_status: .head_pipeline_status}' 2>/dev/null || true)"
+        [ "$_mrrc" -eq 3 ] && block_state "Merge BLOCKED: the bridge could not read merge request !$_mr_iid, so the guard cannot check that it contains its target's current head.$(_bridge_reason) It never lets a merge through unchecked; retry once the bridge answers."
     fi
     if [ "$_mrrc" -ne 0 ]; then
         [ -n "$_api" ] && [ -n "$_tok" ] || block_state "Merge BLOCKED: the guard cannot reach GitLab (the bridge has no mr_get, and no API address or token is configured), so it cannot check that merge request !$_mr_iid contains its target's current head. It never lets a merge through unchecked."
@@ -573,14 +632,54 @@ case "$_mode" in
         _bmr="$(printf '%s' "$INPUT" | jq -r '.tool_input.merge_request // empty | tostring' 2>/dev/null || true)"
         . "$_AC_HERE/lib/coordination-read.sh" 2>/dev/null || true
         if [ -n "$_bmr" ] && command -v coordination_read >/dev/null 2>&1; then
-            _bmr_text="$(coordination_read mr_get "$(jq -cn --arg p "${_bridge_proj:-}" --arg n "$_bmr" '{merge_request:$n} + (if $p == "" then {} else {project:$p} end)')" 2>/dev/null)" \
+            _bmr_text="$(coordination_read mr_get "$(_mr_ref_args "$_bmr")" 2>/dev/null)" \
                 && { _arm_branch="$(printf '%s' "$_bmr_text" | jq -r '.source_branch // empty' 2>/dev/null || true)"
                      _arm_sha="$(printf '%s' "$_bmr_text" | jq -r '.sha // empty' 2>/dev/null || true)"; }
         fi
-        [ -n "$_arm_branch" ] && [ -n "$_arm_sha" ] || _arm_unreadable="Auto-merge arming BLOCKED: merge request !${_bmr:-?} could not be read through the bridge (mr_get), so the story and the commit this arm would merge cannot be told; it is never judged by the work tree's checkout instead. Retry once the bridge answers." ;;
+        # An answer that came back without the branch or the head is said so (with the start of what it said): a read that
+        # failed and a read that answered too little are different problems.
+        _bmr_said=""
+        [ -n "${_bmr_text:-}" ] && { [ -z "$_arm_branch" ] || [ -z "$_arm_sha" ]; } && _bmr_said=" The bridge answered, but its answer names no source branch or head commit: $(printf '%s' "$_bmr_text" | tr '\n' ' ' | cut -c1-200)."
+        [ -n "$_arm_branch" ] && [ -n "$_arm_sha" ] || _arm_unreadable="Auto-merge arming BLOCKED: merge request !${_bmr:-?} could not be read through the bridge (mr_get), so the story and the commit this arm would merge cannot be told; it is never judged by the work tree's checkout instead.$(_bridge_reason)${_bmr_said:-} Retry once the bridge answers." ;;
     push) _arm_branch="${_mrbr:-}" ;;
 esac
 case "$_arm_branch$_arm_sha" in *[!A-Za-z0-9._/-]*) block_state "Auto-merge arming BLOCKED: the merge request's source branch or head ($_arm_branch $_arm_sha) is not a plain git name." ;; esac
+
+# ---- 1d. The head pipeline of the merge request being armed has not already failed ----------------------------------
+# A project that does not require a green pipeline (only_allow_merge_if_pipeline_succeeds off) merges an armed request at
+# once when its head pipeline has already finished, whatever its result: arming after a red run lands the red head. So an
+# arm of an existing request (the API, the bridge, a glab merge of the branch's open request) is refused while its head
+# pipeline has failed, was canceled or was skipped, as GitLab (or the bridge) reports it. An answer that names the head
+# pipeline only by its number is asked for that pipeline's status (ci_pipeline_get); a status that cannot be read then is
+# refused. No head pipeline yet, a running or pending one (what auto-merge waits for), and a push that arms (it starts a
+# new pipeline) are not refused here. Independent of the coverage opt-out.
+# [CySec] Enforces CWE-841 "Improper Enforcement of Behavioral Workflow": auto-merge never lands a head whose pipeline is red.
+_head_pipeline_check() {   # <merge request JSON object> <arguments naming its project or repository, JSON>
+    local mr="$1" where="${2:-}" hps hpid got
+    [ -n "$where" ] || where='{}'
+    [ -n "$mr" ] || return 0
+    hps="$(printf '%s' "$mr" | jq -r 'select(type == "object") | (.head_pipeline_status // (.head_pipeline | objects | .status) // empty) | tostring' 2>/dev/null || true)"
+    if [ -z "$hps" ]; then
+        hpid="$(printf '%s' "$mr" | jq -r 'select(type == "object") | ((.head_pipeline | numbers) // (.head_pipeline | objects | .id) // empty) | tostring' 2>/dev/null || true)"
+        if [[ "$hpid" =~ ^[0-9]+$ ]]; then
+            . "$_AC_HERE/lib/coordination-read.sh" 2>/dev/null || true
+            got=""; command -v coordination_read >/dev/null 2>&1 \
+                && got="$(coordination_read ci_pipeline_get "$(printf '%s' "$where" | jq -c --arg p "$hpid" '. + {pipeline:$p}')" 2>/dev/null)"
+            hps="$(printf '%s' "$got" | jq -r 'select(type == "object") | (.status // .pipeline.status // empty) | tostring' 2>/dev/null || true)"
+            [ -n "$hps" ] || block_state "Auto-merge arming BLOCKED: merge request !${_mr_iid:-${_bmr:-?}} has head pipeline $hpid, but its status could not be read, so the guard cannot tell whether it already failed (GitLab would then merge a red head at once).$(_bridge_reason) Retry once the bridge answers."
+        fi
+    fi
+    case "$hps" in
+        failed|canceled|cancelled|canceling|skipped)
+            block_state "Auto-merge arming BLOCKED: the head pipeline of merge request !${_mr_iid:-${_bmr:-?}} has status '$hps'. On a project that does not require a green pipeline, GitLab merges an armed request at once when its pipeline has already finished, so arming now would land a head whose pipeline is not green. Fix the failure and push (or retry the pipeline when the failure was not the change's), then arm while the new pipeline runs or once it passed." ;;
+    esac
+    return 0
+}
+case "$_mode" in
+    api) _head_pipeline_check "${_mr_json:-}" "$(jq -cn --arg p "$(printf '%s' "${_mr_proj:-}" | sed 's/%2[Ff]/\//g')" '{project:$p}')" ;;
+    bridge) _head_pipeline_check "${_bmr_text:-}" "$(_mr_ref_args "" | jq -c 'del(.merge_request)')" ;;
+    glab) _head_pipeline_check "$(printf '%s' "${_mrl:-}" | jq -c 'if type == "array" then (.[0] // empty) else empty end' 2>/dev/null)" "$(jq -cn --arg p "$(printf '%s' "${_oproj:-}" | sed 's/%2[Ff]/\//g')" '{project:$p}')" ;;
+esac
 
 # ---- 2. Opt-out (explicit, greppable, audited) -----------------------------------------------------------------
 if kyklos_control_off "${KYKLOS_AUTOMERGE_COVERAGE:-}"; then
@@ -708,8 +807,12 @@ ledger_answers_story() {
         project="$(item_story_project_of "$repo" 2>/dev/null)" || project=""
     fi
     reply="$(bridge_mcp_call test_facts "$(jq -cn --arg s "$story" --arg p "$project" '{story:$s} + (if $p == "" then {} else {project:$p} end)')" 120)"; rc=$?
-    [ "$rc" -eq 0 ] && [ -n "$reply" ] || { LEDGER_REASON="the bridge's ledger could not be asked"; return 1; }
-    if bridge_mcp_is_error "$reply"; then LEDGER_REASON="the bridge refused test_facts"; return 1; fi
+    [ "$rc" -eq 0 ] && [ -n "$reply" ] || { LEDGER_REASON="the bridge's ledger could not be asked (exit $rc${project:+, project $project})"; return 1; }
+    if bridge_mcp_is_error "$reply"; then
+        text="$(bridge_mcp_text "$reply" | tr '\n' ' ' | cut -c1-300)"
+        [ -n "$text" ] || text="$(printf '%s' "$reply" | jq -r '.error.message // empty' 2>/dev/null | cut -c1-300)"
+        LEDGER_REASON="the bridge refused test_facts${project:+ for project $project}: ${text:-no reason given}"; return 1
+    fi
     text="$(bridge_mcp_text "$reply")"
     # The bridge writes "story N at <sha>"; a client may capitalise the first letter. Either spelling is read.
     answered="$(printf '%s\n' "$text" | sed -n "s/^[Ss]tory ${story} at \([0-9a-f]\{7,40\}\) .*/\1/p" | head -1)"
@@ -804,6 +907,8 @@ for _r in "${_repos[@]}"; do
     [ -n "$_arm_branch" ] && _story="$(_proof_tool_story_key "$(story_num_from_branch "$_arm_branch")")"
     [ -n "$_story" ] || [ "$_judged" != "$_here" ] || _story="$(_proof_tool_detect_story "$_r")"
     if [ "${#_prod[@]}" -gt 0 ]; then _list="$(printf '%s, ' "${_prod[@]}")"; else _list="$(printf '%s, ' "${_cs[@]}")"; fi; _list="${_list%, }"
+    if [ "${#_prod[@]}" -gt 0 ]; then _covered="$(covered_content "$_r" "$_judged" "$_here" "${_prod[@]}")"
+    else _covered="$(covered_content "$_r" "$_judged" "$_here" "${_cs[@]}")"; fi
     if [ -z "$_story" ]; then
         [ "${#_prod[@]}" -gt 0 ] || continue
         block_state "Auto-merge arming BLOCKED: this change touches C# (${_list}) but no story can be derived from the branch or the last commit in '$_r', so no Test Discipline coverage token can match it. Put the work on a feature/story-<N>-... branch (or add 'Refs: #<N>' to the commit), measure coverage locally with the bridge get_coverage (story=<N>), then arm auto-merge. A plain push without auto-merge is still allowed."
@@ -815,7 +920,7 @@ for _r in "${_repos[@]}"; do
     [ "${#_prod[@]}" -gt 0 ] || [ -n "$LEDGER_ANSWERED" ] || continue
     # A token reads the checked-out files: for another head than the checkout only the ledger can settle the arm.
     if [ "$_judged" != "$_here" ]; then
-        defer_refusal "$_r" "$_story" "Auto-merge arming BLOCKED: this change touches C# (${_list}) and the content ledger does not settle it for story ${_story} at the armed head ${_judged:0:12}. Ledger: ${LEDGER_REASON}. Measure the tests that run the changed lines with the bridge (get_coverage without story, filtered) until test_facts for story ${_story} shows no GAP at that commit, or check out the branch ${_arm_branch:-of the merge request} to use a Test Discipline token. A plain push without auto-merge is still allowed." && continue
+        defer_refusal "$_r" "$_story" "Auto-merge arming BLOCKED: this change touches C# (${_list}) and the content ledger does not settle it for story ${_story} at the armed head ${_judged:0:12}. Ledger: ${LEDGER_REASON}. Measure the tests that run the changed lines with the bridge: get_coverage without story and with projects (the test projects test_facts names under 'test projects to measure next'; a filter alone still builds and starts every test project), until test_facts for story ${_story} shows no GAP at that commit, or check out the branch ${_arm_branch:-of the merge request} to use a Test Discipline token. A plain push without auto-merge is still allowed." && continue
     fi
     # The token's entries are read under the root the token names (proof_tool_token_root, the rule the Stop gate uses):
     # its .base sidecar, else this repository. Entries are then compared with this repository's changed files, so a root
@@ -825,7 +930,7 @@ for _r in "${_repos[@]}"; do
         defer_refusal "$_r" "$_story" "Auto-merge arming BLOCKED: the Test Discipline coverage token for story ${_story} has the right content, but ${PROOF_TOOL_SEAL_REASON}. A plain push without auto-merge is still allowed." && continue
     fi
     if ! proof_tool_verify "$DIM" "$_tr" "$_story"; then
-        defer_refusal "$_r" "$_story" "Auto-merge arming BLOCKED: this change touches C# (${_list}) and neither the content ledger nor a token settles it for story ${_story}. Ledger: ${LEDGER_REASON}. The usual way: run the bridge get_coverage WITHOUT story and with a filter over the tests that run the changed lines (runs add up), until test_facts for story ${_story} shows no GAP at this commit; then arm again. The old way still works: a valid Test Discipline token from get_coverage with story=${_story} over the whole suite (missing here, or a recorded file changed since it was measured). A plain push without auto-merge is still allowed." && continue
+        defer_refusal "$_r" "$_story" "Auto-merge arming BLOCKED: this change touches C# (${_list}) and neither the content ledger nor a token settles it for story ${_story}. Ledger: ${LEDGER_REASON}. The usual way: run the bridge get_coverage WITHOUT story and with projects (the test projects test_facts for story ${_story} names under 'test projects to measure next'; a filter alone still builds and starts every test project) over the tests that run the changed lines (runs add up), until test_facts for story ${_story} shows no GAP at this commit; then arm again. The old way still works: a valid Test Discipline token from get_coverage with story=${_story} over the whole suite (missing here, or a recorded file changed since it was measured). A plain push without auto-merge is still allowed." && continue
     fi
     # Each recorded entry, resolved under the token's root (an absolute one as it is), is compared as a path relative to
     # this repository; an entry outside it matches none of this repository's files.
@@ -846,7 +951,7 @@ for _r in "${_repos[@]}"; do
 done
 case "${#_ref_repo[@]}" in
     0) : ;;
-    1) refuse_coverage "${_ref_repo[0]}" "${_ref_story[0]}" "${_ref_msg[0]}" ;;
+    1) refuse_coverage "${_ref_repo[0]}" "${_ref_story[0]}" "${_ref_msg[0]}" "${_ref_content[0]}" ;;
     *) block_state "$(printf '%s ' "${_ref_msg[@]}")This arm is refused in ${#_ref_repo[@]} repositories (${_ref_repo[*]}); a one-shot override names one repository, so it is not used here: settle each with its coverage token." ;;
 esac
 exit 0

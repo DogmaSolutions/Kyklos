@@ -23,9 +23,10 @@
 # and fall into a fail-open path, so the hook refuses by name instead (a broken install). [CySec] CWE-636
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
-    printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin."}\n' "$(basename "$0")"
+    printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
     exit 0
 fi
+. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null   # kyklos_help_*: the help line naming the troubleshooting guide's section
 set +e -uo pipefail
 _GD_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$_GD_HERE/lib/git-cmd-detect.sh"   # git_cmd_invokes: command-position git-subcommand detection (shared)
@@ -69,8 +70,39 @@ git_cmd_invokes "$CMD_REAL" push || exit 0
 # early exit. (a) an INVALID declared topology must never permit a push (no silent default reaches the push path);
 # (b) the PUBLIC ARTIFACT FACADE (KYKLOS_ARTIFACT_FACADE=1 / a PriSouPubArt artifact) is published by its source
 # repo's pipeline, NEVER hand-pushed. This wires the artifact-facade check the guard's comments already claimed.
-_np_block() { local r="${1//\\/\\\\}"; r="${r//\"/\\\"}"; r="$(printf '%s' "$r" | tr '\n' ' ')"; printf '{"decision":"block","reason":"%s"}' "$r"; exit 0; }
+# _np_block REASON [ANCHOR] -> print the block decision, its last line naming the guide's section (push-refused by default).
+_np_block() { local r="${1//\\/\\\\}"; r="${r//\"/\\\"}"; r="$(printf '%s' "$r" | tr '\n' ' ')"; printf '{"decision":"block","reason":"%s%s"}' "$r" "$(kyklos_help_json_suffix "${2:-push-refused}")"; exit 0; }
 _np_tgt="$(target_repo_dir "$CMD")"
+
+# _np_parse_refspec <checked-out branch>: what the command pushes, read from the words after the last `git ... push`
+# (up to the next command separator). Sets _np_rs_remote (the first positional word, may be empty), _np_rs_branch
+# (the branch of its one refspec, `origin feature/x` or `origin HEAD:feature/x`; the checked-out branch when no refspec
+# is given; empty when several refspecs are given) and _np_rs_src (that refspec's source, HEAD by default). Shared by
+# the push queue record and the refusal text, so both read the pushed branch the same way.
+_np_parse_refspec() {
+    local current="$1" seg tok expect="" dst
+    local -a toks positional=()
+    seg="$(sed -E 's/.*(^|[[:space:];&|(])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)*[[:space:]]+push([[:space:]]|$)//; s/(&&|\|\||;|\|).*//' <<< "$CMD_REAL")"
+    read -ra toks <<< "${seg//[\"\']/}"
+    for tok in "${toks[@]}"; do
+        if [ -n "$expect" ]; then expect=""; continue; fi
+        case "$tok" in
+            -o|--push-option|--repo|--receive-pack|--exec) expect=1 ;;
+            -*) ;;
+            *) positional+=("$tok") ;;
+        esac
+    done
+    _np_rs_remote="${positional[0]:-}"
+    _np_rs_branch="$current"; _np_rs_src="HEAD"
+    if [ "${#positional[@]}" -eq 2 ]; then
+        dst="${positional[1]#+}"; _np_rs_src="${dst%%:*}"; dst="${dst#*:}"
+        dst="${dst#refs/heads/}"
+        [ "$dst" = "HEAD" ] && dst="$current"
+        _np_rs_branch="$dst"; [ -n "$_np_rs_src" ] || _np_rs_src="HEAD"
+    elif [ "${#positional[@]}" -gt 2 ]; then
+        _np_rs_branch=""   # several refspecs: one record cannot name them, so the bridge refuses it while the mode is on
+    fi
+}
 
 # The last step of every ALLOWED push: while the git remote is declared unavailable, the bridge queues the push and the
 # guard refuses it as queued (the agent runs it when the mode ends, through this same guard). The record lives only in
@@ -86,30 +118,10 @@ _np_queue_if_remote_down() {
     command -v jq >/dev/null 2>&1 || return 0
     # shellcheck source=lib/bridge-mcp.sh
     . "$_GD_HERE/lib/bridge-mcp.sh" 2>/dev/null || return 0
-    local current branch commit remote url args reply text seg tok expect="" src dst
-    local -a toks positional=()
+    local current branch commit remote url args reply text src
     current="$(git -C "$_np_tgt" symbolic-ref --quiet --short HEAD 2>/dev/null)"
-    # The words after the last `git ... push`, up to the next command separator.
-    seg="$(sed -E 's/.*(^|[[:space:];&|(])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)*[[:space:]]+push([[:space:]]|$)//; s/(&&|\|\||;|\|).*//' <<< "$CMD_REAL")"
-    read -ra toks <<< "${seg//[\"\']/}"
-    for tok in "${toks[@]}"; do
-        if [ -n "$expect" ]; then expect=""; continue; fi
-        case "$tok" in
-            -o|--push-option|--repo|--receive-pack|--exec) expect=1 ;;
-            -*) ;;
-            *) positional+=("$tok") ;;
-        esac
-    done
-    remote="${positional[0]:-}"
-    branch="$current"; src="HEAD"
-    if [ "${#positional[@]}" -eq 2 ]; then
-        dst="${positional[1]#+}"; src="${dst%%:*}"; dst="${dst#*:}"
-        dst="${dst#refs/heads/}"
-        [ "$dst" = "HEAD" ] && dst="$current"
-        branch="$dst"; [ -n "$src" ] || src="HEAD"
-    elif [ "${#positional[@]}" -gt 2 ]; then
-        branch=""   # several refspecs: one record cannot name them, so the bridge refuses it while the mode is on
-    fi
+    _np_parse_refspec "$current"
+    remote="$_np_rs_remote"; branch="$_np_rs_branch"; src="$_np_rs_src"
     commit="$(git -C "$_np_tgt" rev-parse --verify --quiet "$src^{commit}" 2>/dev/null)"
     if [ -z "$remote" ]; then
         remote="$(git -C "$_np_tgt" config --get "branch.$current.pushRemote" 2>/dev/null || git -C "$_np_tgt" config --get "branch.$current.remote" 2>/dev/null || echo origin)"
@@ -144,7 +156,7 @@ if [ -n "$_np_top" ] && ! kyklos_control_off "${KYKLOS_REQUIRE_REFS:-}"; then
     # [refs-footer-required] the rule reads footers through the one definition (lib/refs-footer.sh): without it the
     # check would silently find nothing, so the push is refused by name instead (a broken install). [CySec] CWE-636
     command -v refs_footer_cited >/dev/null 2>&1 && command -v refs_rule_branch_refusal >/dev/null 2>&1 \
-        || _np_block "Push refused: the footer reader hooks/lib/refs-footer.sh or hooks/lib/refs-rule.sh did not load (broken install), so the one-branch-one-item check cannot run. Reinstall or repin the kyklos plugin."
+        || _np_block "Push refused: the footer reader hooks/lib/refs-footer.sh or hooks/lib/refs-rule.sh did not load (broken install), so the one-branch-one-item check cannot run. Reinstall or repin the kyklos plugin." broken-install
     _np_rr="$(refs_rule_branch_refusal "$_np_top")"
     [ -z "$_np_rr" ] || _np_block "Push refused: $_np_rr"
 fi
@@ -286,7 +298,24 @@ _np_kind_of() {
     fi
 }
 _np_only_authorised="Only the push-authorised session your organisation names (KYKLOS_ALLOW_PUSH=1) may push it; a project session pushes its story branch and lets the merge request bring the work to the trunk."
-case "$(_np_kind_of)" in
+# _np_kind_named_elsewhere: the closed-loop allowance (KYKLOS_CI_MONITOR=1) judges the CHECKED-OUT branch, so when the
+# command names another branch (and nothing in the command itself decides the kind: no force, tag, trunk or
+# release/support name), the kind read from the checked-out branch describes a push the command does not make. Say
+# what really decided instead. Text only: the decision above is unchanged.
+_np_kind_named_elsewhere() {
+    [ "${KYKLOS_CI_MONITOR:-0}" = "1" ] && [ -n "$_np_cur" ] || return 1
+    if _np_is_force "$CMD" || _np_tag_names "$CMD" || _np_trunk_names "$CMD" || _np_release_names "$CMD"; then
+        return 1
+    fi
+    _np_parse_refspec "$_np_cur"
+    [ -n "$_np_rs_branch" ] && [ "$_np_rs_branch" != "$_np_cur" ]
+}
+_np_kind_of_refusal() { if _np_kind_named_elsewhere; then printf 'named-elsewhere'; else _np_kind_of; fi; }
+case "$(_np_kind_of_refusal)" in
+    named-elsewhere)
+        _np_parse_refspec "$_np_cur"
+        _np_kind="the command pushes the branch $_np_rs_branch, but the checked-out branch is $_np_cur, and the closed-loop allowance judges the checked-out branch: switch to the branch you push"
+        _np_fix="check out $_np_rs_branch (git switch $_np_rs_branch) and push it from there, by name or as HEAD, without force; only a feature/* or hotfix/* branch can be pushed this way." ;;
     force)
         _np_kind="it is a force push, which rewrites the history of the branch it updates"
         _np_fix="No setting lets a project session force-push. The push-authorised session (KYKLOS_ALLOW_PUSH=1) may force-push only a feature/* or hotfix/* branch, never a trunk, a release/* or support/* branch or a tag. Push a new commit instead." ;;
@@ -319,5 +348,5 @@ case "$(_np_kind_of)" in
 esac
 reason="Push refused: $_np_kind. Read for this push: topology $_np_topo, KYKLOS_CI_MONITOR=${KYKLOS_CI_MONITOR:-not set}, KYKLOS_ALLOW_PUSH=${KYKLOS_ALLOW_PUSH:-not set}. What would allow it: $_np_fix The rules: the PUSH POLICY section of the managed policy. For a single authorized exception: bash $OVERRIDE_MARKER_CLI set $OK_NAME $OK_SCOPE_HINT"
 reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
-printf '{"decision":"block","reason":"%s"}' "$reason"
+printf '{"decision":"block","reason":"%s%s"}' "$reason" "$(kyklos_help_json_suffix push-refused)"
 exit 0

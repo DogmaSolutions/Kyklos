@@ -321,7 +321,7 @@ worktree without settings, write them on the command: `STORY_BACKEND=gitlab STOR
 When a story event cannot advance its phase (no backend resolves, the story tool is missing or fails), the hook
 answers `decision: block` with the reason and the fix: stop and advance the phase before continuing. The one event with no clean client-side trigger — **CI-green→Deployment** ('CI
 green' is async and the merge is server-side auto-merge) — is an EXPLICIT step: right after you confirm the pipeline
-is GREEN (before merge/close), run **`story phase <id> Deployment --advance`**. `story close` then advances→Review.
+is GREEN (before merge/close), run **`story phase <id> Deployment --advance`**. `story close` then advances→Review (with the bridge story stack, the close itself sets Review in the same save once every gate passes, from any earlier phase; a refused close changes no label).
 Mutually exclusive (other phase labels removed). Migration/track-finding do NOT auto-phase. Gitlab-only; no-op on FS.
 
 **Status, phase and branch stay in step.** A story nobody has started (`todo`, `parked`, or no status) may be
@@ -506,12 +506,17 @@ From here, execution is regulated by the **stories** (the one ACTIVE In-progress
    reads only the recorded bullet (a Blocked story without one is open work), and `story set <id> status=Blocked` is
    refused. Opt-out: `KYKLOS_BLOCKER_CHECK=off`.
    **The block rule in full.** Use `story block <id> --kind <issue|user|external> --on <target> --reason "<why>"`
-   (the bridge's `story_block` verb); the status label names the kind and a block without a kind is refused:
+   (the bridge's `story_block` verb; a user block's reason also holds a line `searched: <what you looked at first>`,
+   for example `--reason $'<why>\nsearched: <what you looked at first>'`); the status label names the kind and a block
+   without a kind is refused:
    - `status::blocked-on-issue`: the target is an issue, story or merge request in any project (`#<n>`, `!<n>`,
      `group/project#<n>`, `group/project!<n>` or its web link); the bridge refuses a target it cannot read or that is
      already closed or merged. An issue also gets GitLab's "blocked by" link; a merge request only the bullet.
    - `status::blocked-on-user`: the target is the web link to the note that asks the user (ending in `#note_<n>`), on
-     an issue or merge request that is still open; the note must exist.
+     an issue or merge request that is still open; the note must exist. The reason must hold a line starting with
+     `searched:` that names what you looked at before asking (the project's tests and scripts that sign in, seed data
+     or start the application), for example `--reason $'which pilot project\nsearched: the sign-in fixture of the tests'`;
+     without it the bridge refuses the block (opt-out: bridge setting `Agile:Proof:AskSearchedRequired=false`).
    - `status::blocked-on-external`: the target is the https link of what is awaited, because a wait the agent only
      describes is a stop it grants itself.
 

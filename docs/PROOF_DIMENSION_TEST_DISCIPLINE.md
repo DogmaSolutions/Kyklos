@@ -50,7 +50,7 @@ passing coverage runs, one fact per source file the run's coverage report names.
   and a signature.
 - **Keyed by content only.** No branch, commit, path or project is part of the key. A branch switch, a merge of the trunk, a
   rename or a documentation change never loses a fact: the same content keeps its facts.
-- **Which runs record facts:** a passing `get_coverage` run (with any test filter) and a [`run_tests`](#how-tests-run-on-the-host) run given a `story`,
+- **Which runs record facts:** a passing `get_coverage` run (with any test filter, or with `projects`, which measures only the named test projects and is the cheap route: a filter alone still builds and starts every test project; for a large suite it is the default route, and a whole-suite run with the `story` is for small suites or declared test shards, which the Bridge refuses before it starts when the recorded durations of the test projects put it above the run's time limit) and a [`run_tests`](#how-tests-run-on-the-host) run given a `story`,
   which collects coverage in the same pass. A run that is not green records nothing, and so does a run that leaves one of
   the processes it started alive after a short grace (a leftover process could still write into the report).
 - **Where it is:** `content-ledger/facts.jsonl` in the Bridge's state folder (setting `KYKLOS_BRIDGE_STATE_DIR`; on
@@ -146,6 +146,16 @@ The same token and receipt path exists for C# as an opt-out: with the Bridge set
 ledger facts. The default is `ledger`. The setting `Agile:Proof:CoverageReceiptRequired=false` switches the receipt
 requirement off (default on).
 
+On that token path a story is also compared with the trunk commit it started from (its **base**), which has one of three
+states. A **known green** base is judged by the no-drop rule: no changed line may lose coverage it had there. A **known
+red** base (tests fail there) and an **unknown** base (it could not be measured: no report, no base commit found, a run
+cut at a limit) give a **branch-only** token, recorded as such on the receipt and in the token's answer (`base red: ...`
+or `base unknown: ...; the token is branch-only`), as long as the story's own run is green and runs every changed line
+and the story changes no test (a deleted test can lose coverage of lines the story never touched, which only the
+comparison with the base shows).
+When the story's run leaves a changed line unrun, an unknown base is refused (`BASE-UNMEASURABLE`, naming the lines) and a
+red base is judged by the no-drop rule on the tests that pass there.
+
 ### What the close applies to this row
 
 ```mermaid
@@ -175,6 +185,9 @@ judgement; a close of a story in a project the Bridge does not serve is refused 
 - **Each run has its own temporary folder** under the [Bridge](COMPONENTS.md#kyklos-bridge)'s state folder (`run-temp/<run id>`). The build, the test
   hosts and the coverage collector see it as their `TEMP`/`TMP` (Windows) or `TMPDIR`, so no other run and no cleaner of the
   user's temp folder can delete a file a run is using. It is removed when the run ends.
+- **A run ends at its time limit.** The limit a run asks for (`timeoutMinutes`, else the Bridge's default) bounds the whole
+  run: the build, the tests, and the steps after them (recording the facts, the token step, the receipt). A run that
+  reaches it is stopped wherever it is, and the answer names the limit and the step; nothing it measured earns a token.
 - **Host-only values are removed** from the environment of everything the run starts: the signing key, the Bridge's own
   token and settings. A project can name the secrets its own tests need (`KYKLOS_BRIDGE_ENV_SECRETS`); the signing key
   is never among them.
@@ -264,7 +277,7 @@ needs the same team key.
 | Test Discipline | ❌ UNPROVEN | OPEN (proof_draft): the Test Discipline check does not hold (the host answered: `gaps: Parser.cs:41-44`). | – |
 
 The fix: run [`test_facts`](#the-answer-for-a-story-test_facts) to see the gap lines and the tests that cover the rest, add or run the test that reaches lines
-41 to 44 ([`run_tests`](#how-tests-run-on-the-host) with the `story`, or `get_coverage` with a filter), then draft the proof again. If those lines
+41 to 44 ([`run_tests`](#how-tests-run-on-the-host) with the `story`, or `get_coverage` with `projects`, the test projects `test_facts` names under "test projects to measure next", or with a filter), then draft the proof again. If those lines
 genuinely cannot run in a test (for example code for another operating system), the owner may accept the gap; the agent
 cannot.
 

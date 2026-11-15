@@ -1,9 +1,21 @@
 {
   "name": "kyklos",
-  "description": "Engineering discipline for AI coding agents: enforcement hooks and skills that check tests, reviews, branching and proof before work counts as done. Per-project values live in .claude/standards.env.",
-  "version": "0.2.23709",
+  "description": "Kyklos makes an AI coding agent follow a secure software development workflow: every change is a story with a specification, a branch, tests, a review and a written proof that each quality check passed, before it counts as done. Guards stop unsafe pushes, merges and closes; skills guide the agent; the Kyklos Bridge runs builds, tests and coverage on the host. Start with the guide inside the plugin (skill: Kyklos reference and troubleshooting).",
+  "version": "0.3.23987",
   "author": {
     "name": "Dogma Solutions",
     "email": "info@dogmasolutions.com"
-  }
+  },
+  "homepage": "https://github.com/DogmaSolutions/Kyklos",
+  "repository": "https://github.com/DogmaSolutions/Kyklos",
+  "license": "MIT",
+  "keywords": [
+    "ssdlc",
+    "workflow",
+    "guardrails",
+    "stories",
+    "proof",
+    "testing",
+    "gitlab"
+  ]
 }

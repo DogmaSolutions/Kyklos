@@ -27,9 +27,10 @@
 # and fall into a fail-open path, so the hook refuses by name instead (a broken install). [CySec] CWE-636
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
-    printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin."}\n' "$(basename "$0")"
+    printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
     exit 0
 fi
+. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null   # kyklos_help_*: the help line naming the troubleshooting guide's section
 set +e -uo pipefail
 
 # Make the gate mechanically AWARE of the pipeline's ai-review job (surface its verdict + route to the fix loop
@@ -141,14 +142,14 @@ _mr_row="$(mr_row_for_branch "$_src" "$_repo_addr")"
 if [ -n "$_mr_row" ]; then
     IFS=$'\t' read -r _mst _marm _mn _mtgt <<< "$_mr_row"
     if _why="$(mr_hand_merge_explain "$_mst" "$_marm" "$_mn" "$_mtgt")"; then
-        jq -nc --arg r "$_why Merging '$_src' into '$_dest' locally would also leave the local trunk diverged from GitLab." '{decision:"block",reason:$r}'
+        jq -nc --arg r "$_why Merging '$_src' into '$_dest' locally would also leave the local trunk diverged from GitLab." --arg h "$(kyklos_help_line local-merge-blocked-pipeline-not-green)" '{decision:"block",reason:($r + "\n" + $h)}'
         exit 0
     fi
     case "$_src" in hotfix/*) _cmode="${HOTFIX_BRANCH_CLOSE_MODE:-}" ;; *) _cmode="${FEATURE_BRANCH_CLOSE_MODE:-}" ;; esac
     if [ "$_mst" = opened ]; then
         case "$_cmode" in
             mr|mr-automerge)
-                jq -nc --arg r "Local merge REFUSED: branch '$_src' closes through merge request !$_mn (close mode $_cmode), which is open but NOT armed. Arm it instead of merging into '$_dest' by hand: push the branch again with -o merge_request.merge_when_pipeline_succeeds (with a new commit), or arm it with the bridge tool mr_auto_merge (action arm) on merge request $_mn. GitLab then merges it once its pipeline succeeds; then delete the local branch, pull the trunk and close the story." '{decision:"block",reason:$r}'
+                jq -nc --arg r "Local merge REFUSED: branch '$_src' closes through merge request !$_mn (close mode $_cmode), which is open but NOT armed. Arm it instead of merging into '$_dest' by hand: push the branch again with -o merge_request.merge_when_pipeline_succeeds (with a new commit), or arm it with the bridge tool mr_auto_merge (action arm) on merge request $_mn. GitLab then merges it once its pipeline succeeds; then delete the local branch, pull the trunk and close the story." --arg h "$(kyklos_help_line local-merge-blocked-pipeline-not-green)" '{decision:"block",reason:($r + "\n" + $h)}'
                 exit 0 ;;
         esac
     fi
@@ -224,5 +225,5 @@ else
     reason="Merge BLOCKED. Branch '$_src' is being merged into trunk '$_dest' but its latest pipeline is '$_disp', not success.${_air_note} A merge into the trunk needs a green pipeline first; merging first would make the irreversible act (merge + branch delete) beat the CI gate. How to close the branch in this project's close mode: the PUSH POLICY section of the managed policy. ${_override_hint}."
 fi
 reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
-printf '{"decision":"block","reason":"%s"}' "$reason"
+printf '{"decision":"block","reason":"%s%s"}' "$reason" "$(kyklos_help_json_suffix local-merge-blocked-pipeline-not-green)"
 exit 0

@@ -92,6 +92,10 @@ AL_CASE=(-i)
 # The version values are masked before matching (one mask for the engine and the write guard).
 # shellcheck source=SCRIPTDIR/audience-lint-version-mask.sh
 . "$AL_DIR/audience-lint-version-mask.sh" || { echo "audience-lint: the version mask did not load" >&2; exit 2; }
+# A date a public document publishes on purpose (a changelog's release heading, a published-date field) is masked too;
+# a date in prose stays judged.
+# shellcheck source=SCRIPTDIR/audience-lint-date-mask.sh
+. "$AL_DIR/audience-lint-date-mask.sh" || { echo "audience-lint: the date mask did not load" >&2; exit 2; }
 
 # al_allowed FILE HITLINE -> 0 when an allow-list entry covers this hit.
 al_allowed() {
@@ -146,7 +150,7 @@ for f in "$@"; do
     done < <(al_org_scan "$f" "$AL_ORG_ENTRIES" | sort -t$'\t' -k1,1n -u)
   fi
   for i in "${!PATTERNS[@]}"; do
-    if al_mask_versions "$f" | grep -nE ${AL_CASE[@]+"${AL_CASE[@]}"} -- "${PATTERNS[$i]}" >"$HIT" 2>/dev/null; then
+    if al_mask_versions "$f" | al_mask_published_dates "$f" | grep -nE ${AL_CASE[@]+"${AL_CASE[@]}"} -- "${PATTERNS[$i]}" >"$HIT" 2>/dev/null; then
       while IFS= read -r hit; do
         al_allowed "$f" "$hit" && continue
         echo "LEAK  $f: internal marker [${LABELS[$i]}] -> $hit"

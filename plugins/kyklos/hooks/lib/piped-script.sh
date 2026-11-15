@@ -38,9 +38,10 @@
 # _ps_words <segment> -> sets the array PS_WORDS to the segment's words, quotes removed and redirections dropped (a
 # redirection operator with its target, attached or the next word); $IFS and ${IFS} split words like a blank.
 _ps_words() {
-    local s="${1//\"/ }" w drop=0
+    # A quote is removed, never turned into a blank: X="$P" bash f is the word X=$P, not the word X= and a command $P.
+    local s="${1//\"/}" w drop=0
     local -a raw=()
-    s="${s//\'/ }"
+    s="${s//\'/}"
     s="${s//\$\{IFS\}/ }"
     while [[ "$s" =~ ^(.*)\$IFS([^A-Za-z0-9_].*)?$ ]]; do s="${BASH_REMATCH[1]} ${BASH_REMATCH[2]}"; done
     read -r -a raw <<< "$s"
@@ -734,6 +735,25 @@ _ps_prepare() {
         if (ch == "`") return "\006"
         return ch
     }
+    # reparses(out) -> 1 when the simple command being read (the text after the last real separator) is a command that
+    # reads its arguments as shell text again (eval, watch, ssh, su, xargs, a shell): there a backslash-escaped pipe or
+    # semicolon becomes a real one, so it is NOT masked as plain text; in any other command it stays a literal argument.
+    # The program is the command word (after VAR=value assignments), or any word after a wrapper that runs the rest of
+    # its line as a command (sudo, env, timeout, nice, flock, find -exec, parallel, nsenter, ...). A re-parsing name that is only an argument of another
+    # command (`grep -E sh\|bash`) is a pattern, not a program.
+    function reparser(w) { sub(/^.*\//, "", w); return (w ~ /^(eval|watch|ssh|su|xargs|sh|bash|dash|zsh|ksh)$/) }
+    function reparses(out,    t, w, n, i, j, nm) {
+        t = out
+        sub(/^.*[;|&(\n]/, "", t)
+        n = split(t, w, /[ \t]+/)
+        for (i = 1; i <= n && (w[i] == "" || w[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/); i++) ;
+        if (i > n) return 0
+        if (reparser(w[i])) return 1
+        nm = w[i]; sub(/^.*\//, "", nm)
+        if (nm ~ /^(sudo|doas|env|nohup|timeout|nice|ionice|exec|command|builtin|time|stdbuf|setsid|chroot|busybox|unbuffer|flock|find|parallel|nsenter)$/)
+            for (j = i + 1; j <= n; j++) if (reparser(w[j])) return 1
+        return 0
+    }
     # proc(s, qin, sdin, btin) -> s prepared, starting inside the quote qin ("" outside, "\047", "\"" or "$\047");
     # QOUT, SDOUT and BTOUT hold the state at its end.
     function proc(s, qin, sdin, btin,    out, q, sub_depth, bt, n, k, ch, p, nx) {
@@ -746,14 +766,14 @@ _ps_prepare() {
                 if (ch == "\\") { out = out ch lit(substr(s, k + 1, 1)); k++; continue }
                 if (ch == "\047") q = ""; else ch = lit(ch)
             } else if (q == "\"") {
-                if (ch == "\\") { out = out ch substr(s, k + 1, 1); k++; continue }
+                if (ch == "\\") { out = out ch lit(substr(s, k + 1, 1)); k++; continue }
                 if (ch == "$" && substr(s, k + 1, 1) == "(") sub_depth++
                 else if (ch == "`") bt = !bt
                 else if (ch == ")" && sub_depth > 0) sub_depth--
                 else if (ch == "\"" && sub_depth == 0 && !bt) q = ""
                 else if (sub_depth == 0 && !bt && ch != "`") ch = lit(ch)
             } else {
-                if (ch == "\\") { out = out ch substr(s, k + 1, 1); k++; continue }
+                if (ch == "\\") { out = out ch (reparses(out) ? substr(s, k + 1, 1) : lit(substr(s, k + 1, 1))); k++; continue }
                 p = substr(out, length(out), 1)
                 if (ch == "$" && substr(s, k + 1, 1) == "\047") { q = "$\047"; out = out "$\047"; k++; continue }
                 if (ch == "\047" || ch == "\"") { q = ch; sub_depth = 0; bt = 0 }

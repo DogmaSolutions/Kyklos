@@ -14,7 +14,7 @@
 # and fall into a fail-open path, so the hook refuses by name instead (a broken install). [CySec] CWE-636
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
-    printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin."}\n' "$(basename "$0")"
+    printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
     exit 0
 fi
 set +e -uo pipefail
@@ -60,12 +60,20 @@ if [ "$_ask_hit" = 0 ]; then
   ask_block "$reason"
 fi
 
+# The OWNER-BLOCKER question (lib/ask-detect.sh: a line "Blocked on you: <what only the person can do, and why> ...?")
+# -> ALLOW with no override. It is the one form an agent blocked on something only the person can do uses to ask; the
+# continue-guard accepts a stop carrying the same form, so the two enforcement points agree and the agent always has an
+# allowed way to end its turn (an override marker command may itself be refused, for example in auto mode).
+if command -v ask_names_owner_blocker >/dev/null 2>&1 && ask_names_owner_blocker "$Q"; then
+  exit 0
+fi
+
 # Genuine ALWAYS-STOP / hard-blocker signals -> ALLOW the question.
 if printf '%s' "$Q" | grep -cE 'publish|nuget\.org|make .*(public|private)|public (mirror|github)|revoke|destroy|delete .*(project|token|branch|tag|subgroup|repo)|drop .*(project|token|branch|tag)|rename .*(project|subgroup)|move .*(project|subgroup)|fleet-wide (block|gate|hard)|new .*blocking gate|irreversib|break-glass|production (deploy|secret)|force[- ]?push' >/dev/null; then
   exit 0
 fi
 
-reason="you are asking the user, but nothing here reads as a genuine ALWAYS-STOP decision (external/public publish, destructive GitLab admin, a public-bound push, or a NEW blocking gate that applies to every project) or an unresolvable hard blocker. The standing directive is PRIORITIZE AUTONOMOUSLY and KEEP ROLLING: decide it yourself and act — the user intervenes proactively, you do NOT defer via questions. If it TRULY is an always-stop decision or a blocker you cannot self-resolve, run: bash ${OVERRIDE_MARKER_CLI} set ask-user-ok <your-working-folder> in a SEPARATE prior step, then re-ask."
+reason="you are asking the user, but nothing here reads as a genuine ALWAYS-STOP decision (external/public publish, destructive GitLab admin, a public-bound push, or a NEW blocking gate that applies to every project) or an unresolvable hard blocker. The standing directive is PRIORITIZE AUTONOMOUSLY and KEEP ROLLING: decide it yourself and act — the user intervenes proactively, you do NOT defer via questions. If it TRULY is a blocker only the person can resolve, ask it in the owner-blocker form, which passes with no override: start the question with '${ASK_OWNER_BLOCKER_MARKER:-Blocked on you:} <what only the person can do, and why>' and end it with the question mark. For an always-stop decision you can also run: bash ${OVERRIDE_MARKER_CLI} set ask-user-ok <your-working-folder> in a SEPARATE prior step, then re-ask."
 # 3-step JSON escape (backslash, quote, flatten newlines) — same as the sibling guards.
 reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
 ask_block "$reason"

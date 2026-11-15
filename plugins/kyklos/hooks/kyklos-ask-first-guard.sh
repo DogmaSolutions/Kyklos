@@ -90,7 +90,7 @@ trap _af_on_exit EXIT
 . "$HERE/lib/json-answer.sh" 2>/dev/null
 if ! declare -F json_test >/dev/null 2>&1; then
     _AF_DECIDED=1
-    _af_broken="the JSON reader hooks/lib/json-answer.sh did not load (broken install), so Ask First cannot run its check. Reinstall or repin the kyklos plugin."
+    _af_broken="the JSON reader hooks/lib/json-answer.sh did not load (broken install), so Ask First cannot run its check. Reinstall or repin the kyklos plugin.$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
     if [ "$MODE" = pre ] && printf '%s' "$PAYLOAD" | grep -cE '"tool_name"[[:space:]]*:[[:space:]]*"(Edit|Write|MultiEdit)"' >/dev/null; then
         printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Ask First (kyklos): %s REFUSED without asking the user, nothing ran: rewrite the call so it does not name a workflow switch or a settings file (search with grep or jq, read with the Read tool), or reinstall the plugin if it is broken."}}\n' "$_af_broken"
     else

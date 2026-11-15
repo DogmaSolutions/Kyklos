@@ -35,7 +35,7 @@ PROJECT_DIR="${CLAUDE_PROJECT_DIR:-${HOOK_CWD:-$PWD}}"
 # test runner is refused, naming the broken install.
 if ! declare -F test_run_bound_find >/dev/null || ! declare -F shell_scan >/dev/null; then
     if [[ "$CMD" =~ (dotnet|vstest|testhost|npm|vitest|pytest|py\.test|[Pp]ester|run-all\.sh|ci/tests/) ]]; then
-        printf '[kyklos] bounded test-run guard: REFUSED - its library hooks/lib/run-bound.sh did not load (broken install), so this command, which names a test runner, cannot be checked. Reinstall or repin the kyklos plugin.\n' >&2
+        printf '[kyklos] bounded test-run guard: REFUSED - its library hooks/lib/run-bound.sh did not load (broken install), so this command, which names a test runner, cannot be checked. Reinstall or repin the kyklos plugin.\n%s\n' "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_line broken-install)" >&2
         exit 2
     fi
     exit 0

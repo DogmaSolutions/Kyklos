@@ -54,7 +54,7 @@
 # and fall into a fail-open path, so the hook refuses by name instead (a broken install). [CySec] CWE-636
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
-    printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin."}\n' "$(basename "$0")"
+    printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
     exit 0
 fi
 set +e -uo pipefail
@@ -66,6 +66,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/lib/standards-env.sh"; load_standards_env "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude/standards.env"   # PARSE, never source (CWE-829)
 # shellcheck source=lib/user-applied-label.sh
 . "$HERE/lib/user-applied-label.sh"   # label_user_applied / label_present — shared label checks (also used by the proof guard)
+. "$HERE/lib/session-health.sh"   # kyklos_doctor_record_path: this session's red doctor record (the doctor hook writes it)
 . "$HERE/lib/coordination-read.sh"   # coordination_read: the bridge reads the issue lists (no container token)
 . "$HERE/lib/gitlab-curl.sh"   # gitlab_curl / gitlab_token_present: the token never leaves the helper
 . "$HERE/lib/json-answer.sh"   # json_read: an empty or cut answer is never a readable one
@@ -73,6 +74,21 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/lib/gitlab-paged.sh"   # gitlab_paged_walk: the one rule for reading a whole list
 
 STATE_DIR="${KYKLOS_STATE_DIR:-/tmp/kyklos-state}"; mkdir -p "$STATE_DIR" 2>/dev/null || true
+# Why a bridge read failed, kept across the subshells the reads run in (one line per failure), so a "could not verify"
+# note names what the bridge said instead of a generic outage. _cg_why_keep records the last read's reason
+# (coordination_read_reason); _cg_why prints " The bridge said: <first reason>." or nothing.
+_CG_WHY_FILE="$(mktemp 2>/dev/null || true)"
+trap '[ -n "${_CG_WHY_FILE:-}" ] && rm -f -- "${_CG_WHY_FILE:?}"' EXIT   # widened below once the other temp files exist
+_cg_why_keep() {
+    local r; r="$(command -v coordination_read_reason >/dev/null 2>&1 && coordination_read_reason)"
+    [ -n "$r" ] && [ -n "${_CG_WHY_FILE:-}" ] && printf '%s\n' "$r" >> "$_CG_WHY_FILE" 2>/dev/null
+    return 0
+}
+_cg_why() {
+    local r; [ -n "${_CG_WHY_FILE:-}" ] && r="$(head -n1 -- "$_CG_WHY_FILE" 2>/dev/null | tr -d '"\\' | cut -c1-300)"
+    [ -n "${r:-}" ] && printf ' The bridge said: %s.' "$r"
+    return 0
+}
 # First-class "parked / awaiting-user" story state. An issue carrying the canonical scoped `status::parked`
 # (whose definition is "not forced by the continue-guard") or the legacy bare `parked` is subtracted from the
 # open-scope set, so the user can defer a story WITHOUT the agent being forced to pick it up. The park is honored
@@ -208,7 +224,8 @@ _cg_awaiting_user() {   # $1 = transcript path; return 0 iff the last assistant 
     local last
     last="$(tail -n 800 "$t" 2>/dev/null | jq -rc 'select((.type=="assistant") or (.message.role=="assistant") or (.role=="assistant"))' 2>/dev/null | tail -1)"
     [ -n "$last" ] || return 1
-    local text; text="$(printf '%s' "$last" | jq -r '[.. | objects | .text? // empty] | join(" ")' 2>/dev/null || true)"
+    # Only the assistant's own text blocks, line breaks kept: a tool input or result is never read as the closing message.
+    local text; text="$(printf '%s' "$last" | jq -r '[(.message.content // .content) | if type == "string" then . else (.[]? | select(type == "object" and .type == "text") | .text // empty) end] | join("\n")' 2>/dev/null || true)"
     # A question is a VALID (awaiting-user) stop ONLY if it is a genuine blocker/decision the user MUST
     # answer — NOT a prohibited prioritization/permission-to-CONTINUE question ("keep rolling?", "which next?",
     # "should I continue/proceed?", "or review first?", "want me to keep going?"). Those violate the
@@ -223,12 +240,75 @@ _cg_awaiting_user() {   # $1 = transcript path; return 0 iff the last assistant 
     elif printf '%s' "$_tail" | tr 'A-Z' 'a-z' | grep -cE 'keep (on )?rolling|keep going|which (one|story|task|issue|enabler)?.{0,12}(next|first|should i)|should i (continue|proceed|keep|go|start|move on)|shall i (continue|proceed|keep|start|go)|want me to (keep|continue|proceed|start|go)|(continue|proceed|build|work) or (review|wait|hold|pause|stop)|(where|what|how) (do|should|would) you want|\bor (step back|stand by|hold off|wait|pause)|review .{0,20}(first|specs)|ready to (proceed|continue|move|build)' >/dev/null; then
         return 1
     fi
+    # The OWNER-BLOCKER question (lib/ask-detect.sh, the same form the ask-user guard accepts with no override): a line
+    # starting "Blocked on you: <what only the person can do, and why> ... ?" in the final message (never a mention inside
+    # a sentence, a quote or code). It need not be the last sentence (a short note may follow it). The whole message is
+    # checked again for a prioritization question, so the marker never turns "which next?" into a blocker. This is the allowed way to end a turn on a
+    # blocker only the person can resolve, when the AskUserQuestion path would need an override marker.
+    if command -v ask_names_owner_blocker >/dev/null 2>&1 && ask_names_owner_blocker "$text"; then
+        # The whole closing message is checked for a prioritization question, so none can sit before or after the marker.
+        ask_prohibited_prioritization "$(printf '%s' "$text" | tr '\r\n' '  ' | tr 'A-Z' 'a-z')" || return 0
+    fi
     printf '%s' "$last" | grep -c 'AskUserQuestion' >/dev/null && return 0                                  # asked via the tool
     printf '%s' "$text" | grep -cE '\?[[:space:]"'"'"'`*)]*$' >/dev/null && return 0                          # trailing question mark
     return 1
 }
 _trans="$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || true)"
 if _cg_awaiting_user "$_trans"; then allow "awaiting-user (a question was posed this turn)  -  allowing this stop."; fi
+
+# (3b) a red doctor result THIS session, reported to the person -> allow. The doctor hook (SessionStart) writes, per session, the
+# checks that answered "no" (lib/session-health.sh); the record is the one this session's id names, never another session's, and
+# only a real "no" answer writes it (a doctor that could not run leaves none, so it never allows a stop). The agent cannot
+# author it: the hook writes it. Two more conditions: the live doctor still says "no" for at least one of those checks (a green
+# re-run clears the record; a bridge that cannot answer leaves the record as the session started with it), and the agent's
+# closing message names at least one of them, so the person was told.
+_cg_last_assistant_text() {   # $1 = transcript path -> the text blocks of the last assistant turn
+    local t="${1:-}"; [ -n "$t" ] && [ -f "$t" ] || return 1
+    tail -n 800 "$t" 2>/dev/null | jq -rc 'select((.type=="assistant") or (.message.role=="assistant") or (.role=="assistant"))' 2>/dev/null | tail -1 \
+        | jq -r '[(.message.content // .content) | if type == "string" then . else (.[]? | select(type == "object" and .type == "text") | .text // empty) end] | join("\n")' 2>/dev/null
+}
+_cg_doctor_red_reds=""
+# _cg_names_red <closing message> <check ids> -> rc 0 and sets _cg_doctor_red_reds when a sentence of the message that is not a
+# prioritization question names one of the checks, and the message as a whole poses no prioritization question (the same
+# detector the awaiting-user stop applies), so "<check> is red. Keep rolling?" ends nothing.
+_cg_names_red() {
+    local text="$1" checks="$2" flat sentence check low
+    flat="$(printf '%s' "$text" | tr '\r\n' '  ' | tr 'A-Z' 'a-z')"
+    if command -v ask_prohibited_prioritization >/dev/null 2>&1; then
+        ask_prohibited_prioritization "$flat" && return 1
+    fi
+    while IFS= read -r sentence; do
+        low="$(printf '%s' "$sentence" | tr 'A-Z' 'a-z')"
+        command -v ask_prohibited_prioritization >/dev/null 2>&1 && ask_prohibited_prioritization "$low" && continue
+        while IFS= read -r check; do
+            [ -n "$check" ] || continue
+            case "$low" in *"$(printf '%s' "$check" | tr 'A-Z' 'a-z')"*) _cg_doctor_red_reds="$(printf '%s' "$checks" | tr '\n' ' ')"; return 0 ;; esac
+        done <<< "$checks"
+    done < <(printf '%s' "$text" | sed -E 's/([.!?])([[:space:]]|$)/\1\n/g')
+    return 1
+}
+_cg_doctor_red_allows() {   # $1 = transcript path; return 0 iff a red doctor result of this session stands and was reported
+    command -v jq >/dev/null 2>&1 || return 1
+    local sid rec checks live reply rc text
+    sid="$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)"; [ -n "$sid" ] || return 1
+    rec="$(kyklos_doctor_record_path "$sid")"; [ -n "$rec" ] && [ -s "$rec" ] || return 1
+    checks="$(cat "$rec" 2>/dev/null)"
+    # The closing message must name a red check BEFORE the bridge is asked: a stop that names none is blocked without the wait.
+    text="$(_cg_last_assistant_text "$1")"; [ -n "$text" ] || return 1
+    _cg_names_red "$text" "$checks" || return 1
+    command -v bridge_mcp_call >/dev/null 2>&1 || . "$HERE/lib/bridge-mcp.sh" 2>/dev/null
+    if command -v bridge_mcp_call >/dev/null 2>&1; then
+        reply="$(bridge_mcp_call doctor '{}' 10 2>/dev/null)"; rc=$?
+        if [ "$rc" -eq 0 ] && ! bridge_mcp_is_error "$reply" && printf '%s' "$reply" | json_test '.result.findings | type == "array"'; then
+            live="$(printf '%s' "$reply" | json_read '[.result.findings[] | select(.verdict == "No") | .check] | join("\n")')"
+            if [ -z "$live" ]; then kyklos_doctor_record_clear "$sid"; return 1; fi   # a green re-run clears it
+            checks="$live"; kyklos_doctor_record_write "$sid" "$checks"
+            _cg_names_red "$text" "$checks" || return 1   # the message must name one that is still red
+        fi
+    fi
+    return 0
+}
+if _cg_doctor_red_allows "$_trans"; then allow "doctor-red (the session's doctor result has a no: ${_cg_doctor_red_reds}, reported to the person)  -  allowing this stop."; fi
 
 # (4) mode + open in-scope work. Echo a space-separated list of open story iids, or the literal ERR (fail-open).
 # directive mode = block on ANY open scope story ("keep rolling"). This is the DEFAULT: on by default for
@@ -330,7 +410,7 @@ _cg_open_stories() {   # $1 = mode
     # token, announced on the fallback ledger. A bridge that cannot answer is "cannot check" (any_err), never "none".
     # _cg_query runs inside $( ), so a variable it sets is lost: a failure is reported as a marker LINE instead and
     # counted after the loop (a variable set here once made every failed query read as "no work").
-    _cg_err() { printf '%s\n' '__CG_QUERY_FAILED__'; }
+    _cg_err() { _cg_why_keep; printf '%s\n' '__CG_QUERY_FAILED__'; }
     # _cg_page_get <path> -> one page through the direct token; rc 1 unless GitLab answered 200.
     _cg_page_get() {
         local r; r="$(gitlab_curl "$_CG_TENV" -s --max-time 12 -w $'\n%{http_code}' "$_CG_API/$1" 2>/dev/null || true)"
@@ -565,7 +645,7 @@ _cg_issue_description() {
         coordination_read_fallback continue-guard "the bridge has no coordination_show verb"
         out="$(gitlab_curl "$tenv" -sf --max-time 12 "$api/projects/$proj/issues/$iid" 2>/dev/null)"; rc=$?
     fi
-    [ "$rc" = 0 ] || return 1
+    [ "$rc" = 0 ] || { _cg_why_keep; return 1; }
     printf '%s' "$out" | json_read '.description // ""'
 }
 
@@ -625,7 +705,7 @@ _cg_live_watch() {
 # Each listed issue's updated_at, written by the list query (one "<project>#<iid><TAB><updated_at>" line per issue):
 # the Blocked-task check caches its verdicts by it. Seam: CONTINUE_GUARD_TEST_UPDATED_AT="<p>#<i>=<stamp> ...".
 _CG_UPD_FILE="$(mktemp "${TMPDIR:-/tmp}/cg-updated.XXXXXX" 2>/dev/null || true)"
-trap '[ -n "${_CG_UPD_FILE:-}" ] && rm -f -- "${_CG_UPD_FILE:?}"; [ -n "${_CG_OWN_FILE:-}" ] && rm -f -- "${_CG_OWN_FILE:?}"' EXIT
+trap '[ -n "${_CG_UPD_FILE:-}" ] && rm -f -- "${_CG_UPD_FILE:?}"; [ -n "${_CG_OWN_FILE:-}" ] && rm -f -- "${_CG_OWN_FILE:?}"; [ -n "${_CG_WHY_FILE:-}" ] && rm -f -- "${_CG_WHY_FILE:?}"' EXIT
 if [ -n "${CONTINUE_GUARD_TEST_ASSIGNEES:-}" ] && [ -n "${_CG_OWN_FILE:-}" ]; then
     for _u in $CONTINUE_GUARD_TEST_ASSIGNEES; do
         printf '%s\t%s\n' "${_u%%=*}" "$(printf '%s' "${_u#*=}" | jq -Rc 'split(",") | map(select(length > 0))')" >> "$_CG_OWN_FILE"
@@ -640,7 +720,7 @@ _CG_CLASSIFY=0
 _CG_BLOCKED_SPLIT=0
 { [ "$_mode" = default ] && [ -z "${CONTINUE_GUARD_LABEL+x}" ]; } && _CG_BLOCKED_SPLIT=1
 _open="$(_cg_open_stories "$_mode")"
-[ "$_open" = ERR ] && allow "could not verify open work (GitLab unreachable / not configured)  -  allowing stop (fail-open); re-check when reachable."
+[ "$_open" = ERR ] && allow "could not verify open work (GitLab unreachable / not configured)$(_cg_why)  -  allowing stop (fail-open); re-check when reachable."
 # partition the (label-enriched) set: stories + NON-STORY issues force work; routed/parked/blocked/
 # disposition classes are excluded with an audit each (labels come from the list response — zero extra calls).
 # The own identity is read once here, in this shell, so the per-issue Own Lane checks below reuse it.
@@ -749,8 +829,8 @@ if _cg_blocker_check_enabled && [ -n "${_CG_BLOCKED:-}" ]; then
         || rm -f -- "${_bk_cache:?}.$$" 2>/dev/null || true
     [ -n "$_bk_lifted" ] && log "the bridge lifted the block of:$_bk_lifted (what they waited on has closed or merged); they are open work again."
     _bk_norecord="$(for _bk in $_bk_work; do case " $_bk_lifted " in *" $_bk "*) : ;; *) printf ' %s' "$_bk" ;; esac; done)"
-    [ -n "$_bk_norecord" ] && log "Blocked story(ies) with no recorded blocker count as open work:$_bk_norecord (block each with 'story block <id> --kind <issue|user|external> --on <target> --reason \"<why>\"', or work it)."
-    [ -n "$_bk_unreadable" ] && log "WARNING: Blocked story(ies) NOT VERIFIED, their description could not be read (the bridge or GitLab did not answer); they stay excluded as Blocked, unchecked:$_bk_unreadable."
+    [ -n "$_bk_norecord" ] && log "Blocked story(ies) with no recorded blocker count as open work:$_bk_norecord (block each with 'story block <id> --kind <issue|user|external> --on <target> --reason \"<why>\"', where a user block's reason also holds a line 'searched: <what you looked at first>', or work it)."
+    [ -n "$_bk_unreadable" ] && log "WARNING: Blocked story(ies) NOT VERIFIED, their description could not be read (the bridge or GitLab did not answer); they stay excluded as Blocked, unchecked:$_bk_unreadable.$(_cg_why)"
     [ -n "$_bk_unchecked" ] && log "WARNING: Blocked story(ies) NOT CHECKED this Stop, past the read cap of $_bk_max (CONTINUE_GUARD_BLOCKED_READ_MAX) or the time budget of ${_bk_budget}s (CONTINUE_GUARD_BLOCKED_TIME_BUDGET); they stay excluded as Blocked and are read on a later Stop:$_bk_unchecked."
     _open="$_open$_bk_work"
 fi
@@ -878,4 +958,4 @@ _ns_hint=""
 if [ -n "${_CG_NONSTORY:-}" ]; then
     _ns_hint=" NON-STORY issue(s) among them [${_CG_NONSTORY}]: an open issue with no story label is STILL work — TRIAGE each: adopt it into the lifecycle ('story adopt <iid> --type <t> --epic <E0N>', with '--kind analysis|documentation' for a lightweight research/docs item), ROUTE it to its owner ('agent-msg route <iid> --to <agent>'), PARK it (the parked label), or CLOSE it with a disposition label (wontfix/duplicate/invalid). Silence is not an option: an unlabeled issue never goes invisible again."
 fi
-emit_block "BLOCKED (continue-guard): you are trying to STOP with ${_count} open in-scope work item${_plural} [${_sig}] and ${_why}  -  nothing is awaited from the user.${_ns_hint} Do NOT pause: pick up the next scope item and keep working (choose it with the bridge's next_work tool: it orders the open work and names the next item). If you are waiting on CI, that is NOT a stop  -  work another open item. If NOTHING else is open and you truly must wait for that pipeline, ARM A WATCH that will notify you the moment it lands (the Monitor tool, or a backgrounded 'bash' until-loop that exits on the terminal status) and keep the turn alive  -  there is NO external poller that re-invokes you on its own; nothing wakes you unless YOU arm it. The ONLY ways to stop are the two you cannot self-author: finish ALL scope work, or ASK the user a real question (awaiting-user). There is no agent-touchable stop marker  -  no 'stop-ok', no 'continue-blocked'. (stuck-breaker ${_cnt}/${K}: it auto-releases only if the open set is unchanged AND you make NO tool calls for ${K} stops — doing real work resets it, so this is not an escape.)${_cg_slow_note}"
+emit_block "BLOCKED (continue-guard): you are trying to STOP with ${_count} open in-scope work item${_plural} [${_sig}] and ${_why}  -  nothing is awaited from the user.${_ns_hint} Do NOT pause: pick up the next scope item and keep working (choose it with the bridge's next_work tool: it orders the open work and names the next item). If you are waiting on CI, that is NOT a stop  -  work another open item. If NOTHING else is open and you truly must wait for that pipeline, ARM A WATCH that will notify you the moment it lands (the Monitor tool, or a backgrounded 'bash' until-loop that exits on the terminal status) and keep the turn alive  -  there is NO external poller that re-invokes you on its own; nothing wakes you unless YOU arm it. The ONLY ways to stop are the two you cannot self-author: finish ALL scope work, or ASK the user a real question (awaiting-user). When what stops you is something only the person can do, end your final message with the owner-blocker question: a line '${ASK_OWNER_BLOCKER_MARKER:-Blocked on you:} <what only they can do, and why>' followed by the question ending in '?' (the ask-user guard also accepts that form in AskUserQuestion, with no override). There is no agent-touchable stop marker  -  no 'stop-ok', no 'continue-blocked'. (stuck-breaker ${_cnt}/${K}: it auto-releases only if the open set is unchanged AND you make NO tool calls for ${K} stops — doing real work resets it, so this is not an escape.)${_cg_slow_note}"

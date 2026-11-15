@@ -72,14 +72,19 @@ to be kept carries no `Refs:` naming the story, or its branch is deleted after t
    (optional) what was checked and found sound
    Not checked: <ids> — why (optional, one line for what you did not check)
    ```
-   - On a documentation, analysis or ops story, name each spec item you checked (`R1`, `AC1`, `UC1`, `FM1`, `RA-01`,
-     `FAIL-HARD`, ...) in `### Checked, no finding`: there the review is what covers those items.
-   - Anything you did not check goes on a `Not checked: <ids> — why` line in `### Checked, no finding` (an optional
-     `- ` or `* ` before it, the label may be bold); the line runs on until a blank line or a new bullet. Or put
-     `(not checked)` right after an id (`UC1 (not checked)`): one id per `(not checked)`; for a list use the
-     `Not checked:` line. Only that marker, or an item named in a `### Findings` bullet, takes an item's cover away:
-     prose elsewhere ("the second page was not checked") is not read as a veto, so an item it names still counts as
-     checked.
+   - Name each spec item you checked (`R1`, `AC1`, `FAIL-HARD`, ...) in `### Checked, no finding`: a clean review covers
+     what it names, whatever words the line uses. On a documentation, analysis or ops story it also covers `UC1`, `FM1`
+     and `RA-01`; on a story with tests those stay proved by tests.
+   - Anything you did not check goes under a `Not checked` label in `### Checked, no finding`: `Not checked: <ids> - why`
+     (a colon, a dash or nothing after the label; an optional bullet, number, quote mark or emphasis before it), with
+     the ids on the line, on the lines that follow, or in bullets under it; or a `Not checked` heading of any level
+     with the ids under it. A label with no id on its line takes the next list or paragraph whole, blank lines
+     included. Or put `(not checked)` next to the ids: every id in that bullet or paragraph loses its cover. A bullet
+     (with its wrapped lines) or a paragraph (up to a blank line) that names an id and says `not checked`, `not
+     examined|verified|tested|reviewed|covered`, `did not|didn't|haven't check|examine|verify|test|read|run|review`,
+     `was/is/left unchecked`, `skipped`, `deferred`, `out of scope` or `out of time` loses it for every id in it, so
+     keep such words out of units that name an id you did check. Other words ("never", "open", "missing") are ordinary prose and take nothing away. An item named in a
+     `### Findings` bullet loses its cover too.
    - **Severity:** `blocker` (must be fixed before the merge), `major` (a real defect or gap), `minor` (small, low
      impact). Findings are listed blocker first, then major, then minor, numbered F1, F2, ... in that order, so a
      search for `· blocker ·` finds every blocker.

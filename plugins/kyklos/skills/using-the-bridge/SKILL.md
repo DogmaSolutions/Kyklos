@@ -37,6 +37,7 @@ skill says only which tool to reach for:
 | `list_files` · `copy_file` · `list_processes` · `diag` | Host-side inspection the sealed container cannot do. |
 | `host_app_start` · `host_app_request` · `host_app_status` · `host_app_stop` | Work that needs the project's own app running on the host for a while. |
 | `launcher_get` · `launcher_request` | Testing or driving the host's KyklosLauncher page and API. |
+| `doctor` | Finding out why a bridge verb fails or answers oddly: the bridge checks its own projects, test runner, CI access and ledger and answers one report (the `health` skill, `/kyklos:health`). |
 | `mode_get` · `mode_end` | The operating modes the person at the host set in the bridge GUI (for example `ci-unavailable`: arm, merge and close are queued, other CI verbs answer at once, so do not poll or wait for CI). `mode_end` (`mode`, `reason`) ends a mode early once you see CI answer; you can never set or extend one. |
 | the `story_*`, `proof_*`, `advreview_*`, `coordination_*`, `epic_*` verbs | Called for you by the `story`, `advreview` and `agent-msg` tools; see their skills. |
 
@@ -70,7 +71,9 @@ agent can read (names and scopes only; `hooks/kyklos-api-scope-surface.sh`, whos
 `hooks/lib/api-scope-check.sh` gives the same report on demand; its header lists its options.
 
 `kill_process` only kills names on the bridge's allow-list and never PID 1 or itself — so you cannot
-accidentally take the host/container down by killing an init or keepalive process.
+accidentally take the host/container down by killing an init or keepalive process. By name it ends only the
+processes this bridge started (its process ledger recorded them); another project's process of the same name is
+left running and named.
 
 ## When they fire
 

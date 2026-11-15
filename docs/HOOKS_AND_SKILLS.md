@@ -16,7 +16,7 @@ Hooks run on every action the agent takes, such as running a command, editing a 
 
 A [hook](#how-a-hook-decides-one-hook-per-event-every-rule-in-the-bridge) that blocks always says why, and what the agent should do instead.
 
-**Human languages.** The hooks' messages and the skills are in English. Two rules read the agent's own words, and they match English phrasing only: the stop rule (it refuses a "which one next?" or "should I continue?" question, and counts a turn as waiting for you only when its text ends with `?`) and the rule on questions asked through Claude Code's question tool. Every other rule reads commands, files, branch names, commits and tool calls, so it works whatever language you and the agent use; commit messages keep their fixed English type words (`feat`, `fix`, ...) and `Refs:` footer.
+**Human languages.** The hooks' messages and the skills are in English. Two rules read the agent's own words, and they match English phrasing only: the stop rule (it refuses a "which one next?" or "should I continue?" question, and counts a turn as waiting for you only when its text ends with `?` or carries the owner-blocker question that starts `Blocked on you:`) and the rule on questions asked through Claude Code's question tool. Every other rule reads commands, files, branch names, commits and tool calls, so it works whatever language you and the agent use; commit messages keep their fixed English type words (`feat`, `fix`, ...) and `Refs:` footer.
 
 **Programming languages.** The source-control, safety and momentum rules work for any language. Among the quality rules, the failed-test rule reads `dotnet test` and Bridge test runs, the test quality rule reads C# test files, the configuration rule reads C# code, the automatic-merge rule asks for test evidence when C# files changed, and the script formal check reads bash, PowerShell and batch files. The full list is in [Supported languages and tools](SUPPORT_MATRIX.md).
 
@@ -65,7 +65,9 @@ end **only** when either:
 
 - **all in-scope work is done** (every open story closed), or
 - **the agent has asked the user a real question**: one only a person can answer (an irreversible or outward-facing action, or information only they hold), asked with its full context, the references
-  involved and the effect of each option.
+  involved and the effect of each option. When the agent cannot go on until the person does something only they can do, it asks in one recognisable form, the
+  owner-blocker question: a line that starts `Blocked on you:`, says what only the person can do and why, and ends with a question mark. The stop rule accepts that turn even when
+  a short note follows the question, and the rule on Claude Code's question tool accepts the same form with no override.
 
 "Waiting for CI" is not a reason to stop: the agent works on another item, or arms a watch that wakes it when the pipeline finishes. A blocker stops only the steps that depend on it, never the whole
 queue. Messages addressed to the agent (from a person or another agent) must be answered before the turn can end.

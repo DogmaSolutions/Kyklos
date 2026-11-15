@@ -17,6 +17,16 @@ require_lib() {
   shift
   REQUIRE_LIB_PROBLEM=""
   [ -f "$_rl_lib" ] || { _require_lib_fail "cannot load $_rl_lib: the file is missing"; return 1; }
+  # A load's exit status is its LAST command's, so a definition that failed earlier would be masked by the ones after
+  # it. A function definition fails only where a read-only function of that name exists; so before the load, every
+  # read-only function the library also defines (by its text) is a definition that cannot be made, wherever it stands
+  # in the file. (An ERR trap cannot count it: callers load inside an `if`, where bash runs no ERR trap.)
+  local _rl_ro _rl_bad=""
+  while read -r _ _ _rl_ro; do
+    [ -n "$_rl_ro" ] || continue
+    grep -qE "^[[:space:]]*(function[[:space:]]+)?${_rl_ro}[[:space:]]*(\\(\\)|\\{)" "$_rl_lib" 2>/dev/null && _rl_bad="$_rl_bad $_rl_ro"
+  done < <(declare -Fr 2>/dev/null)
+  [ -z "$_rl_bad" ] || { _require_lib_fail "cannot load $_rl_lib: loading it failed (its definition of${_rl_bad} cannot be made: a read-only function of that name exists)"; return 1; }
   # shellcheck source=/dev/null
   . "$_rl_lib"; _rl_rc=$?
   [ "$_rl_rc" -eq 0 ] || { _require_lib_fail "cannot load $_rl_lib: loading it failed (exit $_rl_rc)"; return 1; }

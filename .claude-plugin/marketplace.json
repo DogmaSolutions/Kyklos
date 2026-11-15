@@ -1,11 +1,13 @@
 {
   "name": "dogmasolutions",
-  "owner": { "name": "Dogma Solutions" },
+  "owner": {
+    "name": "Dogma Solutions"
+  },
   "plugins": [
     {
       "name": "kyklos",
       "source": "./plugins/kyklos",
-      "description": "Engineering discipline for AI coding agents: enforcement hooks and skills (mistake-proofing, running tests, coverage, stories and proof)."
+      "description": "Kyklos makes an AI coding agent follow a secure software development workflow: stories, branches, tests, reviews and a written proof of each quality check before work counts as done, enforced by guards and guided by skills, with the Kyklos Bridge running builds and tests on the host."
     }
   ]
 }

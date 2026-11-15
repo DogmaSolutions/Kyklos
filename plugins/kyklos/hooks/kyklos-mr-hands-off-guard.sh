@@ -29,9 +29,10 @@
 # and fall into a fail-open path, so the hook refuses by name instead (a broken install). [CySec] CWE-636
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
-    printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin."}\n' "$(basename "$0")"
+    printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
     exit 0
 fi
+. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null   # kyklos_help_*: the help line naming the troubleshooting guide's section
 set +e -uo pipefail
 
 _HO_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -60,8 +61,9 @@ CMD_REAL="$(cmd_join_splices "$CMD_REAL")"
 HOOK_CWD="$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null || true)"
 [ -n "$HOOK_CWD" ] || HOOK_CWD="$PROJECT_DIR"
 
+# block REASON -> print the block decision, its last line naming the guide's section on unarmed and hand-merged requests.
 block() {
-    jq -nc --arg r "$1" '{decision:"block",reason:$r}'
+    jq -nc --arg r "$1"$'\n'"$(kyklos_help_line merge-request-create-refused-unarmed)" '{decision:"block",reason:$r}'
     exit 0
 }
 note() {
@@ -158,6 +160,7 @@ if [ "$_pushes" = 1 ] && mr_push_creates "$CMD_REAL" && ! mr_push_creates_armed 
             <<<"$(jq -nc --arg c "$_armed" --arg w "$HOOK_CWD" '{cwd:$w, tool_input:{command:$c}}')")"
         if printf '%s' "$_verdict" | grep -c '"decision":"block"' >/dev/null; then
             _why="$(printf '%s' "$_verdict" | jq -r '.reason // empty' 2>/dev/null)"
+            _why="${_why%%$'\n'Help: *}"   # the arm guard's own help line: this refusal ends with its own
             # Only a refusal over the STATE of the change (coverage, merged result) lets the create through unarmed: a
             # refusal over the SHAPE of the command (several branches, a glob, no work tree) applies to the create too.
             # [CySec] fail closed: an unmarked refusal is a shape refusal (CWE-636).

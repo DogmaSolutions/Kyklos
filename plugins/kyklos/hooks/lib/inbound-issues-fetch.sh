@@ -10,6 +10,8 @@
 #
 # Contract — source this file, then call `inbound_issues_collect`:
 #   rc 0 : inbound Issues exist. INBOUND_LINES = human-readable bullet list; INBOUND_IIDSET = "pid:iid ..." tokens.
+#   INBOUND_WHY : after rc 3, why the check could not run (the bridge's own refusal text when it gave one), for the
+#          caller's message; empty otherwise.
 #   rc 1 : configured + answered, and NOTHING is waiting on us (clean).
 #   rc 2 : NOT CONFIGURED (no GitLab address, or no scope: project | group | scopes). There is nothing to check, so
 #          callers ALLOW (this is "not applicable", not a failure).
@@ -36,11 +38,13 @@ _INBOUND_LIB_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Populated by inbound_issues_collect.
 INBOUND_LINES=""
 INBOUND_IIDSET=""
+INBOUND_WHY=""
 
-# inbound_issues_collect -> see contract above. Never prints; sets the two globals.
+# inbound_issues_collect -> see contract above. Never prints; sets the globals.
 inbound_issues_collect() {
     INBOUND_LINES=""
     INBOUND_IIDSET=""
+    INBOUND_WHY=""
     local api="${KYKLOS_ISSUES_API:-}"
     local project="${KYKLOS_ISSUES_PROJECT:-}"
     local group="${KYKLOS_ISSUES_GROUP:-}"
@@ -61,11 +65,20 @@ inbound_issues_collect() {
         '$ARGS.named | with_entries(select(.value != ""))')" || return 3
     # 45 s, under the 60 s a hook may run: a slow bridge ends here as a loud "cannot check" (rc 3), never as a hook the
     # harness kills silently.
-    resp="$(bridge_mcp_call coordination_inbox "$args" 45)" || return 3
-    # A refusal (GitLab unreachable, an unknown scope) or a bridge without the coordination stack is "cannot check".
-    bridge_mcp_is_error "$resp" && return 3
+    local brc=0
+    resp="$(bridge_mcp_call coordination_inbox "$args" 45)" || brc=$?
+    [ "$brc" -eq 0 ] || { INBOUND_WHY="the bridge did not answer coordination_inbox (exit $brc)"; return 3; }
     text="$(bridge_mcp_text "$resp")"
-    printf '%s' "$text" | json_test 'type == "object" and (.lines | type == "array") and (.iids | type == "array")' || return 3
+    # A refusal (GitLab unreachable, an unknown scope) or a bridge without the coordination stack is "cannot check"; its
+    # own words go to the caller's message.
+    if bridge_mcp_is_error "$resp"; then
+        [ -n "$text" ] || text="$(printf '%s' "$resp" | jq -r '.error.message // empty' 2>/dev/null)"
+        INBOUND_WHY="coordination_inbox: $(printf '%s' "${text:-refused without a reason}" | tr '\n' ' ' | cut -c1-300)"
+        return 3
+    fi
+    case "$text" in "unknown tool: "*) INBOUND_WHY="this bridge has no coordination_inbox verb"; return 3 ;; esac
+    printf '%s' "$text" | json_test 'type == "object" and (.lines | type == "array") and (.iids | type == "array")' \
+        || { INBOUND_WHY="the bridge's coordination_inbox answer is not the expected list: $(printf '%s' "$text" | tr '\n' ' ' | cut -c1-200)"; return 3; }
     local line iid
     while IFS= read -r line; do
         [ -n "$line" ] && INBOUND_LINES+=$'\n'"$line"

@@ -440,7 +440,13 @@ project; it never repeats these steps.
 12. **Ask the owner well.** When a decision is theirs, ask it as a tickable comment on the story (one question per
     item, context from the start in plain words, the references, why it is theirs, the effect of each option; never a
     label or enum name without saying what it means), and point to it from the terminal. Notes are top-level, one
-    linear conversation. Judgements that are yours to make are not asked.
+    linear conversation. Judgements that are yours to make are not asked. Before asking for a click, a permission or a
+    credential, search how the project's own tests and scripts already do it (sign in, seed data, start the
+    application) and use that; a credential that is really missing is forwarded through the Launcher with the recipe in
+    "Search before you ask" (Response style), never pasted into the conversation. When you cannot go on until the person does
+    something only they can do, end your turn with the owner-blocker question: a line that starts `Blocked on you:`,
+    says what only they can do and why, and ends with the question mark. The stop guard accepts that stop with open
+    work, and the question guard accepts it in `AskUserQuestion` with no override.
 13. **Work with other agents.** Coordinate through the skill `ssdlc-agent-msg`; read the inbox each cycle. Forks and
     subagents follow the section "Parallel work" above, and overlapping stories merge one at a time.
 14. **When a configuration check reports a problem.** Read the finding, fix the named setting or file (never silence
@@ -487,13 +493,30 @@ reversible it is, and who/what it affects. Applies in chat, in `AskUserQuestion`
 note or description. A bare or purely referential ask ("what do you prefer?", "see the issue", "tick note N", a
 list of note numbers) is a defect, and so is listing an item as waiting on the user when nothing was asked yet.
 
+<!-- kyklos:rule response.search-before-asking -->
+**Search before you ask; a missing credential is forwarded through the Launcher.** Before you ask the person for a
+click, a permission or a credential, search how the project's own tests and scripts already do the same thing (sign
+in, for example as the local development administrator the tests use; seed data; start the application) and use
+that. Ask only for what is really missing, and say in the ask what you searched. When a credential is really missing,
+never ask for its value in the conversation. The recipe is for credentials other than GitLab tokens (an application
+login, a service password): a GitLab API token stays on the host, where the Launcher keeps it for the Bridge or refuses
+the launch. Ask the person to forward it through the Launcher, with this recipe: (1) store the value in the Launcher's
+**Credentials and tokens** form under a name of their choice in environment-variable style (letters, digits and
+underscore, not starting with a digit; the Launcher adds its own credential-store prefix itself) and
+without the word `GITLAB`, because a name containing it is always treated as a GitLab token; (2) add that name to the
+project's `KYKLOS_SECRETS` setting (names separated by `;`) and, for a secret that is not a GitLab token, also to
+`KYKLOS_SECRETS_NOT_GITLAB`, otherwise the launch refuses it as a possible API token; (3) launch the project again.
+You then read it with `$(bridge-secret <NAME>)` inside the one command that uses it, and never print it (Tier 1).
+
 <!-- kyklos:rule response.ask-on-the-story -->
 **A story's question is asked on the story, and the terminal points to it.** When a user decision, opinion or action
 concerns a story (or an issue) and the project keeps its stories in a store with comments (GitLab), ask it as a comment
 on that story — tickable, with the full context and reason above, mentioning the user — not only in the terminal. In
 the terminal give a short descriptive reminder: what is asked, why, and the link to the comment. The comment records the
 decision next to the work it governs, keeps it findable later, and carries the context the question needs. Questions
-that concern no story stay in the terminal.
+that concern no story stay in the terminal. A story blocked on that question (`story block <id> --kind user`) carries in
+its reason a line starting with `searched:` that names what you looked at before asking; the bridge refuses the block
+without it.
 
 <!-- kyklos:rule response.tickable-asks -->
 **Asking in GitLab text — a tickable option per item, always.** When an issue, story or merge-request comment (or a

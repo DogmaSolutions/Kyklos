@@ -52,7 +52,7 @@ label_events() {   # $1=project_id $2=iid
     # read, or a history past the page cap, is "unknown" (empty), so the authorship check fails closed.
     # [RiskMitigation RA-01]
     local body
-    body="$(_UAL_API="$api" _UAL_TENV="$tenv" gitlab_paged_walk _ual_page_get "projects/$1/issues/$2/resource_label_events")" \
+    body="$(_UAL_API="$api" _UAL_TENV="$tenv" gitlab_paged_walk _ual_page_get "projects/$(printf '%s' "$1" | sed 's#/#%2F#g')/issues/$2/resource_label_events")" \
         || { printf ''; return 0; }
     printf '%s' "$body"
 }

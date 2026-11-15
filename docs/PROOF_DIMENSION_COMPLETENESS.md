@@ -74,10 +74,11 @@ flowchart TD
    not. Comments, descriptions and test-case arguments never count. The scanner lives in the Bridge
    (`TestSourceScanner`, `SpecItemCoverage`).
 3. **What else can cover an item.** A host tool receipt whose inputs name it; the newest adversarial review whose token the
-   Bridge verifies, for `AC`, `R` and `FAIL-` items it states as checked with no negative wording (use cases and failure
+   Bridge verifies, for `AC`, `R` and `FAIL-` items its `Checked, no finding` section names, unless the item is named in a finding,
+   under a `Not checked` label or heading, or in a bullet or paragraph that says `(not checked)` or another fixed not-checked phrase (use cases and failure
    modes need a test); the risk register, for `RA-` items. A kind with no tests (documentation, analysis, operations) is the
-   exception: there, a review with no finding covers every item its `Checked, no finding` section names, unless the item is
-   marked `(not checked)` or listed on a `Not checked:` line.
+   exception: there, the review also covers `RA-`, use case and failure mode items. Other wording is not read: a line that says
+   an item holds is not read for words such as "never" or "open".
 4. **The signed draft record.** Next to the proof, the Bridge stores a record of the rows it proved and of the items no evidence
    covers. It signs that record with the proof signing key: HMAC-SHA256 over `proof-draft:` + story + project + a generation
    number + the record. Each new draft gets the next generation, and only the signed record with the highest generation counts,

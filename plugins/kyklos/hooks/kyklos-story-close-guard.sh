@@ -21,9 +21,10 @@
 # and fall into a fail-open path, so the hook refuses by name instead (a broken install). [CySec] CWE-636
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
-    printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin."}\n' "$(basename "$0")"
+    printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
     exit 0
 fi
+. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null   # kyklos_help_*: the help line naming the troubleshooting guide's section
 set +e -uo pipefail
 
 # shellcheck source=lib/control-switch.sh
@@ -62,10 +63,18 @@ if printf '%s' "$_lc" | grep -Ec 'issues/[0-9]+' \
 if printf '%s' "$_lc" | grep -Ec 'glab[[:space:]]+issue[[:space:]]+close[[:space:]]+[0-9]' >/dev/null; then IS_CLOSE=1; fi
 [ "$IS_CLOSE" = 1 ] || exit 0   # not an issue-close -> nothing to guard
 
-# Resolve the target project + issue iid from the command; fall back to KYKLOS_ISSUES_PROJECT for the project.
-PROJECT="$(printf '%s' "$CMD" | grep -oE 'projects/[0-9]+' | head -1 | grep -oE '[0-9]+' || true)"
-[ -n "$PROJECT" ] || PROJECT="${KYKLOS_ISSUES_PROJECT:-}"
-IID="$(printf '%s' "$CMD" | grep -oE 'issues/[0-9]+' | head -1 | grep -oE '[0-9]+' || true)"
+# Resolve the target project + issue iid from the command: the project the closed issue's own address names, by number
+# or by its url-encoded path (projects/group%2Fname/issues/<n>), so the bridge is asked about exactly that issue, never
+# about the same number in the session's project. PROJECT_REF is that segment as the address writes it (the direct-token
+# path puts it back into an address); PROJECT is what the bridge is asked (a path decoded). Without a project in the
+# address, KYKLOS_ISSUES_PROJECT.
+_issue_ref="$(printf '%s' "$CMD" | grep -oE 'projects/[A-Za-z0-9%._-]+/issues/[0-9]+' | head -1 || true)"
+PROJECT_REF="$(printf '%s' "$_issue_ref" | sed -E 's#^projects/##; s#/issues/.*##')"
+[ -n "$PROJECT_REF" ] || PROJECT_REF="$(printf '%s' "$CMD" | grep -oE 'projects/[0-9]+' | head -1 | grep -oE '[0-9]+' || true)"
+[ -n "$PROJECT_REF" ] || PROJECT_REF="${KYKLOS_ISSUES_PROJECT:-}"
+PROJECT="$(printf '%s' "$PROJECT_REF" | sed -E 's#%2[Ff]#/#g')"
+IID="${_issue_ref##*/}"
+[ -n "$IID" ] || IID="$(printf '%s' "$CMD" | grep -oE 'issues/[0-9]+' | head -1 | grep -oE '[0-9]+' || true)"
 [ -n "$IID" ] || IID="$(printf '%s' "$CMD" | grep -oE 'glab[[:space:]]+issue[[:space:]]+close[[:space:]]+[0-9]+' | grep -oE '[0-9]+' | head -1 || true)"
 { [ -n "$PROJECT" ] && [ -n "$IID" ]; } || exit 0   # cannot identify the issue -> fail-open
 
@@ -93,7 +102,7 @@ else
 . "$(dirname "${BASH_SOURCE[0]}")/lib/gitlab-api-base.sh"   # gitlab_api_base: the one API-base resolver
 API="$(gitlab_api_base STORY_GITLAB_API 2>/dev/null)" || {
   _why="$(gitlab_api_base STORY_GITLAB_API 2>&1 >/dev/null | tr -d '"\\' | tr '\n' ' ')"
-  printf '{"decision":"block","reason":"BLOCKED (story-close-guard): cannot verify the close. %s"}' "$_why"
+  printf '{"decision":"block","reason":"BLOCKED (story-close-guard): cannot verify the close. %s%s"}' "$_why" "$(kyklos_help_json_suffix story-close-blocked)"
   exit 0
 }
 . "$(dirname "${BASH_SOURCE[0]}")/lib/gitlab-curl.sh"   # gitlab_curl / gitlab_pick_token: the token never leaves the helper
@@ -101,10 +110,10 @@ API="$(gitlab_api_base STORY_GITLAB_API 2>/dev/null)" || {
 gitlab_pick_token TOKNAME "${KYKLOS_STORY_TOKEN_ENV:-}" "${STORY_GITLAB_TOKEN_ENV:-}" "${KYKLOS_ISSUES_TOKEN_ENV:-}" GITLAB_TOKEN KYKLOS_ISSUES_TOKEN || true
 [ -n "$TOKNAME" ] || exit 0   # no token to verify -> fail-open (never wedge a close we cannot check)
 
-_get() { gitlab_curl "$TOKNAME" -s --max-time 12 "$API/projects/$PROJECT/issues/$IID$1" 2>/dev/null || true; }
+_get() { gitlab_curl "$TOKNAME" -s --max-time 12 "$API/projects/$PROJECT_REF/issues/$IID$1" 2>/dev/null || true; }
 # _scg_page_get <path> -> one page of a list through the direct token; rc 1 unless GitLab answered 200.
 _scg_page_get() {
-  local resp; resp="$(gitlab_curl "$TOKNAME" -s --max-time 12 -w $'\n%{http_code}' "$API/projects/$PROJECT/issues/$IID$1" 2>/dev/null || true)"
+  local resp; resp="$(gitlab_curl "$TOKNAME" -s --max-time 12 -w $'\n%{http_code}' "$API/projects/$PROJECT_REF/issues/$IID$1" 2>/dev/null || true)"
   printf '%s' "$resp" | sed '$d'; [ "$(printf '%s' "$resp" | tail -n1)" = 200 ]
 }
 fi
@@ -113,13 +122,13 @@ ISSUE="$(_get '')"
 # The reader decides every check below: without it a check would exit 127 and fall into a fail-open path, so a close
 # that cannot be judged is refused instead. [CySec] CWE-636: a missing library never lets a close through.
 if ! command -v json_test >/dev/null 2>&1; then
-  printf '{"decision":"block","reason":"BLOCKED (story-close-guard): cannot verify the close: the JSON reader hooks/lib/json-answer.sh did not load (broken install). Reinstall or repin the plugin, or close it with story close <id>."}'
+  printf '{"decision":"block","reason":"BLOCKED (story-close-guard): cannot verify the close: the JSON reader hooks/lib/json-answer.sh did not load (broken install). Reinstall or repin the plugin, or close it with story close <id>.%s"}' "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
   exit 0
 fi
 if ! printf '%s' "$ISSUE" | json_test '.iid'; then
   # An EMPTY answer is not "not an issue": the read returned nothing, so the close cannot be judged -> refused, named.
   if [ -z "$ISSUE" ]; then
-    printf '{"decision":"block","reason":"BLOCKED (story-close-guard): cannot verify the close. The issue read returned an empty answer; retry, or close it with story close <id>."}'
+    printf '{"decision":"block","reason":"BLOCKED (story-close-guard): cannot verify the close. The issue read returned an empty answer; retry, or close it with story close <id>.%s"}' "$(kyklos_help_json_suffix story-close-blocked)"
     exit 0
   fi
   exit 0   # an answer that is not an issue (for example a 404 body) -> fail-open, as documented above
@@ -188,5 +197,5 @@ if [ "$HAS_UNPROVEN" = 1 ]; then _parts="${_parts}${_parts:+ ; }the Proof note h
 elif [ "$HAS_PROOF" = 0 ]; then _parts="${_parts}${_parts:+ ; }no canonical Proof note (a note starting with the kyklos:story-proof marker)"; fi
 why="you are closing issue #$IID (project $PROJECT) as done, but it is NOT a conforming, proven SSDLC story (${_parts}). EVERY dev-work close must be a structured + proven story. RESTRUCTURE it (add the sections \`story structure $IID\` lists, fill every row \`story proof $IID\` generates, render the Proof table) and close via \`story close $IID\`; OR - if this is genuinely NOT development work - close it with its reason through the tool (\`story set $IID status=wontfix|duplicate|invalid\`), or, for a coordination issue, through \`agent-msg close\`; OR for a deliberate override ask the USER to apply the \`$_PO_LABEL\` label to the issue (there is no agent-touchable bypass - a close cannot be self-authorized)."
 why="${why//\\/\\\\}"; why="${why//\"/\\\"}"; why="$(printf '%s' "$why" | tr '\n' ' ')"
-printf '{"decision":"block","reason":"BLOCKED (story-close-guard): %s"}' "$why"
+printf '{"decision":"block","reason":"BLOCKED (story-close-guard): %s%s"}' "$why" "$(kyklos_help_json_suffix story-close-blocked)"
 exit 0

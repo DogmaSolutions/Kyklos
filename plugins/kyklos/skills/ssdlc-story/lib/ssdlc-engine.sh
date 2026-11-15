@@ -337,13 +337,19 @@ ssdlc_verb_for() {
             printf 'story_parent\t%s' "$(jq -cn --arg id "$id" --arg p "$parent" '{id:$id,parent:$p}')" ;;
         proof)
             # The bridge parses, validates and renders every proof write; the tool only forwards the request.
-            local -a sets=(); local apply="" write=0 template=0 format=markdown draft=0 branch="" have_branch=0
+            # Each --metric 'Item|tool|value[|link]' belongs to the --set before it; the bridge renders its formal group.
+            local -a sets=() set_metrics=(); local apply="" write=0 template=0 format=markdown draft=0 branch="" have_branch=0 any_metric=0
             while [ "$#" -gt 0 ]; do
                 case "$1" in
                     --draft) draft=1; shift ;;
                     --branch) branch="${2:-}"; have_branch=1; shift 2 || return 0 ;;
                     --format) format="${2:-}"; shift 2 || return 0 ;;
-                    --set) sets+=("${2:-}"); shift 2 || return 0 ;;
+                    --set) sets+=("${2:-}"); set_metrics+=("[]"); shift 2 || return 0 ;;
+                    --metric)
+                        [ "${#sets[@]}" -gt 0 ] || { printf 'refuse\t%s' "proof: --metric belongs to the --set before it (the row it cites in); give --set 'Dimension=VERDICT|evidence' first."; return 0; }
+                        [ "$#" -ge 2 ] || return 0
+                        local last=$(( ${#sets[@]} - 1 ))
+                        set_metrics[last]="$(jq -c --arg m "$2" '. + [$m]' <<<"${set_metrics[last]}")"; any_metric=1; shift 2 || return 0 ;;
                     --apply) apply="${2:-}"; shift 2 || return 0 ;;
                     --write) write=1; shift ;;
                     --template) template=1; shift ;;
@@ -368,7 +374,22 @@ ssdlc_verb_for() {
                 [ -f "$apply" ] || return 0
                 printf 'proof_set\t%s' "$(jq -cn --arg id "$id" --rawfile t "$apply" '{id:$id,table:$t}')"
             elif [ "${#sets[@]}" -gt 0 ] || [ "$write" -eq 1 ]; then
-                printf 'proof_set\t%s' "$(jq -cn --arg id "$id" '{id:$id,sets:($ARGS.positional|tojson)}' --args "${sets[@]}")"
+                if [ "$any_metric" -eq 1 ]; then
+                    # {set, metrics} entries: the assignment and its structured metrics side by side, never markup. A --set
+                    # with no --metric goes as its plain assignment, so the row keeps the metrics it has (an empty list
+                    # would replace them).
+                    local entries="[]" i
+                    for i in "${!sets[@]}"; do
+                        if [ "${set_metrics[i]}" = "[]" ]; then
+                            entries="$(jq -c --arg s "${sets[i]}" '. + [$s]' <<<"$entries")"
+                        else
+                            entries="$(jq -c --arg s "${sets[i]}" --argjson m "${set_metrics[i]}" '. + [{set:$s,metrics:$m}]' <<<"$entries")"
+                        fi
+                    done
+                    printf 'proof_set\t%s' "$(jq -cn --arg id "$id" --argjson e "$entries" '{id:$id,sets:($e|tojson)}')"
+                else
+                    printf 'proof_set\t%s' "$(jq -cn --arg id "$id" '{id:$id,sets:($ARGS.positional|tojson)}' --args "${sets[@]}")"
+                fi
             elif [ "$template" -eq 0 ]; then
                 if [ "$format" = text ]; then
                     printf 'proof_get\t%s' "$(jq -cn --arg id "$id" '{id:$id,format:"text"}')"
@@ -504,6 +525,34 @@ ssdlc_route() {
     return "$rc"
 }
 
+# ssdlc_job_collect_seconds -- the collection budget: SSDLC_JOB_COLLECT_SECONDS when it is a whole number, else 1800 (30
+# minutes), so a mistyped value never turns into an endless wait.
+ssdlc_job_collect_seconds() {
+    case "${SSDLC_JOB_COLLECT_SECONDS:-}" in
+        ''|*[!0-9]*) printf '1800' ;;
+        *) printf '%s' "$((10#$SSDLC_JOB_COLLECT_SECONDS))" ;;
+    esac
+}
+
+# ssdlc_collect_pending <reply> -- a verb the bridge runs as a job (proof_draft) answers pending with its job id when its
+# work outlasts the bridge's own wait: the reply is then collected with get_job_result, each call bounded by that same
+# wait on the bridge, until it is no longer pending, so the work never has to fit one transport call. Prints the final
+# reply; rc 4 when the job is still pending after SSDLC_JOB_COLLECT_SECONDS of collecting (default 1800, 30 minutes),
+# else bridge_mcp_call's code.
+ssdlc_collect_pending() {
+    local resp="$1" job rc started="$SECONDS" budget left
+    budget="$(ssdlc_job_collect_seconds)"
+    while printf '%s' "$resp" | json_test '.result.pending == true and (.result.jobId | type == "string")'; do
+        left=$((budget - (SECONDS - started)))
+        if [ "$left" -le 0 ]; then printf '%s' "$resp"; return 4; fi
+        job="$(printf '%s' "$resp" | jq -r '.result.jobId')"
+        # Each collection's own wait counts against the budget: it never waits past what is left of it.
+        resp="$(bridge_mcp_call get_job_result "$(jq -cn --arg j "$job" '{jobId:$j}')" "$((left < 300 ? left : 300))")"; rc=$?
+        if [ "$rc" -ne 0 ]; then printf '%s' "$resp"; return "$rc"; fi
+    done
+    printf '%s' "$resp"
+}
+
 _ssdlc_route_run() {
     local op="$1"; shift
     local routed; routed="$(ssdlc_verb_for "$op" "$@")"
@@ -533,6 +582,11 @@ _ssdlc_route_run() {
             fi
             resp="$(bridge_mcp_call "$verb" "$args" 300)"; rc=$?
             [ "$rc" -eq 0 ] || die "story-stack mode is 'on' but the bridge call '$verb' failed (transport rc $rc); nothing was changed." 3
+            resp="$(ssdlc_collect_pending "$resp")"; rc=$?
+            if [ "$rc" -eq 4 ]; then
+                die "the bridge job of '$verb' ($(printf '%s' "$resp" | jq -r '.result.jobId // "unknown id"')) was still running after $(ssdlc_job_collect_seconds) s of waiting; it keeps running on the bridge and nothing is lost: collect it with get_job_result. $(bridge_mcp_text "$resp")" 3
+            fi
+            [ "$rc" -eq 0 ] || die "story-stack mode is 'on' but collecting the bridge job of '$verb' failed (transport rc $rc); the job keeps running on the bridge: $(bridge_mcp_text "$resp")" 3
             # The bridge text already ends with a line break; print it as one block ending in exactly one, so a caller
             # reading the last line (tail -1, a captured id) gets the answer, not an empty line.
             local text; text="$(bridge_mcp_text "$resp")"

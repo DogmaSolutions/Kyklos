@@ -247,7 +247,7 @@ resolve_story() {
 _story_target_ref() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --dir|--reason|--branch|--summary|--type|--epic|--kind|--file|--format|--set|--apply|--title|--parent) shift 2 || return 0 ;;
+      --dir|--reason|--branch|--summary|--type|--epic|--kind|--file|--format|--set|--metric|--apply|--title|--parent) shift 2 || return 0 ;;
       -*) shift ;;
       *) printf '%s' "$1"; return 0 ;;
     esac
@@ -1397,6 +1397,7 @@ cmd_proof() {
       --write) write=1; shift ;;
       --format) format="${2:-}"; shift 2 || die "missing value after $1" ;;   # markdown (the stored table) | text (the terminal form)
       --set)   sets+=("${2:-}"); shift 2 || die "missing value after $1" ;;    # 'Dimension=VERDICT[|evidence]' — repeatable
+      --metric) die "proof: --metric 'Item|tool|value[|link]' is rendered by the bridge's proof_set, and this project's story stack does not forward proof writes to the bridge (ssdlc mode is not on); write the row's metrics in the --set value instead" 2 ;;
       --apply) apply="${2:-}"; shift 2 || die "missing value after $1" ;;      # a complete filled table from a file (or '-' for stdin)
       --template) template=1; shift ;;         # force the BLANK canonical scaffold (ignore the stored note)
       --dir)   dir="${2:-}"; shift 2 || die "missing value after $1" ;;
