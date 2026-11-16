@@ -421,19 +421,22 @@ The build, test and CI values follow in steps 11 and 12; the person can add them
 
 At launch, a listed name with no value is skipped with a warning; that is expected for a setting the project does not use.
 
-**Ask the person** to create the configuration with these values, press **Save**, and tell you what the configuration check reports.
+**Ask the person** to create the configuration with these values and press **Save**.
 
-**Check:** the person reports the result of the check, and the configuration's secrets view.
+Then **ask the person** to press **Check** on the new configuration. The Check window runs every check of the [Launcher](COMPONENTS.md#kyklos-launcher) (settings, folders, what each token is allowed to do, the reviewed Bridge settings, Docker and more) and shows each answer as it arrives. Each finding is **yes**, **no**, **cannot tell**, **warning** or **does not apply**. A **cannot tell** means the check could not get an answer (the network, a secret store, Docker did not reply): it is never a pass. What needs attention (**no** and **cannot tell**) comes first, then the warnings. Every such finding says what was found and why it matters, and gives numbered steps to fix it, each one naming the page, the field or the button to use. Ask the person to read you every finding, or to press **Copy report** (it holds no secret value) and paste it to you, and to follow the numbered steps of each finding. After each fix, they press **Check** again. The Bridge's **Health** page shows the same checks from the Bridge's side once it runs, see [Checking a configuration](INSTALL_AND_CONFIG.md#checking-a-configuration).
 
-**Expected:** the check confirms the configuration, and every secret is shown as available.
+**Check:** the person reports the Check window's summary line and every finding that is not "yes", and the configuration's secrets view.
 
-**If it fails:** the check lists every problem in one answer, field by field. Fix what lives on the host:
+**Expected:** the summary says that nothing needs attention (a warning may remain: read it to the person and note it), and every secret is shown as available.
+
+**If it fails:** the Check lists every problem in one answer, field by field. Work through the findings from the top, each by its own numbered steps. Fix what lives on the host:
 
 - **A missing folder.** Create it, or go back to step 6.
 - **A missing or uncommitted Bridge settings file.** Commit and push it again. The folder name must be exactly the project name.
 - **A missing organisation setting.** Go back to step 4.
+- **A "cannot tell" about a token.** The secrets store could not be read, which is not the same as the token being absent. Follow the finding's steps; do not store the token again meanwhile.
 
-Ask the person to fix the rest (a missing secret, a token with the wrong scope), then to save again.
+Ask the person to fix the rest (a missing secret, a token with the wrong scope), then to save again and press **Check** again. **Do not go on to the first launch while any finding is "no" or "cannot tell".** A launch with a "no" can be forced (**Force Launch**) only for a finding the check allows it for; never suggest forcing a launch to get past a finding that was not fixed.
 
 ---
 
@@ -488,7 +491,7 @@ Explain what `KYKLOS_CI_MONITOR` changes, per topology (human guide section 8.3)
 
 ## Step 13: the first launch (part 9, 🛑 STOP)
 
-**Ask the person** to press **Launch** on the configuration. The first launch builds the container image, so it takes a while.
+**Ask the person** to press **Launch** on the configuration. Launch runs the same checks first: if none answers "no" or "cannot tell", the window closes by itself and the launch goes on; otherwise go back to step 10. The first launch builds the container image, so it takes a while.
 
 **🪟 Windows:** tell the person that if a drive the launch needs is locked with BitLocker, Windows shows an elevated prompt (the launch page names the drive): they approve it and type the BitLocker password there. You never see it.
 
@@ -517,7 +520,7 @@ docker ps --format '{{.Names}}  {{.Status}}'
 
 Then go through these checks with the person, in order. Each failed check names the step to go back to.
 
-1. The configuration check confirms the configuration, and every secret is available (step 10).
+1. The person presses **Check** on the configuration once more: it says that nothing needs attention, with every finding read and fixed by its numbered steps, and every secret is available (step 10). With the Bridge running, the person also opens its **Health** page: the checks it can run are all "yes", and the ones listed under "Not visible from here" are the Launcher's, already covered by **Check**.
 2. The launch page marks every step as done, and `docker ps` lists the project's container (step 13).
 3. In the session, `/plugin` lists `kyklos` as installed (step 4).
 4. In the session, `/mcp` lists `KyklosBridge` as connected, and the agent's call of the Bridge's `get_status` names the project's solution (steps 10 and 11).

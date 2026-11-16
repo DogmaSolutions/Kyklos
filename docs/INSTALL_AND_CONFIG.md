@@ -453,7 +453,7 @@ On the configurations page, create a configuration named `hello-world-sources`. 
 
 The CI settings are set in part 8; add each one you set to `KYKLOS_ENV` too. Optionally, the project's **own names** ([`KYKLOS_OWN_NAMES`](WORKFLOW.md#launcher-opt-outs)): the product and customer names this project may write in its own source although they are on the organisation's disclosure list.
 
-Press **Save**. The configuration check runs before anything is launched and reports **every** problem it finds in one answer, field by field: a missing setting, a workspace folder that does not exist, a Bridge settings file that is missing or not committed, a project name whose Bridge port another project already uses, a missing organisation setting. Fix them all, then save again until the check confirms the configuration. The configuration's secrets view then shows each declared secret as available or missing: all of them must be available before the first launch.
+Press **Save**, then press **Check** on the configuration ([Checking a configuration](#checking-a-configuration)). The check runs before anything is launched and reports **every** problem it finds in one answer, field by field: a missing setting, a workspace folder that does not exist, a Bridge settings file that is missing or not committed, a project name whose Bridge port another project already uses, a missing organisation setting. Fix them all, then save again until the check confirms the configuration. The configuration's secrets view then shows each declared secret as available or missing: all of them must be available before the first launch.
 
 #### Wiring a project by hand, without the Launcher
 
@@ -587,7 +587,7 @@ Compare what it read with the table above. The commonest case: in a companion to
 
 ### 9.1 The first launch
 
-Press **Launch**. The [Launcher](COMPONENTS.md#kyklos-launcher) checks the configuration, checks what each token is allowed to do, makes sure Docker is running, starts the [`Kyklos Bridge`](COMPONENTS.md#kyklos-bridge) on the host, builds and starts the development container with the agent and the [`Kyklos Plugin`](COMPONENTS.md#kyklos-plugin), and opens the agent's session in a new terminal. The first launch takes a while, because it builds the container image; later launches reuse it. The launch page shows each of these steps; if the launch stops, the step that failed is marked with the reason.
+Press **Launch**. The [Launcher](COMPONENTS.md#kyklos-launcher) first runs the same checks as the **Check** button ([Checking a configuration](#checking-a-configuration)), checks what each token is allowed to do, makes sure Docker is running, starts the [`Kyklos Bridge`](COMPONENTS.md#kyklos-bridge) on the host, builds and starts the development container with the agent and the [`Kyklos Plugin`](COMPONENTS.md#kyklos-plugin), and opens the agent's session in a new terminal. The first launch takes a while, because it builds the container image; later launches reuse it. The launch page shows each of these steps; if the launch stops, the step that failed is marked with the reason.
 
 ### 9.2 The first session: declare the model
 
@@ -597,7 +597,7 @@ In the session, sign in to the agent when asked. Then ask the agent to declare t
 
 Run these checks once, in order; together they prove the whole set-up. Each failed check names the part to go back to.
 
-1. **The configuration.** The Launcher's configuration check confirms the configuration and every secret is available (part 6).
+1. **The configuration.** Press **Check** on the configuration: it says that nothing needs attention and every secret is available (part 6). With the Bridge running, its **Health** page shows the same verdicts for the checks it can run ([Checking a configuration](#checking-a-configuration)).
 2. **The launch.** The launch page marks every step as done, and `docker ps` lists a running container whose name contains the project name.
 3. **The Plugin.** In the session, `/plugin` lists `kyklos` as installed (part 1, the marketplace).
 4. **The Bridge.** In the session, `/mcp` lists `KyklosBridge` as connected, and the Bridge's `get_status` names the project's solution (parts 6 and 7).
@@ -626,9 +626,31 @@ Before the agent asks you for a click, a permission or a credential, it searches
 
 The agent then reads the value with `$(bridge-secret <NAME>)` inside the one command that uses it, and never prints it. This is the "Search before you ask" rule of the policy.
 
+## Checking a configuration
+
+Kyklos checks a configuration before it is launched, and again whenever you ask. The check actively reaches what the configuration points to: it opens the addresses, tries each token, reads the project numbers and looks at the folders, Docker and the reviewed Bridge settings, and says what will and will not work. Two places show the result.
+
+**The Launcher's Check window.** Press **Check** on a configuration on the configurations page; **Launch** opens the same window first. Each check shows its answer as it arrives (with the time left for those still running):
+
+- **yes**: it works.
+- **no**: it will not work as configured.
+- **cannot tell**: the check could not get an answer (the network, a secret store or Docker did not reply). It is never a pass.
+- **warning**: nothing blocks the launch, but read it.
+- **does not apply**: this configuration does not use it.
+
+What needs attention (**no** and **cannot tell**) is listed first, then the warnings, then the rest, so a long list never hides a problem. Each such finding says what was found, why it matters, and gives **numbered steps** to fix it. Each step is one action and names where to do it with the labels you see in the Launcher (the configuration, the section, the field, the button); the last step is to press **Check** again. **Copy report** copies the whole report, with no secret value in it, so you can send it to your agent or to whoever helps you; the composed policy of the configuration can be opened at the bottom of the window.
+
+When you press **Launch** and nothing answers "no" or "cannot tell", the window closes by itself and the launch goes on (warnings are shown on the page). Otherwise it stays open and offers **Cancel**, and **Force Launch** only when every finding may be forced. A finding that cannot be forced says so on its row, and the launch stays refused until you fix it. Force a launch only for a finding you understand and accept: it fixes nothing.
+
+**The Bridge's Health page.** Once a project's [`Kyklos Bridge`](COMPONENTS.md#kyklos-bridge) runs, its page has a **Health** entry in the menu (shown on the Bridge's host only). It runs the checks the Bridge can answer from its side (the projects it serves, the test runner, CI access and the content ledger), with the same verdicts and the same numbered steps. The checks only the Launcher can run are listed apart under **Not visible from here**; they are never counted as passing, so press **Check** in the Launcher for them.
+
+**Tokens kept in the Bridge's secrets store.** The Bridge reads a token from its secrets store, which the Launcher feeds, not from its own environment. When that store cannot be read (no rule covers the name, a provider failed or timed out), the check answers **cannot tell** and its steps repair the routing; it never reports a false "no token stored". It says **no** only when the store answers and nothing holds the name.
+
+The agent can run the same checks with the `health` skill (`/kyklos:health`), and [Troubleshooting](TROUBLESHOOTING.md) lists the usual findings by what you see.
+
 ## When something does not work
 
-- **The [Launcher](COMPONENTS.md#kyklos-launcher) refuses to launch:** the configuration check names every missing setting, secret, folder or tool in one answer, and the configuration's secrets view shows which secrets are missing. A launch that stops later marks the step that failed and shows the reason on it.
+- **The [Launcher](COMPONENTS.md#kyklos-launcher) refuses to launch:** press **Check** ([Checking a configuration](#checking-a-configuration)); it names every missing setting, secret, folder or tool in one answer, and the configuration's secrets view shows which secrets are missing. A launch that stops later marks the step that failed and shows the reason on it.
 - **An organisation setting is reported missing:** check that `appsettings.json` sits next to the Launcher program, that its keys are under `Launcher:Bridge`, `Launcher:Projects` and `Launcher:Marketplace` exactly as in section 1.3, and that its paths are absolute. A file written for an earlier Launcher, with the marketplace keys under `Launcher:Projects`, is moved to `Launcher:Marketplace` when the Launcher starts (a backup of the file is kept beside it).
 - **The [Bridge](COMPONENTS.md#kyklos-bridge) settings file is refused:** it is missing, its folder name differs from the project name, or it is not exactly the committed and pushed version. Commit and push it in the settings root (section 6.1), and keep the settings root outside the workspace folder.
 - **The project name is refused because of its Bridge port:** another project's name leads to the same port. Rename one of the two projects, and rename its Bridge settings folder to match.
