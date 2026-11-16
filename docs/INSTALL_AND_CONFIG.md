@@ -345,15 +345,35 @@ The configuration you create in part 6, and the organisation settings of part 1,
 
 ### 4.5 The proof signing key, and sharing it between workstations
 
-The Bridge signs every proof token and every line of its coverage ledger with a **proof signing key**. Nobody types it: on the first launch the Launcher creates a random key and keeps it in this machine's credential store (`KYKLOS_PROOF_HMAC_KEY`), and it hands the key only to the Bridge process, never to the container or to the code the Bridge builds and tests. A token signed on one machine verifies only where the same key is held.
+**What it is.** The proof signing key is a secret the Bridge uses to sign the evidence that a story's tests and checks really ran (its proof tokens and the lines of its coverage ledger). A story can close only when that signed evidence is verified with the same key. The agent never gets this key, so it cannot forge the evidence. Nobody types it: on the first launch the Launcher creates a random key and keeps it in this computer's credential store (`KYKLOS_PROOF_HMAC_KEY`), and it hands the key only to the Bridge process, never to the container or to the code the Bridge builds and tests.
+
+**Where it comes from.** Two places, chosen per configuration by the setting `KYKLOS_PROOF_KEY_SOURCE` (the *key source*):
+
+- **This computer's credential store** (`host`, the default): the key stays on this computer, so evidence signed here is verified only here.
+- **A shared secrets manager** (`secrets-manager`): every computer that reads the same entry signs with the same key, so a story proven on one of your computers can close on another. The entry's name is the setting `KYKLOS_PROOF_KEY_SECRET_NAME` (the *shared entry name*, default `PROOF_SIGNING_KEY`); the previous key is kept under the same name followed by `_PREVIOUS`.
+
+The pages never show a key, only its **fingerprint** (`sha256:` and 16 characters), a short code that identifies it: two computers that show the same fingerprint hold the same key. The Bridge reads the key when it starts, so a change takes effect at its next start.
+
+**The Proof signing key panel.** The Launcher shows it under each saved configuration (the Bridge page shows the same panel under **Settings**). It says what the key is and where this configuration takes it from, shows the fingerprints, and has these buttons, each described on the panel itself:
+
+| Button | What it does |
+|---|---|
+| **Change the key source** | Takes you to the `KYKLOS_PROOF_KEY_SOURCE` field of this configuration (it opens the Settings tab and shows the field even when the editor hides unset settings). Change it when several of your computers should share one key, or to go back to a key kept on this computer only. It applies once you save the configuration and the Bridge starts again. |
+| **Change the shared entry name** | Takes you to the `KYKLOS_PROOF_KEY_SECRET_NAME` field the same way. Change it only when your secrets manager keeps the key under another name, and use the same name on every computer that shares the key. |
+| **Set a new key** | Makes a new random key; the current key is kept as the previous key, so evidence it signed is still verified. Your other computers keep their own key until you export the new one. |
+| **Retire the previous key** | Deletes the previous key, so evidence signed with it is no longer verified. Use it after a key may have leaked: set a new key first, then retire the previous one. |
+| **Export to the secrets manager** | Copies this computer's key into the shared entry; every computer that reads that entry signs with it from its Bridge's next start, and the key the entry held is kept as its previous key. |
+| **Import from the secrets manager** | Copies the key of the shared entry into this computer's credential store; this computer's key is kept as the previous key. |
+
+The four key buttons ask for a confirmation that repeats what the button does before anything changes. On the Bridge page the two setting buttons are not offered (the settings belong to the Launcher's configuration), and the key buttons work once you unlock changes with the **Operating modes** button.
 
 **One workstation needs nothing more.** Share the key only when a story may move between workstations (another developer, a second machine): then a token minted on one verifies on the other, and the coverage a run measured on one counts on the other.
 
 To share it:
 
 1. Configure a secrets manager for the Bridge (the `Secrets` section, OpenBao or the encrypted file vault, see the Bridge README) with a Read rule whose pattern matches the shared entry's name (the setting `KYKLOS_PROOF_KEY_SECRET_NAME`, see the Appendix) and that name followed by `_PREVIOUS` and whose `AgentAccess` is `Deny`, plus a Write rule for the same names. The Bridge refuses to start on a shared key the agent could read, and the agent may never change a key its read rule denies it.
-2. On the first workstation, open the control panel (the configuration's **Proof signing key** panel) or the Bridge page (**Settings**, **Proof signing key**) and choose **Export to the secrets manager**. The panel names what changes and asks for a confirmation.
-3. On every workstation, set `KYKLOS_PROOF_KEY_SOURCE` to `secrets-manager` in the configuration (Bridge section; the **Proof signing key** panel's **Change the key source** opens the field), and `KYKLOS_PROOF_KEY_SECRET_NAME` when the entry has another name; the Launcher hands both to the Bridge it starts (or choose **Import from the secrets manager** to copy the shared key into the machine's own credential store instead). After the next start, every panel shows the same **fingerprint** (`sha256:` and 16 characters); that is how you check the machines agree. A key itself is never shown, logged or sent.
+2. On the first workstation, open the configuration's **Proof signing key** panel in the Launcher (or the Bridge page, **Settings**, **Proof signing key**) and choose **Export to the secrets manager**. The confirmation repeats what the button does before anything changes.
+3. On every workstation, press **Change the key source** in the configuration's **Proof signing key** panel, choose `secrets-manager` and save; press **Change the shared entry name** too when the entry has another name. The Launcher hands both settings to the Bridge it starts (or choose **Import from the secrets manager** to copy the shared key into the computer's own credential store instead). After the next start, every panel shows the same **fingerprint**; that is how you check the computers agree. A key itself is never shown, logged or sent.
 
 **The doctor checks it.** The Launcher's **Check** button, the Bridge's **Health** page and the agent's `health` skill all run the check `keys.proof-signing-key` from the same check engine. It reports whether this workstation holds a key, where the key comes from (this machine's credential store or the secrets manager) and its fingerprint, never the key. With `KYKLOS_PROOF_KEY_SOURCE` set to `secrets-manager` it also reads the shared entry and compares the fingerprints. Each "no" names the panel button that fixes it:
 
