@@ -26,7 +26,7 @@ If unset (exit 1), ask the developer the single question and write the answer:
   container is **blocked** (it does not see the host SDK and fails on host-only target frameworks). The
   build-execution guard enforces this and `record-slnx-green.sh` routes the full-solution build to the bridge. A build that outlasts the bridge's bounded wait
   (pending + job id) is collected with `get_job_result`, polled once a minute for up to an hour
-  (`RECORD_SLNX_GREEN_POLL_SECONDS`, `RECORD_SLNX_GREEN_WAIT_SECONDS`); a wait that runs out records nothing and exits non-zero. Run the recorder in the background (Bash `run_in_background`) or with the maximum tool time limit: a foreground Bash call is cut at 120-600 s.
+  (`RECORD_SLNX_GREEN_POLL_SECONDS`, `RECORD_SLNX_GREEN_WAIT_SECONDS`); a wait that runs out records nothing and exits non-zero. A failed poll is not a failed build: transport errors are retried within the wait, error answers up to `RECORD_SLNX_GREEN_POLL_ERRORS` (default 3) times in a row; if the result still cannot be collected, a green record already written for the same commit is kept, otherwise the recorder exits non-zero naming the job: check it with `get_job_result`, then re-run the recorder. Run the recorder in the background (Bash `run_in_background`) or with the maximum tool time limit: a foreground Bash call is cut at 120-600 s.
 - `local` — builds/tests run locally with `dotnet` in this container.
 
 Persist it once to `.claude/standards.env` (e.g. `BUILD_EXECUTION=bridge`); it is runtime-editable, so a

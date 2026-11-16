@@ -131,7 +131,9 @@ _proof_tool_detect_story() {
 # therefore kept under the project it belongs to: "<token dir>/<project id>/<dim-slug>@<story>.token", where the
 # project id is the canonical numeric GitLab id the bridge's one repository resolver answers (project_resolve). The
 # project is bound by `--project <id>` (emit, verify) or KYKLOS_PROOF_PROJECT; the bridge always names it, and a
-# container emit asks the bridge for the project of the files' repository. A token written with no project bound is a
+# container emit asks the bridge for the project that holds the stories of the files' repository (a companion's nested
+# source has the companion's), and a container reader with none bound reads the session's story project's token
+# (_proof_tool_session_project). A token written with no project bound is a
 # project-less token ("<token dir>/<dim-slug>@<story>.token"): the bridge carries it to its home project's key when the
 # tree it records is the home project's tree, and refuses it otherwise. The folder is the record of the project: a
 # reader bound to a project reads only that project's folder. The Test Discipline token is the exception: it stays
@@ -145,6 +147,17 @@ _proof_tool_project() {
     local p="${_PTG_PROJECT:-${KYKLOS_PROOF_PROJECT:-}}"
     case "$p" in ''|*[!0-9]*) return 0 ;; esac
     printf '%s' "$p" | sed -E 's/^0+([0-9])/\1/'
+}
+
+# _proof_tool_session_project -> the story project the session names itself (item_bound_story_project: the bound one,
+# else the tracker project its stories are issues of), '' when it names none. A reader with no project bound reads the
+# token of that project, so a token of the same story number kept under another project (a companion's nested source)
+# never answers for it.
+_proof_tool_session_project() {
+    # shellcheck source=/dev/null
+    command -v item_bound_story_project >/dev/null 2>&1 || { [ -f "$_PTG_LIB_DIR/item-project.sh" ] && . "$_PTG_LIB_DIR/item-project.sh"; }
+    command -v item_bound_story_project >/dev/null 2>&1 || return 0
+    item_bound_story_project
 }
 
 # _proof_tool_project_valid VALUE -> rc 0 iff VALUE is empty or a numeric project id.
@@ -166,15 +179,22 @@ _proof_tool_keyed_projects() {
 }
 
 # _proof_tool_token_file DIM STORY [write] -> the token path for DIM bound to STORY. With a project bound, the project's
-# keyed path. With none bound: the project-less path; a READ that finds no project-less token but exactly one project
+# keyed path. With none bound, a READ by a session that names its story project (_proof_tool_session_project) prefers
+# that project's keyed token, so neither a stale project-less token nor another project's token of the same story number
+# hides it. When that project holds none (a session whose tracker project is not the story's project), or the session
+# names none: the project-less path; a READ that finds no project-less token but exactly one project
 # holding a keyed token of the story reads that one (a reader that cannot name the project, on a bridge serving one
 # project, or the only project with that story number); two or more such projects are refused by the caller, naming
 # them (_proof_tool_keyed_projects). A write with no project bound always writes the project-less path.
 _proof_tool_token_file() {
-    local p dir slug only
+    local p dir slug only sp
     p="$(_proof_tool_project)"; dir="$(_proof_tool_dir)"; slug="$(_proof_tool_slug "$1")"
     if [ "$slug" = test-discipline ]; then printf '%s/%s@%s.token' "$dir" "$slug" "$2"; return 0; fi
     if [ -n "$p" ]; then printf '%s/%s/%s@%s.token' "$dir" "$p" "$slug" "$2"; return 0; fi
+    [ "${3:-}" = write ] || sp="$(_proof_tool_session_project)"
+    if [ -n "${sp:-}" ] && [ -f "$dir/$sp/$slug@$2.token" ]; then
+        printf '%s/%s/%s@%s.token' "$dir" "$sp" "$slug" "$2"; return 0
+    fi
     if [ "${3:-}" != write ] && [ ! -f "$dir/$slug@$2.token" ]; then
         only="$(_proof_tool_keyed_projects "$1" "$2")"
         if [ -n "$only" ] && [ "$(printf '%s\n' "$only" | wc -l)" -eq 1 ]; then
@@ -248,19 +268,24 @@ _proof_tool_no_token_reason() {
     printf 'no-token: no token for story %s%s' "$2" "${p:+ of project $p}"
 }
 
-# _proof_tool_bind_project_for DIR -> bind the project of the repository at DIR when none is bound, by asking the
-# bridge's one repository resolver (item_project_of). On the host (the key is present) nothing is asked: the bridge
-# names the project itself. A bridge that cannot be asked leaves the token project-less, said on stderr.
+# _proof_tool_bind_project_for DIR -> bind the project that holds the stories of the work at DIR when none is bound, by
+# asking the bridge's one repository resolver (item_story_project_of ... served): the repository's own project when the
+# bridge serves its stories, else, only for a repository the bridge serves without stories (a companion's nested source
+# repository), the session's story project. A repository the bridge does not serve at all (a scratch clone) stays
+# project-less, so the bridge's tree check of a project-less token still applies to it. A token is a story's,
+# so it is kept under the story's project, the one a close reads, never under the project of a source repository whose
+# stories live elsewhere. On the host (the key is present) nothing is asked: the bridge names the project itself. A
+# bridge that cannot be asked leaves the token project-less, said on stderr.
 _proof_tool_bind_project_for() {
     local d="${1:-.}" answer rc
     [ -z "$(_proof_tool_project)" ] || return 0
     [ -z "${KYKLOS_PROOF_HMAC_KEY:-}" ] || return 0
-    if ! command -v item_project_of >/dev/null 2>&1; then
+    if ! command -v item_story_project_of >/dev/null 2>&1; then
         # shellcheck source=/dev/null
         [ -f "$_PTG_LIB_DIR/item-project.sh" ] && . "$_PTG_LIB_DIR/item-project.sh"
     fi
-    command -v item_project_of >/dev/null 2>&1 || return 0
-    answer="$(item_project_of "$d")"; rc=$?
+    command -v item_story_project_of >/dev/null 2>&1 || return 0
+    answer="$(item_story_project_of "$d" served)"; rc=$?
     if [ "$rc" -eq 0 ]; then _PTG_PROJECT="$answer"; return 0; fi
     printf '[kyklos] proof-tool: the token is kept without a project (%s); the bridge carries it to its home project when the token'"'"'s tree is that project'"'"'s\n' "$answer" >&2
     return 0
@@ -1469,7 +1494,7 @@ proof_tool_emit() {
         story="$(_proof_tool_detect_story "$_fd")"
     fi
     [ -n "$story" ] || { echo "proof_tool_emit($dim): cannot tell which story these files belong to -> pass --story <N> (or set KYKLOS_PROOF_STORY)" >&2; return 1; }
-    # The project the files' repository belongs to keys the token (see "Tokens kept per project"; Test Discipline stays
+    # The project that holds the story keys the token (see "Tokens kept per project"; Test Discipline stays
     # project-less).
     if [ "$(_proof_tool_slug "$dim")" != test-discipline ]; then
         if [ -n "$root_opt" ]; then _proof_tool_bind_project_for "$root_opt"; else

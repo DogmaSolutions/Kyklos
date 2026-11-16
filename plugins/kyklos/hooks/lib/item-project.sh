@@ -11,12 +11,13 @@
 #   The origin address decides; the repository's own STORY_GITLAB_PROJECT goes as the declared hint, and <project hint>
 #   (a name, id or path the caller was given) as the project hint, which must agree with the origin.
 #
-#   item_story_project_of <dir>
-#       as item_project_of, for the project that holds the stories of the work in <dir>: the repository's own project
-#       when the bridge serves its stories, else (a companion's nested source, whose project serves only pipelines) the
-#       one story project the bridge serves; a bridge serving several story projects then answers PROJECT-REQUIRED. A
-#       repository the bridge does not serve at all (PROJECT-NOT-SERVED) is treated the same way. The session's bound story
-#       project (item_bound_story_project) is used first when set.
+#   item_story_project_of <dir> [served]
+#       as item_project_of, for the project that holds the stories of the work in <dir>. The repository is resolved
+#       first: its own project when the bridge serves its stories. Only when it does not (a companion's nested source,
+#       whose project serves only pipelines; or, without "served", a repository the bridge does not serve at all,
+#       PROJECT-NOT-SERVED) does it fall back to the session's bound story project (item_bound_story_project), else the one
+#       story project the bridge serves (a bridge serving several then answers PROJECT-REQUIRED). With "served", a
+#       repository the bridge does not serve keeps the bridge's answer (rc 1), never the session's project.
 #
 # [CySec] Prevents CWE-639 "Authorization Bypass Through User-Controlled Key": the project of an item is the bridge's
 # answer for the item's own repository. Only the STORY project of a repository whose stories the bridge does not keep
@@ -97,14 +98,14 @@ item_bound_story_project() {
 }
 
 item_story_project_of() {
-    local dir="${1:-.}" args text rc=0 out
+    local dir="${1:-.}" only_served="${2:-}" args text rc=0 out
     args="$(_ip_args "$dir" "")" || { printf 'the repository facts of %s could not be read' "$dir"; return 2; }
     text="$(_ip_ask "$dir" "$args")" || { rc=$?; printf '%s' "$text"; return "$rc"; }
     out="$(_ip_id "$text" stories)"; rc=$?
     # A repository whose project serves no stories, or is not served at all (a companion's nested source repository: its
     # project is not the story project), has the session's story project.
     local notserved=0
-    [ "$(printf '%s' "$text" | jq -r '.code // empty' 2>/dev/null)" = PROJECT-NOT-SERVED ] && notserved=1
+    [ "$(printf '%s' "$text" | jq -r '.code // empty' 2>/dev/null)" = PROJECT-NOT-SERVED ] && [ "$only_served" != served ] && notserved=1
     [ "$rc" -eq 3 ] || [ "$notserved" = 1 ] || { printf '%s' "$out"; return "$rc"; }
     local bound; bound="$(item_bound_story_project)"
     if [ -n "$bound" ]; then printf '%s' "$bound"; return 0; fi

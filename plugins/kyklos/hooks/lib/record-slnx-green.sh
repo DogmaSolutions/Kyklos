@@ -20,8 +20,8 @@
 #
 # Exits NON-ZERO (and writes nothing) when it cannot prove a green full-solution build: no *.slnx in the repo,
 # `dotnet` absent, not a git repo / HEAD unresolvable, a repo folder holding several *.slnx (name the solution),
-# a path that is not one of the repo's solutions, the build fails, or the record cannot be written. Exit 0 means the
-# record was written, and nothing else: an EXIT trap turns any other ending into a non-zero exit.
+# a path that is not one of the repo's solutions, the build fails, or the record cannot be written. Exit 0 means a
+# green record of HEAD exists (written now, or kept when a poll failed), and nothing else: an EXIT trap turns any other ending into a non-zero exit.
 #
 # MODE-AWARE (BUILD_EXECUTION knob, no default; lib/build-execution.sh reads the session's environment first, then
 # the workspace root's .claude/standards.env; for a solution in a companion's nested source, <workspace>/Repo, that
@@ -34,10 +34,15 @@
 #            A build that outlasts the bridge's bounded wait is answered pending=true + jobId; the recorder then collects it
 #            with the `get_job_result` verb (same client), at most one call per RECORD_SLNX_GREEN_POLL_SECONDS (default 60),
 #            for at most RECORD_SLNX_GREEN_WAIT_SECONDS (default 3600) overall. A poll that fails on a transport error or an
-#            empty reply is not a failed build: it is retried within that same overall wait. A wait that runs out, a pending reply without
-#            a job id, an isError reply, or any reply without result.exitCode records nothing and exits non-zero with a named
-#            reason. The two settings are checked BEFORE any arithmetic: the wait is a whole number >= 1, the poll a
-#            non-negative number (fractions allowed); anything else is refused. A long build outlasts a foreground tool call
+#            empty reply is not a failed build: it is retried within that same overall wait. A poll ANSWERED with an error
+#            (a JSON-RPC error, an isError result, an unreadable reply) is not a failed build either: it is retried up to
+#            RECORD_SLNX_GREEN_POLL_ERRORS (default 3) times in a row. When the build's result cannot be collected (those
+#            retries used up, a client failure on a poll, or the wait ending right after a failed poll), a green record
+#            already written for the same commit is kept (exit 0); without one, nothing is recorded and the exit is non-zero,
+#            naming the failed poll and the next step (check the job with get_job_result, then re-run). A wait that runs out,
+#            a pending reply without a job id, an isError build reply, or any reply without result.exitCode records nothing
+#            and exits non-zero with a named reason. The settings are checked BEFORE any arithmetic: the wait and the error
+#            bound are whole numbers >= 1, the poll a non-negative number (fractions allowed); anything else is refused. A long build outlasts a foreground tool call
 #            (cut at 120-600 s): run the recorder in the background or with the tool's maximum time limit.
 #            The marker is written ONLY after an explicit success flag (GREEN) set by the build path, so an error that
 #            abandons the build path can never record a build as green.
@@ -46,7 +51,7 @@
 . "$(dirname "${BASH_SOURCE[0]}")/json-answer.sh"   # json_test / json_read: an empty or cut answer is never valid
 set +e -uo pipefail
 
-# Exit status contract: 0 ONLY when the record was written. [CySec] Mitigates CWE-636 "Not Failing Securely": every
+# Exit status contract: 0 ONLY when a green record of HEAD exists (written, or kept). [CySec] Mitigates CWE-636 "Not Failing Securely": every
 # path that ends without a written record exits non-zero, including one that forgot to say so (a future bare `exit 0`,
 # an unchecked step), so a caller can never read "nothing recorded" as success.
 RECORDED=0
@@ -70,6 +75,9 @@ trap _record_slnx_green_on_exit EXIT
 # (the tests shrink them); the defaults keep it to one call per minute for up to an hour.
 POLL_SECONDS="${RECORD_SLNX_GREEN_POLL_SECONDS:-60}"
 WAIT_SECONDS="${RECORD_SLNX_GREEN_WAIT_SECONDS:-3600}"
+# How many error ANSWERS to a poll in a row (a JSON-RPC error, an isError result, an unreadable reply) are retried
+# before the recorder stops with the next step named. Transport errors are retried for the whole wait, as before.
+POLL_ERRORS="${RECORD_SLNX_GREEN_POLL_ERRORS:-3}"
 
 STATE_DIR="${KYKLOS_STATE_DIR:-/tmp/kyklos-state}"
 
@@ -80,6 +88,44 @@ STATE_DIR="${KYKLOS_STATE_DIR:-/tmp/kyklos-state}"
 # environment first, then $CLAUDE_PROJECT_DIR/.claude/standards.env. Prints the normalised value (or empty when
 # unset/blank/invalid).
 read_build_execution() { build_execution_mode; }
+
+# _poll_next_step <job> — what the caller does when the build's result could not be collected.
+_poll_next_step() {
+    printf 'The build may still be green on the host: check it with get_job_result {"jobId":"%s"}, then re-run this recorder.' "$1"
+}
+
+# _poll_error_text <reply> — a short reason from an error answer: the JSON-RPC message, the result's text, or "unreadable reply".
+_poll_error_text() {
+    local why
+    why="$(printf '%s' "$1" | jq -r '.error.message // ([(.result.content // [])[] | select(.type == "text") | .text] | join(" ")) // empty' 2>/dev/null | head -c 300)"
+    printf '%s' "${why:-unreadable reply}"
+}
+
+# _poll_job <job> — one get_job_result poll. rc 0: a usable reply, in POLL_REPLY; rc 11: a failed poll to retry within
+# the overall wait (a transport error or an empty reply, or an error ANSWER - a JSON-RPC error, an isError result, an
+# unreadable reply - fewer than POLL_ERRORS times in a row); rc 10: the poll failed for good (POLL_ERRORS error answers
+# in a row, or a client failure: no tooling, no endpoint, a wrong bridge identity). A failed poll says nothing about the
+# build, so rc 10 names the next step and never reads as a failed build.
+_poll_job() {
+    local job="$1" prc
+    POLL_REPLY="$(bridge_mcp_call get_job_result "$(jq -cn --arg jobId "$job" '{jobId: $jobId}')" 120)"; prc=$?
+    if [ "$prc" -eq 0 ] && ! bridge_mcp_is_error "$POLL_REPLY"; then
+        POLL_ERRORS_SEEN=0; return 0
+    fi
+    if [ "$prc" -eq 3 ]; then
+        echo "record-slnx-green: get_job_result poll for job $job failed (transport error or empty reply); the build is still running on the host, polling again within the ${WAIT_SECONDS}s wait." >&2
+        return 11
+    fi
+    if [ "$prc" -ne 0 ]; then
+        echo "record-slnx-green: get_job_result poll for job $job failed (client error $prc). $(_poll_next_step "$job")" >&2
+        return 10
+    fi
+    POLL_ERRORS_SEEN=$((POLL_ERRORS_SEEN + 1))
+    echo "record-slnx-green: get_job_result poll for job $job answered an error ($(_poll_error_text "$POLL_REPLY")); attempt $POLL_ERRORS_SEEN of $POLL_ERRORS." >&2
+    [ "$POLL_ERRORS_SEEN" -lt "$POLL_ERRORS" ] && return 11
+    echo "record-slnx-green: get_job_result poll for job $job failed $POLL_ERRORS_SEEN times in a row; the build's result is unknown. $(_poll_next_step "$job")" >&2
+    return 10
+}
 
 # bridge_build <arguments-json> — run the full-solution build ON THE HOST via the KyklosBridge, NOT local dotnet.
 # Calls the bridge's `build` verb through lib/bridge-mcp.sh (the same tools/call mcp__KyklosBridge__build issues)
@@ -109,7 +155,9 @@ bridge_build() {
     # odd value is refused instead of aborting the build path or being evaluated.
     [[ "$WAIT_SECONDS" =~ ^[1-9][0-9]*$ ]] || { echo "record-slnx-green: RECORD_SLNX_GREEN_WAIT_SECONDS='$WAIT_SECONDS' is not a whole number of seconds >= 1; nothing recorded." >&2; return 2; }
     [[ "$POLL_SECONDS" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "record-slnx-green: RECORD_SLNX_GREEN_POLL_SECONDS='$POLL_SECONDS' is not a non-negative number of seconds; nothing recorded." >&2; return 2; }
-    local deadline=$((SECONDS + WAIT_SECONDS)) job _failed_poll=0
+    [[ "$POLL_ERRORS" =~ ^[1-9][0-9]*$ ]] || { echo "record-slnx-green: RECORD_SLNX_GREEN_POLL_ERRORS='$POLL_ERRORS' is not a whole number >= 1; nothing recorded." >&2; return 2; }
+    local deadline=$((SECONDS + WAIT_SECONDS)) job _failed_poll=0 _prc
+    POLL_ERRORS_SEEN=0
     while :; do
         # A JSON-RPC error envelope (e.g. -32001 unauthorized) => not a green build.
         if ! printf '%s' "$resp" | json_test '.error | not'; then
@@ -120,7 +168,9 @@ bridge_build() {
         job="$(printf '%s' "$resp" | jq -r '.result.jobId // empty' 2>/dev/null)"
         [ -n "$job" ] || { echo "record-slnx-green: bridge answered pending without a jobId; nothing recorded." >&2; return 3; }
         if [ "$SECONDS" -ge "$deadline" ]; then
-            echo "record-slnx-green: host build (job $job) still not finished after ${WAIT_SECONDS}s (RECORD_SLNX_GREEN_WAIT_SECONDS); nothing recorded. Collect it with get_job_result and re-run." >&2
+            echo "record-slnx-green: host build (job $job) still not finished after ${WAIT_SECONDS}s (RECORD_SLNX_GREEN_WAIT_SECONDS); nothing recorded. $(_poll_next_step "$job")" >&2
+            # Ended right after a failed poll: the build's result is unknown (10), so a green record of HEAD is kept.
+            [ "$_failed_poll" = 1 ] && return 10
             return 4
         fi
         # After a failed poll the pause is at least 1 s, whatever the poll setting, so a bridge that fails at once is
@@ -129,20 +179,13 @@ bridge_build() {
         if [ "$_failed_poll" = 1 ] && ! [[ "$POLL_SECONDS" =~ ^0*[1-9][0-9]*(\.[0-9]+)?$ ]]; then nap=1; fi
         echo "record-slnx-green: host build (job $job) still running; polling again in ${nap}s..." >&2
         sleep "$nap" || { echo "record-slnx-green: waiting between polls failed (RECORD_SLNX_GREEN_POLL_SECONDS='$POLL_SECONDS'); nothing recorded." >&2; return 4; }
-        # A failed POLL is not a failed build: the job keeps running on the host. A transport error or an empty reply
-        # (rc 3) is retried within the same overall wait (the last pending reply stays in hand, so the deadline above
-        # still ends the wait); any other client failure (no tooling, no endpoint, a wrong bridge identity) stays final.
-        local poll _prc
-        poll="$(bridge_mcp_call get_job_result "$(jq -cn --arg jobId "$job" '{jobId: $jobId}')" 120)"; _prc=$?
-        _failed_poll=0
-        if [ "$_prc" -eq 0 ]; then
-            resp="$poll"
-        elif [ "$_prc" -eq 3 ]; then
-            _failed_poll=1
-            echo "record-slnx-green: get_job_result poll for job $job failed (transport error or empty reply); the build is still running on the host, polling again within the ${WAIT_SECONDS}s wait." >&2
-        else
-            echo "record-slnx-green: get_job_result request for job $job failed (client error $_prc); nothing recorded." >&2; return 3
-        fi
+        # A failed POLL is not a failed build: the job keeps running on the host (_poll_job decides retry or stop).
+        _poll_job "$job"; _prc=$?
+        case "$_prc" in
+            0) resp="$POLL_REPLY"; _failed_poll=0 ;;
+            11) _failed_poll=1 ;;
+            *) return "$_prc" ;;
+        esac
     done
     if bridge_mcp_is_error "$resp"; then
         echo "record-slnx-green: bridge reply is an error result (isError); nothing recorded." >&2; return 3
@@ -228,6 +271,18 @@ if [ "$MODE" = "bridge" ]; then
         }
     fi
     bridge_build "$KYKLOS_BRIDGE_ARGS"; _brc=$?
+    if [ "$_brc" -eq 10 ]; then
+        # The build's result could not be collected (its poll failed): a green record already written for this very
+        # commit stays valid and is kept; without one, nothing is recorded and the exit is non-zero.
+        _kept="$(slnx_marker_path "$STATE_DIR" "$TOP" "$SOL_REL")"
+        if [ -f "$_kept" ] && [ "$(head -n1 "$_kept" 2>/dev/null)" = "$HEAD_SHA" ]; then
+            RECORDED=1
+            echo "record-slnx-green: the green record already written for HEAD $HEAD_SHA is kept ($_kept); nothing new recorded." >&2
+            exit 0
+        fi
+        echo "record-slnx-green: nothing recorded (no earlier green record of HEAD $HEAD_SHA to keep)." >&2
+        exit 3
+    fi
     [ "$_brc" -eq 0 ] || exit "$_brc"
     GREEN=1
 else

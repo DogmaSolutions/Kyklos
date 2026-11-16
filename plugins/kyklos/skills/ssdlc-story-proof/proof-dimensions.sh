@@ -788,9 +788,11 @@ proof_advreview_row_problem() {
     printf 'Adversarial Review Token CANNOT be verified for story %s - the KyklosBridge did not answer (rc %s; endpoint file %s, override with KYKLOS_BRIDGE_MCP_JSON). Only the bridge can check a review token; refusing (fail-closed): re-close when the bridge is reachable.\n' "$story" "$rc" "$(bridge_mcp_json_path)"
     return 0
   fi
-  verdict="$(bridge_mcp_text "$reply" | tr -d '[:space:]')"
+  # The bridge's whole answer on one line, its spaces kept: a refusal names why and what to do, so it is shown in full
+  # (bounded), never squeezed or cut to a bare verdict. Only the exact answer "authentic" passes.
+  verdict="$(bridge_mcp_text "$reply" | tr '\r\n\t' '   ' | sed -e 's/^ *//' -e 's/ *$//')"
   [ "$verdict" = authentic ] \
-    || printf 'Adversarial Review Token does not VERIFY for story %s (the bridge says: %s) - re-run ssdlc-adversarial-review so the bridge mints the token; a hand-computed or stale token cannot pass.\n' "$story" "${verdict:0:80}"
+    || printf 'Adversarial Review Token does not VERIFY for story %s (the bridge says: %s) - re-run ssdlc-adversarial-review so the bridge mints the token; a hand-computed or stale token cannot pass.\n' "$story" "${verdict:0:600}"
   return 0
 }
 

@@ -73,8 +73,10 @@ In words:
    row with two metrics: `Report` (the note's link) and `Token` (the token). If the newest token does not verify, the row
    stays open: *"the newest review note's token does not verify; run the review again"*.
 4. **Checking (`advreview_check`, and the close).** The Bridge recomputes the HMAC over the body it kept for the story and
-   compares it with the presented token in constant time. Answers: `authentic`, `unauthentic`, `no-token` (nothing was
-   minted for that story) or `unavailable: <why>`. Called without a token, it checks the newest token it minted for the
+   compares it with the presented token in constant time. Answers: `authentic`; `unauthentic: <why>` or `no-token: <why>`,
+   each naming the reason and the next step (a token that is not shaped like one, a newer review that replaced it, a key
+   that is neither the current nor the previous one, no review of the story in this Bridge's store, a review left in the
+   store used before the products were renamed, or one carried to another project); or `unavailable: <why>`. Called without a token, it checks the newest token it minted for the
    story and says so in the answer, which therefore never equals the bare `authentic` the close accepts for a presented
    token.
 

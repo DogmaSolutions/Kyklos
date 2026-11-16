@@ -100,8 +100,14 @@ elif ! printf '%s' "$reply" | json_test '.result.findings | type == "array"'; th
     # An answer that is a plain text (a bridge with no doctor) or unreadable gives no findings: never read as healthy.
     neutral="the bridge gave no doctor report"
 else
+    # A finding that carries its steps (a current bridge) is shown with why it matters and the steps numbered, one per line,
+    # so the person can follow them; an older bridge's one-line fix is shown as it was.
     lines="$(printf '%s' "$reply" | json_read '[.result.findings[] | select(.verdict == "No")
-        | "- " + .check + ": " + .found + (if (.fix // "") != "" then " Fix: " + .fix else "" end)] | join("\n")')"
+        | "- " + .check + ": " + .found
+          + (if ((.steps // []) | length) > 0
+             then (if (.why // "") != "" then "\n  Why it matters: " + .why else "" end) + "\n  How to fix it:"
+                  + ([.steps | to_entries[] | "\n    " + ((.key + 1) | tostring) + ". " + .value] | join(""))
+             elif (.fix // "") != "" then " Fix: " + .fix else "" end)] | join("\n")')"
     unknown="$(printf '%s' "$reply" | json_read '[.result.findings[] | select(.verdict == "CannotTell")] | length')"
     if [ "${unknown:-0}" -gt 0 ] 2>/dev/null; then
         lines="${lines:+$lines$'\n'}- ${unknown} check(s) could not tell (never a pass): ask /kyklos:health for the full report."
