@@ -55,10 +55,12 @@ sequenceDiagram
 
 In words:
 
-1. **Minting (`advreview_mint`).** The reviewer hands the [Bridge](COMPONENTS.md#kyklos-bridge) the story number and the report text. The Bridge refuses
+1. **Minting (`advreview_mint`).** The reviewer hands the [Bridge](COMPONENTS.md#kyklos-bridge) the story's project (`project`, its id or path), the story number and the report text. The Bridge refuses
    a request without a story number, an empty report, a report over 512 KB, and a report that breaks the template (naming
-   the line, and showing the template). It refuses too when it has no signing key: it never answers with a hash anyone
-   could compute. Otherwise it computes the **bound body** `advreview:<story>:<SHA-256 of the report>` and the **token**,
+   the line, and showing the template). A Bridge that serves several projects refuses a request that names no project
+   (`PROJECT-REQUIRED`, listing them) and one for a project it does not serve (`PROJECT-NOT-SERVED`); the review verbs
+   below follow the same rule. It refuses too when it has no signing key: it never answers with a hash anyone
+   could compute. Otherwise it computes the **bound body** `advreview:<project>/<story>:<SHA-256 of the report>` (with the project's numeric id) and the **token**,
    the HMAC-SHA256 of that body under the [proof signing key](PROOF_DIMENSION_TEST_DISCIPLINE.md#signatures-the-key-and-when-they-are-checked), through the same proof script the other tokens use, so the
    format lives in one place. It keeps the body and the token for the story in its own state folder, per project, and
    answers with the token: 64 lowercase hexadecimal characters.
@@ -80,10 +82,12 @@ In words:
    story and says so in the answer, which therefore never equals the bare `authentic` the close accepts for a presented
    token.
 
-**Where the key comes from.** The same proof signing key as every other Kyklos token: created by the
-[Kyklos Launcher](COMPONENTS.md) on first launch (32 random bytes), kept in the host's credential store under the name
-`KYKLOS_PROOF_HMAC_KEY`, handed only to the Bridge process, never to the container and never to the builds and tests the
-Bridge runs. The agent and the reviewer can read the report and the token, but cannot compute a token for another report.
+**Where the key comes from.** The same proof signing key as every other Kyklos token. By default
+(`KYKLOS_PROOF_KEY_SOURCE=host`) it is created by the [Kyklos Launcher](COMPONENTS.md) on first launch (32 random bytes)
+and kept in the host's credential store under the name `KYKLOS_PROOF_HMAC_KEY`; with `KYKLOS_PROOF_KEY_SOURCE=secrets-manager`
+the Bridge reads it from a shared secrets manager entry (`KYKLOS_PROOF_KEY_SECRET_NAME`), so a review minted on one
+workstation verifies on another. The key used before the last change stays valid as the previous key. Either way it is
+handed only to the Bridge process, never to the container and never to the builds and tests the Bridge runs. The agent and the reviewer can read the report and the token, but cannot compute a token for another report.
 See [Secrets](SECRETS.md) and [Test Discipline](PROOF_DIMENSION_TEST_DISCIPLINE.md#signatures-the-key-and-when-they-are-checked).
 
 **What the signature protects.** A token binds one story to one exact report. Editing the report after minting changes

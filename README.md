@@ -96,7 +96,8 @@ The following sections illustrate how *Kyklos* works and how it helps to keep th
 15. [Manually install and configure Kyklos on Windows](docs/INSTALL_AND_CONFIG.md)
 16. [Installing Kyklos with an agent: step-by-step instructions an agent can follow](docs/AGENT_INSTALL.md)
 17. [Troubleshooting: find your problem by the message you see](docs/TROUBLESHOOTING.md)
-18. [Knowledge base](docs/KB.md)
+18. [Versions and releases: what each release publishes, and which Bridge the Launcher runs](docs/RELEASES.md)
+19. [Knowledge base](docs/KB.md)
 
 ---  
 

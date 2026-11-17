@@ -513,7 +513,8 @@ From here, execution is regulated by the **stories** (the one ACTIVE In-progress
      `group/project#<n>`, `group/project!<n>` or its web link); the bridge refuses a target it cannot read or that is
      already closed or merged. An issue also gets GitLab's "blocked by" link; a merge request only the bullet.
    - `status::blocked-on-user`: the target is the web link to the note that asks the user (ending in `#note_<n>`), on
-     an issue or merge request that is still open; the note must exist. The reason must hold a line starting with
+     an issue or merge request that is still open; the note must exist. Post the question on the story itself with the
+     bridge's `story_note` verb (`id`, `project`, `body`); its answer is that link. The reason must hold a line starting with
      `searched:` that names what you looked at before asking (the project's tests and scripts that sign in, seed data
      or start the application), for example `--reason $'which pilot project\nsearched: the sign-in fixture of the tests'`;
      without it the bridge refuses the block (opt-out: bridge setting `Agile:Proof:AskSearchedRequired=false`).

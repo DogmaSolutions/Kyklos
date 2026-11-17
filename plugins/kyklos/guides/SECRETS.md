@@ -20,10 +20,40 @@ The credentials are deliberately **split by purpose**:
   dedicated push credential could also call the API.
 - **GitLab API tokens stay on the host.** A token that can call the GitLab API is never forwarded into the agent's container: the Bridge keeps it and uses it for the story, CI and messaging actions it
   performs, each one checked against the rules first. So the agent cannot use a token of its own to edit a label, close a story, merge a request or skip a check behind the workflow's back.
-- **The [proof signing key](PROOF_DIMENSION_TEST_DISCIPLINE.md#signatures-the-key-and-when-they-are-checked)** (see the [Proof Table](PROOF.md)) is created on first use, stored in the Credential Manager and handed only to the Bridge process. It never reaches the container, nor the builds and
+- **The [proof signing key](PROOF_DIMENSION_TEST_DISCIPLINE.md#signatures-the-key-and-when-they-are-checked)** (see the [Proof Table](PROOF.md)) is created on first use, stored in the Credential Manager (or read from a shared secrets manager, see [below](#the-proof-signing-key-where-it-comes-from)) and handed only to the Bridge process. It never reaches the container, nor the builds and
   tests the Bridge runs: they start with a clean environment.
-- **Secrets on demand.** When the agent needs a secret for its own work (for example a token for a third-party service named in the project's settings), it asks the Bridge, which returns the
+- **Secrets on demand.** With `KYKLOS_SECRETS_MODE=bridge` (see [below](#how-the-other-secrets-reach-the-container-kyklos_secrets_mode)), when the agent needs a secret for its own work (for example a token for a third-party service named in the project's settings), it asks the Bridge, which returns the
   current value without ever saying where it is stored; a value changed in the credential store is picked up without restarting the container.
+
+## How the other secrets reach the container: `KYKLOS_SECRETS_MODE`
+
+A project's configuration lists, in `KYKLOS_SECRETS`, the names of the secrets its agent may use. The setting `KYKLOS_SECRETS_MODE` decides how their values reach the agent:
+
+| Value | What happens | When to use it |
+|---|---|---|
+| `env` (the default) | at launch, the Launcher copies the value of each listed secret that cannot call the GitLab API into the container as an environment variable. A token that can call the API still stays on the host, for the Bridge | a project without the story workflow, or one that has not moved to `bridge` yet |
+| `bridge` | no value enters the container: the agent asks the project's Bridge for a secret when it needs it, and the Bridge reads the current value from the credential store | every project that uses the story workflow (`KYKLOS_SSDLC_MODE`): the story stack needs it, and the launch is refused without it |
+| `both` | the Bridge serves the secrets and the values are still copied, for a short move from `env` to `bridge` | only during that move |
+
+The values are never written to a file in either mode. A value served by the Bridge is read again at each request, so a changed secret is used at once; a value copied with `env` is the one read at launch, until the next launch.
+
+## The proof signing key: where it comes from
+
+The proof signing key signs every proof and review token. Two settings of the project's configuration (in its Bridge section) decide where the Bridge takes it from:
+
+- **`KYKLOS_PROOF_KEY_SOURCE`**: `host` (the default) uses the key the Launcher keeps in this computer's credential store, created on the first launch. Evidence signed on this computer is verified only here. `secrets-manager` reads the key from the secrets manager the Bridge is configured with, so every computer that reads the same entry signs and verifies with the same key, and a story proven on one of your computers can close on another. A Bridge set to `secrets-manager` that cannot read the key refuses to start.
+- **`KYKLOS_PROOF_KEY_SECRET_NAME`**: the name of the shared entry in the secrets manager (default `PROOF_SIGNING_KEY`). Use the same name on every computer that shares the key.
+
+**The previous key.** When a key is replaced, the old one is kept as the *previous key* (`KYKLOS_PROOF_HMAC_KEY_PREVIOUS` in the credential store, or the shared entry's name followed by `_PREVIOUS` in the secrets manager). Tokens signed with it still verify, so a new key does not invalidate them at once; nothing new is signed with it.
+
+**Changing the key.** The Launcher's configuration page has a **Proof signing key** panel. It shows the keys only by their fingerprint (a short code: two computers that show the same fingerprint hold the same key), never the key itself, and each action asks before it changes anything:
+
+- **Set a new key**: a new random key in this computer's credential store; the current key becomes the previous key.
+- **Export to the secrets manager**: copies this computer's key into the shared entry; the key the entry held becomes its previous key. The Bridge's secrets routing must refuse that entry to the agent, or the Bridge refuses to start.
+- **Import from the secrets manager**: copies the shared entry's key into this computer's credential store; this computer's key becomes the previous key.
+- **Retire the previous key**: deletes the previous key from this computer's credential store, after a key may have leaked (set a new key first, then retire the previous one).
+
+A Bridge reads the key when it starts, so a change takes effect at its next start. The Bridge's doctor reports which key it signs with and where it comes from (the `keys.proof-signing-key` check).
 
 ## How the secrets travel, and where they are checked
 

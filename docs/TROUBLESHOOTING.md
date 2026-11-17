@@ -11,7 +11,7 @@ Two rules apply everywhere:
 
 **First step for any problem: run the doctor.** The doctor checks the configuration actively (it reaches the addresses, tries the tokens, resolves the project numbers) and says what will and will not work. The agent runs it with the `health` skill (`/kyklos:health`), a person with the **Check** button of the Launcher or the **Health** tab of the Bridge. Many of the symptoms below are listed in its report with the same fix. Every finding that needs you says, in plain words, what is wrong and why it matters, then lists numbered steps to fix it, each one action that names where to do it (the configuration, the tab, the field and the button of the Launcher), ending with pressing **Check** again.
 
-Contents: [Push refused](#push-refused) · [Push blocked: no recorded green full-solution build](#push-blocked-no-recorded-green-full-solution-build) · [Merge or arming blocked: branch behind its target](#merge-or-arming-blocked-branch-behind-its-target) · [Auto-merge arming blocked: coverage](#auto-merge-arming-blocked-coverage) · [Merge request create refused: unarmed](#merge-request-create-refused-unarmed) · [Local merge blocked: pipeline not green](#local-merge-blocked-pipeline-not-green) · [Story close blocked](#story-close-blocked) · [Proof draft refused](#proof-draft-refused) · [Commit blocked](#commit-blocked) · [Bridge unreachable](#bridge-unreachable) · [Broken install](#broken-install) · [The agent changed course and said nothing](#the-agent-changed-course-and-said-nothing) · [Still stuck: report it](#still-stuck-report-it)
+Contents: [Push refused](#push-refused) · [Push blocked: no recorded green full-solution build](#push-blocked-no-recorded-green-full-solution-build) · [Merge or arming blocked: branch behind its target](#merge-or-arming-blocked-branch-behind-its-target) · [Auto-merge arming blocked: coverage](#auto-merge-arming-blocked-coverage) · [Merge request create refused: unarmed](#merge-request-create-refused-unarmed) · [Merge request refused: wrong target trunk](#merge-request-refused-wrong-target-trunk) · [Local merge blocked: pipeline not green](#local-merge-blocked-pipeline-not-green) · [Story close blocked](#story-close-blocked) · [Proof draft refused](#proof-draft-refused) · [Review token refused](#review-token-refused) · [Reading a Bridge refusal](#reading-a-bridge-refusal) · [Commit blocked](#commit-blocked) · [Bridge unreachable](#bridge-unreachable) · [Broken install](#broken-install) · [The agent changed course and said nothing](#the-agent-changed-course-and-said-nothing) · [Still stuck: report it](#still-stuck-report-it)
 
 ## Push refused
 
@@ -74,6 +74,18 @@ Contents: [Push refused](#push-refused) · [Push blocked: no recorded green full
 
 **Fix (agent):** push the one story branch with the options the message prints (`git push -o merge_request.create -o merge_request.merge_when_pipeline_succeeds ... origin <branch>`), written out in full (no variables, no `--all`). Then only watch the pipeline; when GitLab has merged it, delete the local branch and close the story. If the repository has no readable `origin`, a person adds the remote.
 
+## Merge request refused: wrong target trunk
+
+**You see:** `Merge request REFUSED: '<branch>' merges into develop and its merge request is aimed at 'main', not develop. ...`, or `... the target of its merge request cannot be read ...`, or `Merge request REFUSED: this repository declares the integration trunk 'develop' (KYKLOS_INTEGRATION_BRANCH), but origin has no such branch ...`, or `Merge request REFUSED: '<branch>' is aimed at 'main' but carries N commit(s) of 'develop' that 'main' does not have.`
+
+**Cause:** the repository declares two trunks (`KYKLOS_INTEGRATION_BRANCH`, usually `develop`). A `feature/*` branch, story branches included, then lands on the integration trunk only; the production trunk (`main`) receives only a `release/<version>` promotion or a `hotfix/*` branch. The rule checks every creation, arm, retarget and merge of a merge request. A hotfix aimed at `main` that carries unreleased commits of `develop` is integration work, so it is refused too. A repository that declares no integration trunk is never checked by this rule.
+
+**Confirm:** the message names the branch, the trunk it must land on and the target it read.
+
+**Fix (agent):** name the target in the push, as the message prints it: `git push -o merge_request.create -o merge_request.target=develop ... origin <branch>`, or retarget the open merge request to `develop`. For a hotfix that started from `develop`, rename it `feature/<slug>` (or `feature/story-<n>-<slug>`) and target `develop`. When `origin` has no integration trunk, a **person** creates and protects it from `main`, or corrects the repository model. When the clone could not ask `origin`, run `git fetch origin` and retry.
+
+**Exceptions (person):** a one-shot override, `story-mr-target-ok`, set in a separate command with the plugin's override tool (the message prints it), for one request the owner decided on. The check's off switch is `KYKLOS_STORY_MR_TARGET=off` (see [Overrides](WORKFLOW.md#greppable-opt-out-switches)). Both are audited.
+
 ## Local merge blocked: pipeline not green
 
 **You see:** `Merge BLOCKED. Branch X is being merged into trunk Y but its latest pipeline is ..., not success.` or `Merge BLOCKED — cannot verify branch X is green: ...` or `Local merge REFUSED: branch X closes through merge request !N ... open but NOT armed.`
@@ -103,6 +115,32 @@ Other close refusals name their own cause: a commit citing the story that is not
 **Confirm:** `get_status` shows the Bridge version; the doctor's report shows which projects the Bridge serves.
 
 **Fix:** a **person** relaunches the project so the current Bridge starts (the Launcher updates it). Until then the agent fills the rows with `proof_set`, citing real evidence. A drafted row is never edited by hand: when its evidence changes, run `proof_draft` again.
+
+## Review token refused
+
+**You see:** an answer of the Bridge verbs `advreview_mint`, `advreview_check` or the close that starts with `unauthentic:`, `no-token:`, `refused:` or `unavailable:`, for example `no-token: this bridge holds no review of story N of project P in its token store ...` or `refused: REVIEW-OTHER-PROJECT: ...`.
+
+**Cause and fix (agent):** the [review token](ADVERSARIAL_REVIEW.md#how-the-review-token-is-made-and-checked) binds one report to one story of one project, under the [proof signing key](SECRETS.md#the-proof-signing-key-where-it-comes-from). Every answer names its reason and the next step; the step that always works is to run the adversarial review again, so the Bridge mints a new token.
+
+| The answer says | What it means | Fix |
+|---|---|---|
+| `unauthentic: the token is not shaped like a review token` | the cited value is not 64 lowercase hexadecimal characters | cite the `Token=` value the review printed |
+| `unauthentic: the token is not the newest review token ...` | a newer review replaced it, or it was minted elsewhere | cite the newest review's token |
+| `unauthentic: ... no longer verifies under the signing key in use or the previous key` | the signing key was changed more than once since, or replaced without keeping the old key as the previous key | run the review again; next time keep the old key as the previous key (the Launcher's key actions do) |
+| `no-token: this bridge holds no review of ...` | the review was minted by another Bridge (another workstation, another token folder), or its entry was removed | run the review again on this Bridge, or share one key between workstations (see [Secrets](SECRETS.md#the-proof-signing-key-where-it-comes-from)) |
+| `no-token: ... minted in the token store used before the products were renamed` | an old review that was not carried to the current store | restart the Bridge (it carries those tokens once at its start), as the answer says |
+| `refused: PROJECT-REQUIRED` | the Bridge serves several projects and the call named none | repeat the call with `project` (the story's project id or path) |
+| `refused: PROJECT-NOT-SERVED` | the call named a project this Bridge does not serve; its tokens are kept by the Bridge that serves it | call the Bridge of that project |
+| `refused: REVIEW-OTHER-PROJECT` | the Bridge holds a review of that story number only for another project | mint the review again for the right project |
+| `unavailable: this bridge has no proof signing key` | the Bridge started without its key | a **person** fixes the key in the Launcher (the doctor's `keys.proof-signing-key` check names the button), then restarts the project |
+
+## Reading a Bridge refusal
+
+**You see:** an answer of a Bridge tool that says what happened, then `Next step: ...`.
+
+**What it means:** every refusal of the Bridge's tools has the same two parts: what happened, in plain words, and after `Next step:` what to do now. The answer also carries the MCP error flag, so the agent (and any other client) tells a refusal from a success by the flag, never by reading its words. The one exception is a verb this Bridge does not offer: it answers `unknown tool: <verb>` with a marker of its own, without the error flag, so that older clients keep reading it as a missing verb.
+
+**Fix (agent):** do what the next step says. A refusal that also ends with a `Help:` line leads to its section of this guide.
 
 ## Commit blocked
 

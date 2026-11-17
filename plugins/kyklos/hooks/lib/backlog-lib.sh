@@ -109,28 +109,33 @@ story_backend_mode() { case "${STORY_BACKEND:-local}" in gitlab) printf 'gitlab'
 #   EMPTY       : nothing to enforce (mktemp failure, or a genuinely empty backlog) -> the guard no-ops. A missing or
 #                 broken seam is a broken install: it answers __BACKLOG_UNREACHABLE__ (fail closed), naming the library.
 #   The temp file lives for the process; the caller need not clean it.
+#   With a second argument 'bridge' (the Stop backlog guard), a backend the container cannot reach is read once more
+#   through the bridge's story_read verb before the sentinel is answered; when that read fails too, the reason the
+#   bridge gave is kept for backlog_unreachable_fix, which names the configuration fix.
 resolve_backlog() {
-    local pdir="$1" fs="$1/Stories/BACKLOG.md"
+    local pdir="$1" fs="$1/Stories/BACKLOG.md" via="${2:-}"
     if [ "$(story_backend_mode)" != gitlab ]; then printf '%s' "$fs"; return 0; fi
-    local seam="$BACKLOG_LIB_HERE/../../skills/ssdlc-story/lib/story-backend.sh"
     local tmp; tmp="$(mktemp "${TMPDIR:-/tmp}/backlog-gl.XXXXXX" 2>/dev/null)" || { echo "[kyklos] WARNING: backlog gate — mktemp failed; backlog-consistency is NOT enforced." >&2; printf ''; return 0; }
-    # Detect a CONFIGURED-but-UNREACHABLE backend via the explicit backend_reachable probe FIRST (exit 3):
-    # backend_generate_index swallows a gl_api failure in its pipeline (returns rc 0 with no rows), which is
-    # indistinguishable from a genuinely-empty project — so its rc alone cannot tell "unreachable" from "empty".
-    # backend_reachable is the purpose-built signal (a JSON-array probe) both this and the story tool use.
-    # A broken install (the seam missing or broken, or a library it RECORDED in STORY_LIB_LOAD_FAILED while still
-    # returning success) answers exit 4 with the reason on stdout; require_story_seam reads both the seam's status and
-    # the record, so every way the seam can be broken is judged alike.
-    local _rc; ( STORY_SEAM_PROBLEM="cannot load $BACKLOG_LIB_HERE/require-lib.sh completely"
-                 { . "$BACKLOG_LIB_HERE/require-lib.sh" 2>/dev/null \
-                     && require_story_seam "$seam" backend_generate_index 2>/dev/null; } \
-                   || { printf '%s' "$STORY_SEAM_PROBLEM"; exit 4; }
-                 if command -v backend_reachable >/dev/null 2>&1 && ! backend_reachable "$pdir/Stories"; then exit 3; fi
-                 backend_generate_index "$pdir/Stories" ) > "$tmp" 2>/dev/null; _rc=$?
+    local _rc; _backlog_index_attempt "$pdir" "$tmp" ""; _rc=$?
+    if [ "$_rc" -ne 0 ] && [ "$_rc" -ne 4 ] && [ "$via" = bridge ]; then
+        # The container could not read GitLab itself (no address, no network, a refused token): the bridge holds its own
+        # token and route, so the same index is built from its story_read answers. A real violation in that index still
+        # blocks; only a read that neither side can make is "unreachable".
+        local _why="${tmp}.why"
+        _backlog_index_attempt "$pdir" "$tmp" "$_why"; _rc=$?
+        if [ "$_rc" -eq 0 ]; then
+            echo "[kyklos] backlog gate: the container could not reach GitLab, so the In-progress invariant was checked through the bridge." >&2
+            rm -f "$_why" 2>/dev/null
+        else
+            { mkdir -p "${KYKLOS_STATE_DIR:-/tmp/kyklos-state}" && cat "$_why" > "$(_backlog_unreachable_why_file)"; } 2>/dev/null || true
+            rm -f "$_why" 2>/dev/null
+        fi
+    fi
     if [ "$_rc" -eq 4 ]; then
         # [no-fail-open] a broken install: the backlog cannot be read, so the In-progress invariant fails CLOSED as for
         # an unreachable backend, but the warning names the library instead of blaming the network.
         echo "[kyklos] WARNING: backlog gate — the story backend $(cat "$tmp" 2>/dev/null), a broken kyklos install (reinstall it); the In-progress invariant fails CLOSED this Stop (override: bash hooks/lib/override-marker.sh set backlog-ok <your-working-folder>)." >&2
+        [ "$via" = bridge ] && { { mkdir -p "${KYKLOS_STATE_DIR:-/tmp/kyklos-state}" && printf 'broken install: the story backend %s' "$(cat "$tmp" 2>/dev/null)" > "$(_backlog_unreachable_why_file)"; } 2>/dev/null || true; }
         rm -f "$tmp" 2>/dev/null
         printf '__BACKLOG_UNREACHABLE__'; return 0
     fi
@@ -142,9 +147,87 @@ resolve_backlog() {
         # (not an empty string, which the caller reads as "genuinely-empty = silent no-op") so the guard FAILS CLOSED
         # (blocks) with a one-shot override, rather than silently skipping the invariant.
         rm -f "$tmp" 2>/dev/null
-        echo "[kyklos] WARNING: backlog gate — the GitLab story backend is CONFIGURED but could not be read (API error/unreachable); the In-progress invariant fails CLOSED this Stop (override: bash hooks/lib/override-marker.sh set backlog-ok <your-working-folder>)." >&2
+        if [ "$via" = bridge ]; then
+            echo "[kyklos] WARNING: backlog gate — neither the container nor the bridge could read the GitLab story backend; the In-progress invariant fails CLOSED this Stop (the block names the configuration fix)." >&2
+        else
+            echo "[kyklos] WARNING: backlog gate — the GitLab story backend is CONFIGURED but could not be read (API error/unreachable); the In-progress invariant fails CLOSED this Stop (override: bash hooks/lib/override-marker.sh set backlog-ok <your-working-folder>)." >&2
+        fi
         printf '__BACKLOG_UNREACHABLE__'
     else
         rm -f "$tmp" 2>/dev/null; printf ''   # rc 0 but no rows = genuinely empty backlog (no stories) — legit silent no-op
     fi
+}
+
+# _backlog_index_attempt PROJECT_DIR OUT_FILE [WHY_FILE] -> builds the GitLab backlog index into OUT_FILE; rc 0 built (rows
+# or none), 3 the backend could not be read, 4 a broken install (the reason in OUT_FILE). With WHY_FILE the reads go
+# through the bridge (STORY_GL_READ_VIA_BRIDGE=1) and, when they fail, the bridge's reason is written to WHY_FILE.
+# Detect a CONFIGURED-but-UNREACHABLE backend via the explicit backend_reachable probe FIRST (exit 3):
+# backend_generate_index swallows a gl_api failure in its pipeline (returns rc 0 with no rows), which is
+# indistinguishable from a genuinely-empty project — so its rc alone cannot tell "unreachable" from "empty".
+# backend_reachable is the purpose-built signal (a JSON-array probe) both this and the story tool use.
+# A broken install (the seam missing or broken, or a library it RECORDED in STORY_LIB_LOAD_FAILED while still
+# returning success) answers exit 4 with the reason on stdout; require_story_seam reads both the seam's status and
+# the record, so every way the seam can be broken is judged alike.
+_backlog_index_attempt() {
+    local pdir="$1" out="$2" why="${3:-}" seam="$BACKLOG_LIB_HERE/../../skills/ssdlc-story/lib/story-backend.sh"
+    ( [ -n "$why" ] && export STORY_GL_READ_VIA_BRIDGE=1
+      STORY_SEAM_PROBLEM="cannot load $BACKLOG_LIB_HERE/require-lib.sh completely"
+      { . "$BACKLOG_LIB_HERE/require-lib.sh" 2>/dev/null \
+          && require_story_seam "$seam" backend_generate_index 2>/dev/null; } \
+        || { printf '%s' "$STORY_SEAM_PROBLEM"; exit 4; }
+      if command -v backend_reachable >/dev/null 2>&1 && ! backend_reachable "$pdir/Stories"; then
+          if [ -n "$why" ]; then
+              { command -v coordination_read_reason >/dev/null 2>&1 && coordination_read_reason; } > "$why" 2>/dev/null || true
+          fi
+          exit 3
+      fi
+      backend_generate_index "$pdir/Stories"; _gen=$?
+      # The list answered its first page but not the whole of it (a later page failed, or it was cut short).
+      [ "$_gen" -ne 0 ] && [ -n "$why" ] && { printf 'incomplete list: the story list could not be read whole' > "$why"; } 2>/dev/null
+      exit "$_gen" ) > "$out" 2>/dev/null
+}
+
+_backlog_unreachable_why_file() { printf '%s/backlog-unreachable-why.%s' "${KYKLOS_STATE_DIR:-/tmp/kyklos-state}" "$$"; }
+
+# backlog_unreachable_fix -> the configuration fix to name when neither the container nor the bridge could read the
+# GitLab story backend (after resolve_backlog <dir> bridge answered __BACKLOG_UNREACHABLE__): which setting is missing
+# or which side failed, and where to set it. Plain words, one paragraph.
+backlog_unreachable_fix() {
+    local why_file why api fix
+    why_file="$(_backlog_unreachable_why_file)"
+    # resolve_backlog always records the cause on this path; no record means the state folder could not be written, so
+    # the cause is unknown here and is never guessed (it is not "GitLab refused the read").
+    if [ ! -f "$why_file" ]; then
+        printf '%s' "The cause could not be recorded, because the state folder ${KYKLOS_STATE_DIR:-/tmp/kyklos-state} cannot be written. Fix: make that folder writable for the session (or point KYKLOS_STATE_DIR at a writable folder), then stop again to see the cause."
+        return 0
+    fi
+    why="$(cat "$why_file" 2>/dev/null || true)"; rm -f "$why_file" 2>/dev/null
+    case "$why" in
+        "broken install: "*)
+            printf '%s' "The kyklos plugin install is broken (${why#broken install: }). Fix: reinstall or repin the kyklos plugin, then relaunch."
+            return 0 ;;
+        "incomplete list: "*)
+            printf '%s' "The story list answered, but not whole: a later page failed or the list was cut short (the page cap or the time limit), so no partial list is judged. Fix: stop again; if it repeats, check the bridge with its get_status verb, and raise GITLAB_PAGE_CAP or GITLAB_PAGED_DEADLINE when the project holds more stories than they allow."
+            return 0 ;;
+    esac
+    if [ -z "${STORY_GITLAB_PROJECT:-}" ]; then
+        printf '%s' "The story project is not set for this session, so neither the container nor the bridge knows which GitLab project holds the stories. Fix: in the launcher configuration, set STORY_GITLAB_PROJECT to the project's id and list it in KYKLOS_ENV, then relaunch."
+        return 0
+    fi
+    if api="$(. "$BACKLOG_LIB_HERE/gitlab-api-base.sh" 2>/dev/null && gitlab_api_base STORY_GITLAB_API 2>/dev/null)"; then
+        fix="The container could not reach GitLab at $api."
+    else
+        fix="The container has no GitLab API address. Fix it in the launcher configuration: set KYKLOS_ISSUES_API (for example https://gitlab.example.com/api/v4) and list it in KYKLOS_ENV, then relaunch."
+    fi
+    case "$why" in
+        "")
+            fix="$fix The bridge answered, but GitLab refused its read of project $STORY_GITLAB_PROJECT. Fix: check that STORY_GITLAB_PROJECT in the launcher configuration names the story project, and that the bridge's GitLab token can read it." ;;
+        *"no bridge is configured"*)
+            fix="$fix No bridge answered for this session either (no KyklosBridge in the workspace .mcp.json). Fix: start the session from the launcher, which writes the bridge address, and check the bridge with its get_status verb." ;;
+        *"has no story_read verb"*)
+            fix="$fix The bridge serves no story_read verb. Fix: in the launcher configuration, give the bridge its coordination settings (the GitLab address and token), and use the bridge version that matches this plugin, then relaunch." ;;
+        *)
+            fix="$fix The bridge could not read GitLab either ($why). Fix: check the bridge with its get_status verb, and the bridge's GitLab address and token in the launcher configuration." ;;
+    esac
+    printf '%s' "$fix"
 }

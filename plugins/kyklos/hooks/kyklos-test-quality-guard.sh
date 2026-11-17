@@ -5,8 +5,11 @@
 # Blocks in edited/added TEST code:
 #   - Assert.Ignore  (an unconditional skip; NO escape)
 #   - Assert.Pass  (an unconditional pass, the twin of Assert.Ignore) — escape: inline `// transient-ok: <reason>`
-#   - attribute skips such as [Fact(Skip=...)], [Ignore], [Explicit] — escape: the same inline
+#   - attribute skips such as [Fact(Skip=...)], [Theory(Skip=...)], [Ignore] — escape: the same inline
 #     `// transient-ok: <reason>` as Assert.Inconclusive (a deliberate, recorded quarantine)
+#   NOT blocked: NUnit [Explicit] / [Explicit("...")]. Kyklos is local first: an Explicit test runs on demand on the
+#   host and is often the only proof of a target-environment requirement (a real server, real hardware). It proves
+#   nothing by itself either: the evidence scan counts it only once the ledger holds a passing run of it.
 #   - Assert.Inconclusive  (turns a should-fail into a non-failure) — escape: inline `// transient-ok: <reason>`
 #     on the same line (non-empty reason) for a live-API test that is Inconclusive ONLY on a transient upstream
 #     (429/408/5xx/timeout/socket) while a real regression still fails hard.
@@ -60,9 +63,11 @@ fi
 # Assert.Inconclusive: '// transient-ok: <non-empty reason>' on the line permits a deliberate, recorded quarantine.
 #   xUnit:        [Fact(Skip="...")] / [Theory(Skip="...")]
 #   NUnit/MSTest: [Ignore("...")] / [Ignore]
-#   NUnit:        [Explicit] / [Explicit("...")]  — a test/fixture marked Explicit is SKIPPED in a normal CI run
-# (it only runs when explicitly selected), so it silences the test in CI exactly like [Ignore].
-if printf '%s' "$CONTENT" | grep -E '\[(Fact|Theory)[[:space:]]*\([^)]*Skip[[:space:]]*=|\[Ignore(\]|[[:space:]]*\()|\[Explicit(\]|[[:space:]]*\()' | grep -cvE '//[[:space:]]*transient-ok:[[:space:]]*\S' >/dev/null; then
-  block "BLOCKED (test-quality-guard): an attribute skip ([Fact(Skip=...)] / [Theory(Skip=...)] / [Ignore] / [Explicit]) silences a test in a normal run, so a real regression passes silently — the exact vacuous-green class this guard exists to kill. Fix the test or the behaviour and let it FAIL when broken. For a deliberate, temporary quarantine add an auditable inline '// transient-ok: <reason>' (non-empty) on the SAME line."
+# NUnit [Explicit] is deliberately NOT in this list: evidence is a test that ran and passed, not a test that runs in
+# CI. An Explicit test runs whenever it is selected (on the host it is often the only test that can reach the target
+# environment), while [Ignore] and Skip= never run. Switching a failing test to Explicit still proves nothing: the
+# evidence scan counts an Explicit test only when the ledger holds a passing run of it at the merged head.
+if printf '%s' "$CONTENT" | grep -E '\[(Fact|Theory)[[:space:]]*\([^)]*Skip[[:space:]]*=|\[Ignore(\]|[[:space:]]*\()' | grep -cvE '//[[:space:]]*transient-ok:[[:space:]]*\S' >/dev/null; then
+  block "BLOCKED (test-quality-guard): an attribute skip ([Fact(Skip=...)] / [Theory(Skip=...)] / [Ignore]) silences a test in a normal run, so a real regression passes silently — the exact vacuous-green class this guard exists to kill. Fix the test or the behaviour and let it FAIL when broken. For a deliberate, temporary quarantine add an auditable inline '// transient-ok: <reason>' (non-empty) on the SAME line."
 fi
 exit 0

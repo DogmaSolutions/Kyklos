@@ -50,6 +50,46 @@ fi
 
 stale() { [ ! -f "$1" ] || [ -n "$(find "$1" -mmin +"$STALE_MINUTES" 2>/dev/null)" ]; }
 
+# A new project has no CLAUDE.md yet, so Gate 1 cannot be met by reading it: without this admission the first session
+# could create nothing at all, not even the file the gate asks for. While the project's own CLAUDE.md does not exist,
+# the call that only creates it passes: a Write, Edit or MultiEdit of exactly that path, or a Bash command that is one
+# plain 'touch <path>', ': > <path>' or 'cp <file> <path>' and nothing else. Once the file exists, it must be read as
+# before. [CySec] CWE-863: the admission is bound to the one path and to commands with no other effect.
+_same_path() {
+    local a="$1" b="$2"
+    if command -v realpath >/dev/null 2>&1; then
+        a="$(realpath -m -- "$a" 2>/dev/null || printf '%s' "$a")"; b="$(realpath -m -- "$b" 2>/dev/null || printf '%s' "$b")"
+    fi
+    [ -n "$a" ] && [ "$a" = "$b" ]
+}
+creates_project_rules() {
+    local target="$PROJECT_DIR/CLAUDE.md" fp cmd cwd p q='["'"'"']?' word='[A-Za-z0-9._/~+@:-]+'
+    # A symlink in its place (dangling or not) is not "no CLAUDE.md": writing through it would create its target,
+    # anywhere, so the exception never applies to one (CWE-59).
+    { [ -e "$target" ] || [ -L "$target" ]; } && return 1
+    case "$TOOL" in
+        Write|Edit|MultiEdit)
+            fp="$(printf '%s' "$INPUT" | grep -oE '"file_path"[[:space:]]*:[[:space:]]*"[^"]+' | head -1 | sed -E 's/.*"//' || true)"
+            _same_path "$fp" "$target"; return ;;
+        Bash)
+            command -v jq >/dev/null 2>&1 || return 1
+            cmd="$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)" || return 1
+            cwd="$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)"; cwd="${cwd:-$PROJECT_DIR}"
+            # One line, one command: any character the shell reads as a separator, a substitution or an append refuses it.
+            case "$cmd" in *$'\n'*|*';'*|*'&'*|*'|'*|*'$'*|*'`'*|*'<'*|*'>>'*|*'('*|*')'*) return 1 ;; esac
+            cmd="$(printf '%s' "$cmd" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+            if [[ "$cmd" =~ ^touch[[:space:]]+${q}(${word})${q}$ ]] || [[ "$cmd" =~ ^(:|true)?[[:space:]]*\>[[:space:]]*${q}(${word})${q}$ ]] \
+                || [[ "$cmd" =~ ^cp[[:space:]]+${q}[A-Za-z0-9._/~+@:][A-Za-z0-9._/~+@:-]*${q}[[:space:]]+${q}(${word})${q}$ ]]; then
+                p="${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}"
+            else
+                return 1
+            fi
+            case "$p" in /*) ;; *) p="$cwd/$p" ;; esac
+            _same_path "$p" "$target"; return ;;
+    esac
+    return 1
+}
+
 # EXEMPT from the PreToolUse Bash block the very commands the block tells the agent to
 # run — a whitelisted GitLab interrogation (a real story subcommand: refresh|proof|structure|materialize) or a direct issues-API read.
 # These are read-only SoT interrogations that RESTORE context (the PostToolUse handler above then marks it read), so
@@ -69,8 +109,12 @@ if stale "$CLAUDE_MD_READ"; then
     # satisfy the gate by reading the managed policy outside the workspace, which made Claude Code ask the person for
     # permission to read a file the gate never needed. The marker logic above is unchanged: any CLAUDE.md read counts.
     _claude_md="$PROJECT_DIR/CLAUDE.md"
+    creates_project_rules && exit 0
+    _missing=""
+    [ -e "$_claude_md" ] || [ -L "$_claude_md" ] || _missing=" This project has no CLAUDE.md yet: create it first (the Write tool on exactly $_claude_md, or one plain 'touch', ': >' or 'cp <file>' command onto that path), which this gate allows while the file does not exist, then read it."
     _claude_md="${_claude_md//\\/\\\\}"; _claude_md="${_claude_md//\"/\\\"}"   # JSON-escape the path
-    printf '{"decision":"block","reason":"%s"}' "BLOCKED: the project rules have not been read recently (a fresh container, or >${STALE_MINUTES} min since the last read). Read the project's own CLAUDE.md at $_claude_md (the workspace root's, not a policy file outside the workspace) to reload the project rules before continuing."
+    _missing="${_missing//\\/\\\\}"; _missing="${_missing//\"/\\\"}"
+    printf '{"decision":"block","reason":"%s"}' "BLOCKED: the project rules have not been read recently (a fresh container, or >${STALE_MINUTES} min since the last read). Read the project's own CLAUDE.md at $_claude_md (the workspace root's, not a policy file outside the workspace) to reload the project rules before continuing.$_missing"
     exit 0
 fi
 

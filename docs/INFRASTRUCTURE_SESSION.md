@@ -41,7 +41,7 @@ How each switch is checked, and by whom:
 ```mermaid
 flowchart TD
     A["A privileged action"] --> K{"Which action?"}
-    K -->|"CI administration, CI write on a<br/>trunk, full process view"| B{"Bridge role read from the<br/>reviewed settings file is<br/>Infrastructure?"}
+    K -->|"CI administration, CI write on a<br/>trunk, full process view"| B{"Bridge role read from the<br/>settings file is<br/>Infrastructure?"}
     B -->|"no"| X1["The Bridge does not list the<br/>tool, and refuses it by name"]
     B -->|"yes"| W{"Ref allowed by<br/>ContinuousIntegration:WriteRefs?"}
     W -->|"no"| X2["Refused, logged as a ci-audit line"]
@@ -56,7 +56,7 @@ flowchart TD
     F -->|"no"| OK3["Pushed"]
 ```
 
-The role comes only from the reviewed, committed Bridge settings file (any value the launch environment brings is removed first), the operator flag only from the launcher's own settings, and
+The role comes only from the Bridge settings file, kept where the agent's container cannot write, (any value the launch environment brings is removed first), the operator flag only from the launcher's own settings, and
 the push flag only from the launch configuration: none of them is something the session can set for itself. A refused action changes nothing and names the missing switch; granting it is the
 person's decision. The overrides a person may grant to project sessions are described in [Overrides](WORKFLOW.md#overrides).
 
@@ -69,7 +69,7 @@ The steps assume GitLab as issue tracker and CI, as in the rest of this document
    - pipeline schedules (`ci_schedules_list`, `ci_schedule_set`): the Maintainer role on each project (in GitLab, a Developer may change only a schedule it owns);
    - runners (`ci_runners_admin`): the bridge lists every runner of the instance (GitLab's `runners/all` endpoint), so the user must be a GitLab **instance administrator**; the Maintainer or Owner role on a project or group is not enough.
 2. **Its token.** Create a token for that user and keep it in the host's credential store or secrets manager, never in a file the agent can read (see [Secrets](SECRETS.md)). The bridge uses it on the host for stories, messages and CI; the container never holds it. Give it only the scopes the capabilities you granted need, and an expiry date: the bridge's story, message and CI tools need the `api` scope (`read_api` can only read, so it cannot set a variable or a schedule, pause a runner, or post a message). The container itself never gets an API-capable token: its only GitLab credential is the push credential (`read_repository` and `write_repository`, no `api`), the [launcher](COMPONENTS.md#kyklos-launcher) refuses a dedicated push credential with the `api` scope, and the plugin's [hooks](HOOKS_AND_SKILLS.md#how-a-hook-decides-one-hook-per-event-every-rule-in-the-bridge) read GitLab through the bridge, which reads with this host-side token.
-3. **The bridge settings file.** In the session's reviewed bridge settings file (`projects/<project>/bridge.appsettings.json` under the launcher's `Launcher:Projects:SettingsRoot`), set the role and, if the session serves several projects, list them:
+3. **The bridge settings file.** In the session's bridge settings file (`projects/<project>/bridge.appsettings.json` under the launcher's `Launcher:Projects:SettingsRoot`), set the role and, if the session serves several projects, list them:
 
    ```json
    {
@@ -83,7 +83,7 @@ The steps assume GitLab as issue tracker and CI, as in the rest of this document
    }
    ```
 
-   The launcher accepts only the committed, merged version of this file, so the role is always a reviewed decision. The launcher also sets the bridge's CI role from this file alone: any `ContinuousIntegration` value the launch environment brings is removed first. `get_status` then shows `role=Infrastructure`. (Run by hand, without the launcher, the bridge also reads `Bridge__Role` from its environment, which overrides the file.)
+   The launcher reads this file only from a folder the agent's container cannot write, so the role is always the decision of the person who owns the host. The launcher also sets the bridge's CI role from this file alone: any `ContinuousIntegration` value the launch environment brings is removed first. `get_status` then shows `role=Infrastructure`. (Run by hand, without the launcher, the bridge also reads `Bridge__Role` from its environment, which overrides the file.)
 4. **The launcher.** In the launcher folder's `appsettings.json`, name the session's project in `Launcher:Bridge:LauncherOperatorProjects` if it should operate the launcher (several names are separated by `;`). Leave it empty if no session should.
 5. **The plugin environment.** In the session's launcher configuration, set `KYKLOS_ALLOW_PUSH=1` if it should push for others, and widen its backlog with `KYKLOS_ISSUES_SCOPES` and the `CONTINUE_GUARD_*` keys. The plugin's [`standards.env.sample`](../plugins/kyklos/standards.env.sample) lists every form these keys take.
 6. **The organisation policy layer.** The managed policy that every session loads leaves the name of the push-authorised session open. Fill in the "Roles" entry of your organisation layer (start from `dist/CLAUDE.org.sample.md`) with the session's name and the shared repositories it owns, then compose the managed policy with `dist/render-managed-policy.sh`. This is what tells the project sessions who pushes for them.

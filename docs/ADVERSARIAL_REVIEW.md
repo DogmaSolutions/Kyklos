@@ -61,10 +61,10 @@ sequenceDiagram
     participant Bridge
     participant Tracker as Tracker, for example GitLab
     Reviewer->>Agent: report in the template above
-    Agent->>Bridge: advreview_mint: story and report
+    Agent->>Bridge: advreview_mint: project, story and report
     Bridge->>Bridge: checks the template line<br/>by line, refuses a<br/>quick-action line
-    Bridge-->>Agent: token = HMAC-SHA256 of<br/>"advreview:story:SHA-256 of<br/>the report", host key
-    Agent->>Bridge: advreview_post: story,<br/>report and token
+    Bridge-->>Agent: token = HMAC-SHA256 of<br/>"advreview:project/story:SHA-256<br/>of the report", signing key
+    Agent->>Bridge: advreview_post: project, story,<br/>report and token
     Bridge->>Tracker: posts the round note with the<br/>report and its token, as the<br/>Bridge's account
     Note over Tracker: the server records when<br/>the note was posted
     Agent->>Bridge: story close
@@ -79,11 +79,16 @@ sequenceDiagram
 
 - **Where things are.** The report is posted as a numbered note on the story (`Adversarial review (round N)`), by the [Bridge](COMPONENTS.md#kyklos-bridge)'s own account: the verb `advreview_mint` signs the report, and `advreview_post` posts it with its token; the [skill](HOOKS_AND_SKILLS.md#how-the-agent-knows-what-to-do-skills)
   `kyklos:ssdlc-adversarial-review` drives it. A note that only quotes the marker of a review note does not count.
-- **The secret.** The token is a keyed hash (HMAC-SHA256) under the [proof signing key](PROOF_DIMENSION_TEST_DISCIPLINE.md#signatures-the-key-and-when-they-are-checked) `KYKLOS_PROOF_HMAC_KEY`. The [`Kyklos Launcher`](COMPONENTS.md#kyklos-launcher) creates that key on first use, keeps it in the operating
-  system's credential store and hands it only to the Bridge process; the agent's container and the builds the Bridge runs never receive it (see [Secrets](SECRETS.md)). Without the key no token is
+- **Which project.** The review verbs take the story's project (`project`: its id or path) besides the story number. A Bridge that serves several projects refuses a call that names none
+  (`PROJECT-REQUIRED`, listing the projects it serves), and a call for a project it does not serve (`PROJECT-NOT-SERVED`: that project's tokens are kept by the Bridge that serves it). Nothing is
+  minted or checked under a project the call did not mean.
+- **The secret.** The token is a keyed hash (HMAC-SHA256) under the [proof signing key](PROOF_DIMENSION_TEST_DISCIPLINE.md#signatures-the-key-and-when-they-are-checked). By default (`KYKLOS_PROOF_KEY_SOURCE=host`) the [`Kyklos Launcher`](COMPONENTS.md#kyklos-launcher) creates that key on first use and keeps it in the operating
+  system's credential store; with `KYKLOS_PROOF_KEY_SOURCE=secrets-manager` the Bridge reads it from a shared secrets manager, so several workstations sign and verify with the same key (see
+  [where the key comes from](SECRETS.md#the-proof-signing-key-where-it-comes-from)). Either way only the Bridge process holds it; the agent's container and the builds the Bridge runs never receive it. Without the key no token is
   made and none verifies.
-- **How the signature is computed.** The Bridge hashes the report text with SHA-256 and signs the text `advreview:<story>:<that hash>`. Changing one character of the report, or presenting the
-  token on another story, gives a different value. The computation lives in `bridge/src/DogmaSolutions.ProjectManagement.Agile.Ssdlc/ProofTokenBinding.cs`.
+- **How the signature is computed.** The Bridge hashes the report text with SHA-256 and signs the text `advreview:<project>/<story>:<that hash>`, where `<project>` is the project's numeric id.
+  Changing one character of the report, or presenting the token on another story or another project, gives a different value. The computation lives in the plugin's proof script
+  (`plugins/kyklos/hooks/lib/proof-tool-gate.sh`), which the Bridge runs, so the format exists in one place.
 - **When it is checked.** When the proof is written ([`proof_set`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked) and the proof check), at the close, and by the [Stop rule](HOOKS_AND_SKILLS.md#forced-productivity) that re-grades a story closed in the session. The close also checks the
   timing of rule 4 of [the workflow](WORKFLOW.md#rule-4-the-review-saw-the-finished-code): for a development story, the review must be newer than the moment the remote received the last change of
   the code coverage measures.

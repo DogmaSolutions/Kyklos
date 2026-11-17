@@ -193,7 +193,7 @@ This section lists **every** kind of override the product offers, from the stron
 | [Inline escapes](#inline-escapes-for-raw-api-writes) | the raw-write rules for an existing issue or a proof note | the agent itself | `AGENT_MSG_RAW_OK=1` or `PROOF_RAW_OK=1` on the command | one command | the escape audit log |
 | [Greppable opt-out switches](#greppable-opt-out-switches) | a whole check, for one project | the person (the agent only after the person confirms) | a line in `.claude/standards.env`, or the [launcher](COMPONENTS.md#kyklos-launcher) configuration | until the line is changed back | Claude Code's confirmation dialog, an audit note on the story |
 | [The owner's Proof Discipline](#the-owners-proof-discipline) | a dimension or a threshold of one story | the project owner | editing the story's [Proof Discipline](PROOF.md#the-owners-proof-discipline) section | that story | the Bridge's signed copy; the row shows the change |
-| [Bridge owner settings](#bridge-owner-settings) | proof rules for every story the Bridge serves | the person who owns the host | the reviewed Bridge settings file, or the launcher configuration | until changed back | the reviewed settings file's history |
+| [Bridge owner settings](#bridge-owner-settings) | proof rules for every story the Bridge serves | the person who owns the host | the Bridge settings file, or the launcher configuration | until changed back | the settings file, and its history where the organisation keeps one |
 | [Launcher opt-outs](#launcher-opt-outs) | a launch or Bridge start check | the person at the launcher | the launcher configuration or its `appsettings.json` | until changed back | the launch output, the Bridge or launcher log |
 
 ```mermaid
@@ -368,8 +368,9 @@ unspent marker expires after `KYKLOS_OVERRIDE_TTL_SECONDS` (600 seconds, 10 minu
 | `tool-first-ok` | the rule against raw API calls that change a story issue's lifecycle labels | an operation on a plain issue that happens to carry a story-like label | changing a story's status or phase by hand |
 | `epic-api-ok` | the rule against raw writes of the milestone ([epic](AGILE.md)) API | a one-time data repair of a milestone the epic commands cannot express | moving stories between epics (use `story set <id> epic=<E0N>`) |
 | `inbound-ok` | the Stop rule that keeps the agent working while a message waits for its reply | the message was answered somewhere the rule cannot see | ignoring a message |
-| `backlog-ok` | the Stop rule that checks the In-progress invariant, when the tracker cannot be reached | a tracker outage at the end of a session | an inconsistent backlog |
+| `backlog-ok` | the Stop rule that checks the In-progress invariant, when neither the container nor the Bridge can reach the tracker (the rule reads the stories through the Bridge first, and its refusal names the configuration fix) | a tracker outage at the end of a session | an inconsistent backlog, or a configuration gap the refusal names |
 | `ask-user-ok` | the rule that refuses a question to the user when unblocked work exists | a question only the user can answer that the rule misjudged | handing routine decisions to the user |
+| `story-mr-target-ok` | the [develop-only rule for merge requests](GIT.md#which-trunk-a-merge-request-targets): in a repository that declares its integration trunk, a `feature/*` branch's merge request must target that trunk, and a hotfix aimed at `main` must not carry its unreleased commits | one request the owner decided should land elsewhere | sending story work to `main` by habit |
 | `push-ok`, `merge-ok` | the push rule, and the merge-on-green rule | **only** with `KYKLOS_HARDEN_OVERRIDE=off`; otherwise ignored (use the labels above) | everything, by default |
 
 Example: a hotfix branch has merged into `main`, and the release manager asked the agent to merge `main` back into `develop` locally.
@@ -426,6 +427,7 @@ The checks and their switches:
 | `KYKLOS_STORY_FIRST` | the refusal of a `feature/*` commit not linked to a story | on |
 | `KYKLOS_REPO_MODEL_REQUIRED` | the refusal of a branch or commit in a repository that declares no [topology](TOPOLOGIES.md) | on |
 | `KYKLOS_MR_AUTOMERGE` | the rule that a story merge request is created armed and never merged by hand | on |
+| `KYKLOS_STORY_MR_TARGET` | the [develop-only rule for merge requests](GIT.md#which-trunk-a-merge-request-targets) in a repository that declares its integration trunk (each use is audited) | on |
 | `KYKLOS_MERGE_GREEN` | the refusal of a local merge of a story branch into a trunk without a green pipeline | on |
 | `KYKLOS_PUSH_QUEUE` | queuing a push while the person declared the remote unavailable | on |
 | `KYKLOS_PUBLIC_PUSH_GUARD` | the refusal of a push that carries agent artifacts into a public source | on |
@@ -468,6 +470,7 @@ The checks and their switches:
 | `KYKLOS_ASK_FIRST` (*launcher*) | the Ask First confirmation itself | on |
 | **Notices only** (they inform, never refuse) | | |
 | `KYKLOS_BRIDGE_HEALTH_CHECK`, `KYKLOS_BRIDGE_FYI`, `KYKLOS_API_SCOPE_SURFACE`, `KYKLOS_OPERATING_MODE_SURFACE`, `KYKLOS_TOOL_CATALOG`, `KYKLOS_FETCH_LATEST`, `KYKLOS_FORK_ETIQUETTE`, `KYKLOS_MUTATION_TIMING`, `KYKLOS_SHARED_CHECKOUT_WARN`, `IDLE_WORK_NUDGE` | the matching start-up or progress notice | on |
+| `KYKLOS_DOCTOR_SURFACE` | the [doctor report at session start](HOOKS_AND_SKILLS.md#the-health-report-at-session-start): the session's health checks and the Bridge's doctor findings put into the session, for the agent to report first (off brings back the separate token-scope and story-mirror notices) | on |
 
 **Grants** work the other way round: they are off by default and switching one on **widens** what the agent may do, so Ask First asks about switching them on. They are `KYKLOS_ALLOW_PUSH`
 (the [push-authorised session](INFRASTRUCTURE_SESSION.md)), `KYKLOS_CI_MONITOR` (the closed loop: the agent pushes its own `feature/*` and `hotfix/*` branches), `KYKLOS_CI_SELF_DRIVE`, `KYKLOS_CI_DIRECT_TOKEN`,
@@ -490,8 +493,8 @@ reaches because tests are missing.
 
 ### Bridge owner settings
 
-These settings decide proof rules for **every** story a [Bridge](COMPONENTS.md#kyklos-bridge) serves. They live in the project's reviewed Bridge settings file (committed and pushed, in a folder the agent's container cannot
-write; see [Installing and configuring](INSTALL_AND_CONFIG.md)) or are set by the [launcher](COMPONENTS.md#kyklos-launcher), so changing them is a reviewed, recorded act of the person who owns the host.
+These settings decide proof rules for **every** story a [Bridge](COMPONENTS.md#kyklos-bridge) serves. They live in the project's Bridge settings file (in a folder the agent's container cannot
+write; see [Installing and configuring](INSTALL_AND_CONFIG.md)) or are set by the [launcher](COMPONENTS.md#kyklos-launcher), so changing them is an act of the person who owns the host.
 
 | Setting | Default | What changing it does |
 |---|---|---|
@@ -517,7 +520,7 @@ agent's reach, and each use is shown at launch or logged.
 | `Launcher:Bridge:RequireAuthenticode` | `false` | `true` *adds* a check: on Windows, the Bridge program must carry a valid code signature | when every release you run is signed |
 | `KYKLOS_BRIDGE_REQUIRE_AUTH` | on | `0`: the Bridge starts without its local authentication token instead of refusing | never in a shared setup |
 | `KYKLOS_ALLOW_UNPERSISTED_HMAC` | off | the Bridge runs with a temporary [proof signing key](PROOF_DIMENSION_TEST_DISCIPLINE.md#signatures-the-key-and-when-they-are-checked) when the credential store cannot keep one (tokens do not survive a restart) | a machine whose credential store is broken, briefly |
-| `KYKLOS_SSDLC_MODE` | on for a GitLab story project | `off` runs no story stack at all | a project that does not use stories |
+| `KYKLOS_SSDLC_MODE` | on for a GitLab story project that names its story token (`STORY_GITLAB_TOKEN_ENV`), off otherwise | `off` runs no story stack at all | a project that does not use stories |
 | [`KYKLOS_MUTATION_SUSPENDED`](#greppable-opt-out-switches) | `0` | `1` suspends [mutation testing](#glossary) for the project (set `MUTATION_SUSPENDED=true` in CI too); the proof states it | a project whose stack has no mutation tool yet |
 | `KYKLOS_OWN_NAMES` | empty | lets the project's own product names into its own nested source, which the border check would otherwise refuse | a project whose public source must name its own product |
 | [Corporate policy](POLICY_LEVELS.md#writing-a-corporate-policy) `kyklos:replace` / `kyklos:remove` | none | replaces or removes the **text** of a Kyklos rule; the rule that enforces it stays on (see [Policy levels](POLICY_LEVELS.md)) | an organisation whose process differs, with a written reason |

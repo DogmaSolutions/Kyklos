@@ -15,6 +15,9 @@
 # write (ra --apply), the proof draft (proof --draft, mode 'on' only: the bridge alone holds the evidence), epic set and archive (and the epic desk: list, show, close, reopen, delete, which outside mode 'on' run in bash), reopen-root-cause (mode 'on' only: it has no dry run), and block (mode 'on' only: the bridge alone
 # records a blocker). Anything else
 # stays bash; its reads go through the bridge's story_read verb when the container has no GitLab token of its own.
+# A container that cannot write to GitLab itself (no token of its own, or no GitLab address while a bridge is declared)
+# refuses a routed write in shadow mode, loudly and before anything runs: bash cannot write, and the bridge drops every
+# write in shadow mode, so the write would be lost. The refusal names the fix (KYKLOS_SSDLC_MODE on, or unset).
 
 # Each library below must load completely or this one fails to load too (require-lib.sh explains why).
 # shellcheck source=../../../hooks/lib/require-lib.sh
@@ -553,6 +556,15 @@ ssdlc_collect_pending() {
     printf '%s' "$resp"
 }
 
+# ssdlc_verb_is_read <verb> -> rc 0 for a routed verb that only reads (the bridge's offline read desk: the proof render,
+# the structure check, the kind read), so no write can be lost by running it in shadow mode.
+ssdlc_verb_is_read() {
+    case "$1" in
+        proof_get|proof_validate|story_structure|story_kind|story_get) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 _ssdlc_route_run() {
     local op="$1"; shift
     local routed; routed="$(ssdlc_verb_for "$op" "$@")"
@@ -594,6 +606,12 @@ _ssdlc_route_run() {
             if bridge_mcp_is_error "$resp"; then return 1; fi
             return 0 ;;
         shadow)
+            # bash is authoritative in shadow mode, and the bridge only compares (it saves nothing): a container that
+            # cannot write to GitLab itself would lose the write, so it is refused before anything runs. A read verb loses
+            # nothing: it keeps its bash read path (which reads through the bridge's story_read verb).
+            if ! ssdlc_verb_is_read "$verb" && command -v _gl_cannot_write_directly >/dev/null 2>&1 && _gl_cannot_write_directly; then
+                die "$op refused: this project's bridge runs its story stack in shadow mode, where it compares but never saves, and this container cannot write to GitLab itself (no GitLab token of its own, or no GitLab address), so the change would be lost. Nothing was changed. Fix: in the launcher, set KYKLOS_SSDLC_MODE to on for this project, or leave it empty (on is the default when the story token is named), then relaunch." 2
+            fi
             local resp rc cs_out out brc dir ref="$1"
             resp="$(bridge_mcp_call "$verb" "$args" 300)"; rc=$?
             local spec_refusal

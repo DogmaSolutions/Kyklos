@@ -58,13 +58,13 @@ and proof before work counts as done (mechanisms only; project specifics live in
   | `story-proof-guard` | the final Done gate: no close with an UNPROVEN Quality Dimension, the tool-gate tokens, close-on-green |
   | `story-structure-guard` | a story carries the required structure items |
   | `story-start-guard` / `story-before-coding-guard` | no substantial work without an active, ready story |
-  | `story-backlog-guard` | In-progress means somebody is working on it |
+  | `story-backlog-guard` | In-progress means somebody is working on it. When the container cannot reach GitLab, it reads the stories through the bridge's `story_read` verb; only when neither can read them does the Stop block, naming the configuration fix (a missing `STORY_GITLAB_PROJECT` or `KYKLOS_ISSUES_API`, a session started without its bridge) |
   | `story-mirror-edit-guard` / `story-mirror-refresh` / `story-mirror-commit` / `story-mirror-stale-surface` | the on-disk `Stories/` mirror of GitLab: read-only, refreshed, committed, stale reads surfaced |
   | `phase-advance` | a story's `ssdlc:phase::` advances as the real work happens |
   | `proof-show-nudge` | after a `story close`, show its proof in the reply |
   | `continue-guard` / `ask-user-guard` | no unmotivated stop on the agent's own or unassigned work (another user's issues are listed as owned elsewhere); no question that is not a genuine always-stop decision. A red doctor result is an allowed stop reason: the doctor hook records, per session, the checks that answered "no"; the guard allows a stop while such a record of THIS session stands, a live doctor re-run still says "no" for one of them, and the agent's closing message names it (a doctor that could not run leaves no record) |
   | `idle-work-nudge` | use a long pipeline wait for independent work |
-  | `session-continuation-guard` | `CLAUDE.md` is re-read periodically |
+  | `session-continuation-guard` | `CLAUDE.md` is re-read periodically. While the project has no `CLAUDE.md`, the call that only creates it passes (a Write or Edit of exactly that file, or one plain `touch`, `: >` or `cp <file>` onto it), so a new project's first session can write its rules; once the file exists it must be read first |
   | `session-boundary-stamp` | records the session start for the close-time gates |
   | `infra-persistence-guard` | reminds to record a created token, or a rule written to volatile notes, in the repository |
   | `fork-bridge-surface` | a bridge run verb from another git tree must name its `tree` |

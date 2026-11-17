@@ -61,18 +61,21 @@ flowchart TD
 ## Forced productivity
 
 An agent left to itself tends to stop early: it reports progress and waits. Kyklos does not allow that. When the agent tries to end its turn, a guard checks the project's open work, and the turn may
-end **only** when either:
+end **only** when one of these holds:
 
 - **all in-scope work is done** (every open story closed), or
 - **the agent has asked the user a real question**: one only a person can answer (an irreversible or outward-facing action, or information only they hold), asked with its full context, the references
   involved and the effect of each option. When the agent cannot go on until the person does something only they can do, it asks in one recognisable form, the
   owner-blocker question: a line that starts `Blocked on you:`, says what only the person can do and why, and ends with a question mark. The stop rule accepts that turn even when
-  a short note follows the question, and the rule on Claude Code's question tool accepts the same form with no override.
+  a short note follows the question, and the rule on Claude Code's question tool accepts the same form with no override, or
+- **the session's [health report](#the-health-report-at-session-start) has a red result that still stands, and the agent reported it**: a check of the doctor answered "no" at this session's start, the
+  Bridge's doctor still answers "no" for it, and the agent's closing message names that check without asking which work to do next. Only the doctor hook writes that result, keyed by the
+  session, so the agent cannot create it; a doctor that could not run leaves none, and a green re-run clears it.
 
 "Waiting for CI" is not a reason to stop: the agent works on another item, or arms a watch that wakes it when the pipeline finishes. A blocker stops only the steps that depend on it, never the whole
 queue. Messages addressed to the agent (from a person or another agent) must be answered before the turn can end.
 
-What counts as open work: every open issue is classified from its labels. A `story` issue and a plain, unlabeled issue both force work (an unlabeled issue must be triaged: adopted under a story kind, routed to another agent as a message, parked, or closed with a disposition label). Four states are excluded: messages to another agent (their reply is tracked separately), parked stories, blocked stories (a story that records what it waits on and why; the guard re-checks that record on every stop, so a block on an issue or merge request lifts by itself when it closes or merges, while a block on the user or on something external stays until it is changed by hand), and issues closed out by a `wontfix`, `duplicate` or `invalid` label. The only valid reasons to stop are *all work complete* (verified against the tracker, so it cannot be faked) or *awaiting the user* on a genuine question. There is no marker the agent can create to excuse a stop. If the agent is wedged, a stuck-breaker releases the stop after a few consecutive stops with no change and no new tool calls, so the guard can never spin forever. A guard that cannot judge a blocked story names it in a warning instead of counting it as work, so the stop gate is never impossible to pass.
+What counts as open work: every open issue is classified from its labels. A `story` issue and a plain, unlabeled issue both force work (an unlabeled issue must be triaged: adopted under a story kind, routed to another agent as a message, parked, or closed with a disposition label). Four states are excluded: messages to another agent (their reply is tracked separately), parked stories, blocked stories (a story that records what it waits on and why; the guard re-checks that record on every stop, so a block on an issue or merge request lifts by itself when it closes or merges, while a block on the user or on something external stays until it is changed by hand), and issues closed out by a `wontfix`, `duplicate` or `invalid` label. The only valid reasons to stop are *all work complete* (verified against the tracker, so it cannot be faked), *awaiting the user* on a genuine question, or a *red health result* of this session that the agent reported. There is no marker the agent can create to excuse a stop. If the agent is wedged, a stuck-breaker releases the stop after a few consecutive stops with no change and no new tool calls, so the guard can never spin forever. A guard that cannot judge a blocked story names it in a warning instead of counting it as work, so the stop gate is never impossible to pass.
 
 One exception follows the "arm a watch" rule: while a background command or a background agent the agent started is still running, work it already owns is not counted as actionable, and the agent is blocked only once for work that is new. A worker counts as running only while its newest event is younger than `CONTINUE_GUARD_WATCH_TTL_MINUTES` (default 30); silence past that bound means it is not running. Set `CONTINUE_GUARD_WATCH_HOLD=off` to disable the exception, and `KYKLOS_BLOCKER_CHECK=off` to disable the re-check of blocked stories.
 
@@ -89,7 +92,9 @@ flowchart TD
     W -->|"only blocked, parked or messages"| OK
     W -->|"work that is actionable"| Q{"Did the agent just ask the<br/>user a real question?"}
     Q -->|"yes"| OK2["Stop allowed: awaiting the user"]
-    Q -->|"no"| R{"A background run it<br/>started is still active?"}
+    Q -->|"no"| HR{"A red health result of<br/>this session that still<br/>stands, and was reported?"}
+    HR -->|"yes"| OK5["Stop allowed: the person<br/>was told what is red"]
+    HR -->|"no"| R{"A background run it<br/>started is still active?"}
     R -->|"yes, and the work is its own"| OK3["Stop allowed while it waits"]
     R -->|"no"| K{"Same open set, no new tool<br/>calls, several Stops in a row?"}
     K -->|"yes"| OK4["Stuck-breaker releases the Stop"]
@@ -113,6 +118,18 @@ The next item is not the agent's choice. The [`Kyklos Bridge`](COMPONENTS.md) co
 
 A story that waits on another open item is never taken before it: the item it waits on is offered instead. Items set aside or assigned to someone else are never taken, but are listed by name, so
 nothing is hidden. A story issue created without a severity (for example by hand in the tracker, outside the story tool) is reported as a defect to fix first.
+
+## The health report at session start
+
+Every session starts with its health. At each session start (a new session, a resume, or after the conversation is compacted) the plugin's `kyklos-doctor-surface.sh` hook:
+
+- runs the session's own checks: the scopes of the tokens the agent can read (at most 30 seconds), and whether the local story mirror is marked stale;
+- asks the [Bridge](COMPONENTS.md#kyklos-bridge)'s `doctor` verb for its checks (the same checks as the Bridge's **Health** tab), waiting at most 15 seconds (`KYKLOS_DOCTOR_TIMEOUT_SECONDS`, never more than 15);
+- puts every finding into the session's starting context, with the instruction that the agent's **first message** to the person reports each one. A healthy report adds nothing.
+
+A Bridge that is absent, older than the plugin or too slow gives one short neutral line, never a failure: the session always starts. A check that answers "no" is recorded for the session; while it stands and the agent has reported it, it is an allowed reason to stop (see [Forced productivity](#forced-productivity)).
+
+The report is on by default. `KYKLOS_DOCTOR_SURFACE=off` switches it off and brings back the separate token-scope and story-mirror notices it replaces (see [Overrides](WORKFLOW.md#greppable-opt-out-switches)). The agent can run the doctor again at any time with the `health` skill.
 
 ## How the agent knows what to do: skills
 

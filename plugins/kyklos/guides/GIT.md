@@ -36,6 +36,18 @@ Whatever the mode, a story closes only once its change is **merged into the trun
 it has been pushed. Code that coverage measures must reach the trunk through a merge request. See [The Kyklos Workflow](WORKFLOW.md).  
 Every commit follows [Conventional Commits](https://www.conventionalcommits.org/) and carries a reference to its [story](AGILE.md). Repository layouts are described in [Project topologies](TOPOLOGIES.md).
 
+## Which trunk a merge request targets
+
+A repository may declare its **integration trunk** with `KYKLOS_INTEGRATION_BRANCH` (usually `develop`), in its `.claude/standards.env` or in the session's environment. It then works with two trunks: `develop` integrates every `feature/*` branch, story branches included, and `main` receives only a `release/<version>` promotion or a `hotfix/*` branch.
+
+In such a repository the rule is checked on every creation, arm, retarget and merge of a merge request:
+
+- a `feature/*` branch's merge request must target the integration trunk. One aimed at `main`, or whose target cannot be read, is refused, and the refusal prints the push that names the right target (`git push -o merge_request.create -o merge_request.target=develop ...`);
+- a `hotfix/*` branch aimed at `main` is refused when it carries commits of `develop` that `main` lacks: a hotfix starts from `main` and holds only the fix, and work that started from `develop` is integration work;
+- when `origin` has no integration trunk, or cannot be asked, the request is refused rather than guessed.
+
+A repository that declares no integration trunk is not checked by this rule at all, and a trunk-based repository is always admitted. The rule is on by default. A person may switch it off with `KYKLOS_STORY_MR_TARGET=off`; for one request the owner decided on, the one-shot override `story-mr-target-ok` applies (see [Overrides](WORKFLOW.md#one-shot-override-markers)). Both are audited. The rule lives in the plugin's `hooks/lib/story-mr-target.sh`; what to do when it refuses is in [Troubleshooting](TROUBLESHOOTING.md#merge-request-refused-wrong-target-trunk).
+
 ## How a push and an arm are checked
 
 Every `git push`, every merge request the agent creates and every arm ("merge when the pipeline succeeds") passes through the rules of the [Kyklos hooks](HOOKS_AND_SKILLS.md#how-a-hook-decides-one-hook-per-event-every-rule-in-the-bridge)

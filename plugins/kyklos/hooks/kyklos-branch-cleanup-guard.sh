@@ -169,6 +169,9 @@ _bl="$(dirname "${BASH_SOURCE[0]}")/lib/backlog-lib.sh"
 # [no-fail-open] a missing lib is a broken install — surface it LOUDLY (still exit 0 so Stop never wedges).
 if [ -f "$_bl" ]; then . "$_bl"; else echo "[kyklos] WARNING: branch-cleanup guard INERT this Stop — backlog-lib.sh missing ($_bl), a broken plugin install; branch-closure enforcement is OFF. Reinstall kyklos." >&2; exit 0; fi
 BACKLOG="$(resolve_backlog "$PROJECT_DIR")"
+# [no-fail-open] a story list that could not be read (whole) is never an empty backlog: say out loud that the
+# dangling-branch check did not run this Stop, instead of skipping it silently. The merged-leftover check still runs.
+[ "$BACKLOG" = "__BACKLOG_UNREACHABLE__" ] && echo "[kyklos] WARNING: branch-cleanup guard — the story list could not be read whole, so the DANGLING-branch check did NOT run this Stop (it needs the In-progress and Blocked counts)." >&2
 have_backlog=0; inprog=0; blocked=0; active=0
 if [ -n "$BACKLOG" ] && [ -f "$BACKLOG" ]; then
   have_backlog=1

@@ -105,14 +105,15 @@ check fails; "cited" means the agent supplies the evidence and the gate checks t
 
 - **C#:** the names and the `Category`, `Trait` or `Property` tags of methods that carry an NUnit, xUnit or MSTest test
   attribute (`Test`, `TestCase`, `TestCaseSource`, `Fact`, `Theory`, `TestMethod`, `DataTestMethod`, ...), read from the
-  C# syntax tree; skipped tests (`Ignore`, `Explicit`, `Skip`) never count.
+  C# syntax tree; skipped tests (`Ignore`, `Skip`) never count. A test marked `Explicit` counts only from a file of Explicit
+  tests alone, with a passing run of that file on record in the content ledger at the merged result ([Test Discipline](PROOF_DIMENSION_TEST_DISCIPLINE.md#tests-marked-explicit-evidence-is-a-run-that-passed)).
 - **Bash:** the labels of the check calls of a shell suite.
 - **Not supported:** tests in any other language name no item for the tools.
 
 ### Test quality hook
 
 - **Supported:** C# test files (in a `*.Tests` folder, or named `*Tests.cs` / `*Test.cs`). It refuses `Assert.Ignore`,
-  `Assert.Pass` and `Assert.Inconclusive`, skip attributes (`[Ignore]`, `[Explicit]`, `Skip =`) and positional page
+  `Assert.Pass` and `Assert.Inconclusive`, skip attributes (`[Ignore]`, `Skip =`; `[Explicit]` is accepted) and positional page
   locators (`.Nth(...)`, `:nth-child`), with a recorded escape for the cases where one is legitimate.
 - **Not supported:** test files in any other language.
 

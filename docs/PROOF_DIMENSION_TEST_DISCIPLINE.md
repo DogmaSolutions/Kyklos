@@ -180,6 +180,36 @@ the story's own change as it landed on the trunk, read from the remote. Each che
 in. In a repository the [Bridge](COMPONENTS.md#kyklos-bridge) does not serve, a story check reports *"not judgeable here"*, records the skip and passes no
 judgement; a close of a story in a project the Bridge does not serve is refused (`PROJECT-NOT-SERVED`).
 
+### Tests marked Explicit: evidence is a run that passed
+
+The rule for a test as evidence is **a test that ran and passed**, not a test that runs in CI. Kyklos is local first: an
+NUnit test marked `[Explicit]` runs whenever it is selected, and on the host it is often the only test that can prove a
+requirement of the target environment (a real server, real hardware, a real external service). So:
+
+- **`[Ignore]`, `[Fact(Skip=...)]` and `[Theory(Skip=...)]` never count.** They never run. The plugin refuses them in a
+  test file unless the line carries an inline `// transient-ok: <reason>`, and the scan of spec items never reads such a
+  test, even when it is also marked `[Explicit]`.
+- **`[Explicit]` is accepted.** The plugin no longer refuses it. The spec items its name and its `Category`, `Trait` or
+  `Property` tags name (and those of its class) count for the Test Discipline and Completeness rows **only when the content
+  ledger holds a passing run of its test file with the content that file has at the story's merged result**. A test or a
+  class carrying the `Explicit` attribute, and a named argument `TestCase(..., Explicit = true)`, are read as Explicit;
+  `Explicit = false` is not. A test made Explicit only by one test case's argument still has cases every run selects:
+  mark the whole test `[Explicit]`, or move the target-environment case into its own Explicit test in a file of its own.
+- **Requirement: an Explicit test that proves an item lives in a file of its own.** The ledger keys a run by its **test
+  files**, not by single test methods, and a normal run never selects an Explicit test. So a recorded pass of a file shows
+  that its Explicit test ran only when nothing else in the file could have passed. The file must hold only tests that
+  carry the `Explicit` attribute (on the test or on the class that directly contains it: an outer class's `Explicit`
+  does not reach a nested class; skipped tests may stay), no partial type, no preprocessor
+  condition (`#if`), and no Explicit test in a class that derives from another class. The run must pass the tests of that
+  file alone (run it with a filter on the test). A file that breaks this rule leaves the item open, with the next step:
+  move the test to a file of its own, run it on the host, and draft again.
+- **No such run, a failing run (the ledger records only runs in which every test passed), or a run of other content of
+  the file** leaves the item open. The draft names the run to make, for example *run it on the host (`run_tests`, or
+  `get_coverage`, with the filter `Name=<test>`)*, then `proof_draft` again.
+- Switching a failing test to `[Explicit]` therefore proves nothing: without a recorded passing run it cites nothing.
+
+Tests that are not marked `Explicit` count exactly as before: their name or tags name the item, and the story wrote them.
+
 ### How tests run on the host
 
 - **Each run has its own temporary folder** under the [Bridge](COMPONENTS.md#kyklos-bridge)'s state folder (`run-temp/<run id>`). The build, the test

@@ -44,21 +44,24 @@ if [ -f "$_bl" ]; then . "$_bl"; else echo "[kyklos] WARNING: story-backlog guar
 # — fail-open, no-op. The folder-structural checks below are LOCAL-only (with the GitLab backend the stories ARE
 # issues: there are no folders, so only the backend-meaningful In-progress invariant applies).
 MODE="$(story_backend_mode)"
-BACKLOG="$(resolve_backlog "$PROJECT_DIR")"
+# 'bridge': when the container cannot read GitLab, the index is read through the bridge before it counts as unreachable.
+BACKLOG="$(resolve_backlog "$PROJECT_DIR" bridge)"
 # The gitlab backend materializes the index into a per-Stop temp file whose PATH is returned here; clean it
 # on exit so a long-lived container does not accumulate one backlog-gl.* temp per Stop. Pattern-guarded to the gitlab
 # temp so the real on-disk Stories/BACKLOG.md (local mode) is NEVER deleted.
 case "$BACKLOG" in */backlog-gl.*) trap 'rm -f "$BACKLOG" 2>/dev/null' EXIT ;; esac
 [ "$MODE" = local ] && { [ -d "$STORIES_DIR" ] || exit 0; }
 # [no-fail-open] resolve_backlog returns the __BACKLOG_UNREACHABLE__ sentinel when the gitlab backend is
-# CONFIGURED but the index could not be built (API error/unreachable). The In-progress invariant is
-# then UNVERIFIABLE — fail CLOSED (block) with a one-shot LOGGED override (spend-first, mirroring
-# kyklos-merge-green-guard), never a silent no-op. A genuinely-empty backlog (empty string) and the local/
-# unconfigured paths still no-op below.
+# CONFIGURED but neither the container nor the bridge could build the index. The In-progress invariant is
+# then UNVERIFIABLE — fail CLOSED (block), never a silent no-op. The block names the configuration fix (a missing
+# setting, a session started without its bridge), because the same block at every Stop is a configuration gap the
+# person fixes once, not an override to paste each time; a marker set earlier is still spent once (spend-first,
+# mirroring kyklos-merge-green-guard). A genuinely-empty backlog (empty string) and the local/unconfigured paths
+# still no-op below.
 if [ "$BACKLOG" = "__BACKLOG_UNREACHABLE__" ]; then
     . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/override-marker.sh"   # override_take: the scoped, expiring one-shot override
     override_take backlog-ok "$(override_hook_scope "$INPUT")" "$INPUT" && { echo "[kyklos] backlog gate: OVERRIDDEN once (backlog-ok spent) — the In-progress invariant was NOT verified (GitLab unreachable)." >&2; exit 0; }
-    _r="BLOCKED: the GitLab story backend is CONFIGURED but UNREACHABLE, so the In-progress invariant (a story-named branch per parallel story, at most KYKLOS_MAX_IN_PROGRESS, see lib/backlog-lib.sh) cannot be verified — a session must not end in an unverifiable workflow state. Wait for GitLab and re-run; or if you have INDEPENDENTLY confirmed the In-progress stories respect that invariant, override once: bash $OVERRIDE_MARKER_CLI set backlog-ok <your-working-folder>"
+    _r="BLOCKED: the GitLab story backend is CONFIGURED, but neither this container nor the bridge could read it, so the In-progress invariant (a story-named branch per parallel story, at most KYKLOS_MAX_IN_PROGRESS, see lib/backlog-lib.sh) cannot be verified — a session must not end in an unverifiable workflow state. $(backlog_unreachable_fix)"
     _r="${_r//\\/\\\\}"; _r="${_r//\"/\\\"}"; _r="$(printf '%s' "$_r" | tr '\n' ' ')"
     printf '{"decision":"block","reason":"%s"}' "$_r"
     exit 0

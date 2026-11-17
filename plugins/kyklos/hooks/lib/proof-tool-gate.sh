@@ -1402,22 +1402,106 @@ _proof_tool_merge_measured() {
     return 0
 }
 
-# _proof_tool_lock TOKFILE -> take the per-story lock "<TOKFILE>.lock" (a folder: mkdir is atomic on every
-# filesystem the token store lives on, and flock is missing from Git for Windows bash). Waits up to
-# _PTG_LOCK_WAIT_TENTHS tenths of a second (default 300, i.e. 30 s); a lock older than two minutes was left by an emit
-# killed mid-write (the locked section takes milliseconds) and is taken over. Non-zero when the lock stays held.
+# _proof_tool_lock TOKFILE -> take the per-story lock "<TOKFILE>.lock" (a folder: mkdir is atomic on every filesystem
+# the token store lives on, and flock is missing from Git for Windows bash; an older version of this code also locks by
+# mkdir alone, so old and new versions exclude each other). The holder then writes its name into "<lock>/owner", so a
+# waiter can tell one hold from the next. A waiter that reads the owner in the moment it is being written sees no name
+# or a part of it; that only counts as one more change of hands, and such a lock is seconds old, never stale. The lock
+# itself is made and removed with mkdir, rm and rmdir only, never by renaming, so a store where renames fail (a full
+# disk, a file held open on Windows) still gets the token write's own error, not a lock error.
+# The wait limit, _PTG_LOCK_WAIT_TENTHS polls of a tenth of a second (default 300, about 30 s), bounds ONE hold, not
+# the whole queue: every time the lock changes hands the waiter starts its count again. Many emits for one story
+# therefore all get their turn however slow a loaded machine makes each locked section, while a lock that stays with
+# the same holder for the whole limit still makes the emit refuse, loudly. A lock older than two minutes was left by
+# an emit killed mid-write (the locked section takes well under a second) and is taken over. Non-zero when the lock
+# stays held.
+# [CySec] Mitigates CWE-362 "Concurrent Execution using Shared Resource with Improper Synchronization": a stale lock is
+# taken over only under the takeover guard "<lock>.steal", which also every unlock takes. Under the guard the waiter
+# checks again that the lock is stale and still names the holder it judged stale (no name at all counts as a name),
+# and only then removes it; no unlock can run in between, and a new lock cannot be made while the old one is in place,
+# so the waiter can never remove a lock another emit has just taken, and two waiters can never both take one stale
+# lock. The guard itself is cleared when older than about one minute, so the exclusion holds as long as no process is
+# stopped for more than 60 s inside the guard (a few file operations) and no holder keeps the lock for more than about
+# two minutes (its locked section takes well under a second).
+declare -gA _PTG_LOCK_OWNERS 2>/dev/null || true
 _proof_tool_lock() {
-    local lock="$1.lock" tries="${_PTG_LOCK_WAIT_TENTHS:-300}"
+    local lock="$1.lock" limit="${_PTG_LOCK_WAIT_TENTHS:-300}" tries me seen="" cur
+    tries="$limit"; me="${BASHPID:-$$}.$RANDOM$RANDOM"
     while [ "$tries" -gt 0 ]; do
-        mkdir "$lock" 2>/dev/null && return 0
-        if [ -n "$(find "$lock" -maxdepth 0 -mmin +2 2>/dev/null)" ]; then rmdir "$lock" 2>/dev/null; continue; fi
+        if mkdir "$lock" 2>/dev/null; then
+            if printf '%s\n' "$me" > "$lock/owner" 2>/dev/null; then _PTG_LOCK_OWNERS["$lock"]="$me"; return 0; fi
+            rm -f "$lock/owner"; rmdir "$lock" 2>/dev/null
+            echo "proof-tool-gate.sh: could not write the owner of the lock $lock" >&2
+            return 1
+        fi
+        cur="$(cat "$lock/owner" 2>/dev/null)"
+        # The lock changed hands (or was released) since the last look: the queue is moving, so the limit starts again.
+        if [ "$cur" != "$seen" ]; then seen="$cur"; tries="$limit"; fi
+        if [ -n "$(find "$lock" -maxdepth 0 -mmin +2 2>/dev/null)" ] && _proof_tool_lock_guard_take "$lock"; then
+            if [ -n "$(find "$lock" -maxdepth 0 -mmin +2 2>/dev/null)" ] && [ "$(cat "$lock/owner" 2>/dev/null)" = "$cur" ]; then
+                _proof_tool_remove_lock_dir "$lock" \
+                    || echo "proof-tool-gate.sh: could not take over the stale lock $lock (its folder could not be removed)" >&2
+                _proof_tool_lock_guard_release "$lock"
+                continue
+            fi
+            _proof_tool_lock_guard_release "$lock"
+        fi
         sleep 0.1; tries=$((tries - 1))
     done
     return 1
 }
 
-# _proof_tool_unlock TOKFILE -> release the lock _proof_tool_lock took.
-_proof_tool_unlock() { rmdir "$1.lock" 2>/dev/null || true; }
+# _proof_tool_remove_lock_dir LOCK -> remove the lock folder and its owner file. The folder removal is retried up to
+# 20 times 50 ms apart: on Windows a file another process holds open (waiters read the owner file ten times a second)
+# stays in its folder until it is closed, so the folder is not empty yet. Non-zero when the folder stays.
+_proof_tool_remove_lock_dir() {
+    local attempts=0
+    rm -f "$1/owner"
+    while [ "$attempts" -lt 20 ]; do
+        attempts=$((attempts + 1))
+        rmdir "$1" 2>/dev/null && return 0
+        [ -e "$1" ] || return 0
+        sleep 0.05
+    done
+    return 1
+}
+
+# _proof_tool_lock_guard_take LOCK -> take the takeover guard "<LOCK>.steal" (a plain folder, held for a few file
+# operations only). A guard older than one minute was left by a process killed inside it and is cleared by renaming it
+# to a name of this caller's own first. Non-zero when the guard stays held for about 90 s.
+_proof_tool_lock_guard_take() {
+    local guard="$1.steal" polls=900 old
+    while ! mkdir "$guard" 2>/dev/null; do
+        if [ -n "$(find "$guard" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
+            old="$guard.old.${BASHPID:-$$}.$RANDOM"
+            mv -T "$guard" "$old" 2>/dev/null && rmdir "$old" 2>/dev/null
+            continue
+        fi
+        polls=$((polls - 1)); [ "$polls" -gt 0 ] || return 1
+        sleep 0.1
+    done
+    return 0
+}
+
+# _proof_tool_lock_guard_release LOCK -> release the takeover guard.
+_proof_tool_lock_guard_release() { rmdir "$1.steal" 2>/dev/null || true; }
+
+# _proof_tool_unlock TOKFILE -> release the lock _proof_tool_lock took, only while it still names this holder (a lock
+# taken over as stale belongs to its new holder and is left alone). It runs under the takeover guard, so a waiter that
+# judged the lock stale cannot remove the next holder's lock in the moment this one is released. A lock this holder
+# still owns but cannot remove is reported on stderr: it will be taken over once stale (after about two minutes).
+_proof_tool_unlock() {
+    local lock="$1.lock" me guarded=0
+    me="${_PTG_LOCK_OWNERS["$lock"]:-}"
+    unset '_PTG_LOCK_OWNERS[$lock]'
+    [ -n "$me" ] || return 0
+    _proof_tool_lock_guard_take "$lock" && guarded=1
+    if [ "$(cat "$lock/owner" 2>/dev/null)" = "$me" ] && ! _proof_tool_remove_lock_dir "$lock"; then
+        echo "proof-tool-gate.sh: could not release the lock $lock (its folder could not be removed); other emits wait until it is two minutes old and then take it over" >&2
+    fi
+    [ "$guarded" = 0 ] || _proof_tool_lock_guard_release "$lock"
+    return 0
+}
 
 # _proof_tool_files_from LIST -> the paths of LIST (one per line, carriage returns and blank lines dropped), one per
 # output line, so a caller passes a list longer than a command line takes through a file (--files-from). rc 1 naming the

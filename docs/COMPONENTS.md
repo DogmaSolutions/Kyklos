@@ -35,7 +35,7 @@ flowchart LR
     subgraph Host["Developer's machine"]
         LA["Kyklos Launcher"] -->|"starts, with its<br/>settings and secrets"| BR["Kyklos Bridge"]
         CS[("Credential store")] --> LA
-        RS[("Reviewed Bridge settings,<br/>committed and pushed,<br/>outside the container")] --> LA
+        RS[("Bridge settings,<br/>outside the container")] --> LA
     end
     PL -->|"hook_event,<br/>authenticated, project checked"| BR
     AG -->|"tool calls: build,<br/>run_tests, story, CI"| BR
@@ -43,19 +43,23 @@ flowchart LR
     BR -->|"builds and tests with a<br/>clean environment"| SRC["The project's source"]
 ```
 
-- **The settings the [Bridge](#kyklos-bridge) runs with are reviewed.** Before it starts a project's Bridge, the [Launcher](#kyklos-launcher) checks that the project's settings file (`projects/<project>/bridge.appsettings.json` under
-  the settings root) lies outside every folder the container can write, is tracked in git, is unchanged since its commit and is identical to its remote branch. Otherwise the launch is refused,
-  so an agent can never widen its own Bridge. The check lives in `launcher/src/KyklosLauncher/Bridge/BridgeSettingsGate.cs`.
+- **The settings the [Bridge](#kyklos-bridge) runs with are out of the agent's reach.** Before it starts a project's Bridge, the [Launcher](#kyklos-launcher) checks that the project's settings file (`projects/<project>/bridge.appsettings.json` in
+  the Launcher's settings folder or the settings root) lies outside every folder the container can write. Otherwise the launch is refused,
+  so an agent can never widen its own Bridge. A project with no file runs on the built-in least-privilege default (role `Project`). The check lives in `launcher/src/KyklosLauncher/Bridge/BridgeSettingsGate.cs`.
 - **The Bridge binary is verified.** The Launcher downloads the Bridge release, hashes it while it streams, and keeps it only when the SHA-256 equals the checksum published with the release; a
   cached copy is re-checked before every start (see [Installing and configuring](INSTALL_AND_CONFIG.md)).
 - **The session talks only to its own Bridge.** Every answer carries the Bridge's project name and solution root, and the [Plugin](#kyklos-plugin) refuses an answer from another project's Bridge.
-- **When a part is missing.** Without the Bridge, every tool call is refused (see [Hooks and skills](HOOKS_AND_SKILLS.md)); without a reviewed settings file, no launch.
+- **When a part is missing.** Without the Bridge, every tool call is refused (see [Hooks and skills](HOOKS_AND_SKILLS.md)); a settings file the agent's container could write stops the launch, and a project with no file runs on the built-in least-privilege default.
 
-All components are available in the Kyklos marketplace, published in the [Kyklos GitHub repository](https://github.com/DogmaSolutions/Kyklos).  
-Through [Docker Desktop](https://www.docker.com/products/docker-desktop/), the `Kyklos Launcher` builds a container and injects into it, from the marketplace, the `Kyklos Plugin` and the `Kyklos Bridge`. Without the Launcher, the same three steps are done by hand: see [Wiring a project by hand](INSTALL_AND_CONFIG.md#wiring-a-project-by-hand-without-the-launcher) (the Plugin installs with `claude plugin marketplace add https://github.com/DogmaSolutions/Kyklos.git`, then `claude plugin install kyklos@dogmasolutions`).
+Where each component comes from:
+
+- The `Kyklos Launcher` and the `Kyklos Bridge` are published on the [Kyklos releases page](https://github.com/DogmaSolutions/Kyklos/releases) on GitHub, each release with a `SHA256SUMS.txt` file that lists the checksum of every file. The `Kyklos Bridge` is also published on NuGet.org as the .NET tool `DogmaSolutions.Kyklos.Bridge`.
+- The `Kyklos Plugin` comes from the Kyklos marketplace, the [Kyklos GitHub repository](https://github.com/DogmaSolutions/Kyklos) itself.
+
+Through [Docker Desktop](https://www.docker.com/products/docker-desktop/), the `Kyklos Launcher` builds a container and installs the `Kyklos Plugin` into it from the marketplace. The `Kyklos Bridge` does not go into the container: the Launcher downloads it from the releases page onto the host, checks its SHA-256 checksum against the one the release publishes, keeps the checked copy in a local cache, and starts it there, next to itself. Without the Launcher, the same steps are done by hand: see [Wiring a project by hand](INSTALL_AND_CONFIG.md#wiring-a-project-by-hand-without-the-launcher) (the Plugin installs with `claude plugin marketplace add https://github.com/DogmaSolutions/Kyklos.git`, then `claude plugin install kyklos@dogmasolutions`). [Versions and releases](RELEASES.md) explains what each release publishes and how the Launcher picks the Bridge version.
 
 <p align="center">
-<img src="../assets/workflow/AI-Driven_development_009.png" alt="The Launcher builds the container and injects the Plugin and the Bridge" width="800"/>
+<img src="../assets/workflow/AI-Driven_development_009.png" alt="The Launcher builds the container with the Plugin inside, and starts the Bridge on the host" width="800"/>
 </p>
 
 See also: [how the Plugin's hooks and skills enforce the workflow](HOOKS_AND_SKILLS.md), [how secrets are handled](SECRETS.md) and [how the Bridge talks to CI](CI.md).
@@ -85,7 +89,7 @@ So OpenShell would not replace any of the three Kyklos components. At most it co
 - **One isolated development container per project.** The agent works inside it, not on the host. Only the folders the project's configuration names are mounted.
 - **API tokens stay on the host.** A token that can call the GitLab API is never forwarded into the container. The [Bridge](#kyklos-bridge) holds it and uses it for story, CI and merge actions, checking each action against the rules first (see [Secrets](SECRETS.md)).
 - **Split, minimal credentials.** The push credential that does enter the container may only write to the repository. The [Launcher](#kyklos-launcher) asks GitLab what each token can do, and refuses to launch a project whose push token could also call the API.
-- **Reviewed settings.** The Bridge settings that decide what the agent may reach are used only in a committed, pushed version. They are kept in a folder the container cannot write.
+- **Settings out of reach.** The Bridge settings that decide what the agent may reach are kept in a folder the container cannot write; a file in the workspace or an extra folder is refused.
 
 ### Where OpenShell is stronger
 

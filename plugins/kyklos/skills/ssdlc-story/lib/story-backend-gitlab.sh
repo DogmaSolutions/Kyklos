@@ -92,6 +92,27 @@ _gl_has_token() {
     [ "$(cat "$f" 2>/dev/null)" = yes ]
 }
 
+# _gl_cannot_write_directly -> rc 0 when the story tool cannot send a request to GitLab itself, so every story operation
+# goes through the bridge: the container holds no GitLab token of its own (bridge secrets mode), or it knows no GitLab
+# API address while a bridge is declared for it. The story-stack switch (ssdlc-engine.sh) then sends the writes to the
+# bridge's story verbs, and gl_api sends the reads to its story_read verb, so no story operation needs the container to
+# reach GitLab directly. With no address and no bridge, the direct path stays and names the missing setting.
+# [RiskMitigation RA-01] the story tool needs no API-capable token in the container.
+_gl_cannot_write_directly() {
+    # Under the canned-API stub the stub plays GitLab, reached with a token, unless STORY_GL_STUB_NO_TOKEN=1 plays a
+    # container without one (the same seam gl_api honours).
+    if [ -n "${STORY_GL_STUB_DIR:-}" ]; then [ "${STORY_GL_STUB_NO_TOKEN:-}" = 1 ]; return $?; fi
+    ! _gl_has_token && return 0
+    [ -z "$_GL_API" ] && bridge_mcp_endpoint >/dev/null 2>&1
+}
+
+# _gl_via_bridge -> rc 0 when gl_api reads through the bridge: whenever the story tool cannot write directly, and when
+# STORY_GL_READ_VIA_BRIDGE=1 asks for it although the container holds a token (a caller whose own GitLab read failed).
+_gl_via_bridge() {
+    [ "${STORY_GL_READ_VIA_BRIDGE:-}" = 1 ] && return 0
+    _gl_cannot_write_directly
+}
+
 # _gl_note_direct_use -> announce, once per command, that the story tool still reads GitLab with the container's own
 # token: one line on the direct-token fallback ledger, so a project goes host-only only once no command needs it.
 _gl_note_direct_use() {
@@ -190,9 +211,11 @@ gl_api() {
     # [RiskMitigation RA-01] the story tool needs no API-capable token in the container.
     # Test seam: under the canned-API stub, STORY_GL_STUB_NO_TOKEN=1 plays a container without a token.
     if [ -n "${STORY_GL_STUB_DIR:-}" ] && [ "${STORY_GL_STUB_NO_TOKEN:-}" != 1 ]; then :
-    elif [ -n "$_GL_PID" ] && ! _gl_has_token; then
+    # _gl_via_bridge also honours STORY_GL_READ_VIA_BRIDGE=1: the backlog gate asks it when the container itself cannot
+    # reach GitLab (see hooks/lib/backlog-lib.sh).
+    elif [ -n "$_GL_PID" ] && _gl_via_bridge; then
         if [ "$method" = GET ]; then _gl_bridge_get "$path"; return $?; fi
-        echo "[story] gl_api: $method $path refused - this container has no GitLab token of its own, so the story tool writes only through the bridge's story verbs (story-stack mode 'on' for this project). Nothing was changed." >&2
+        echo "[story] gl_api: $method $path refused - this container has no GitLab token of its own (or no GitLab address), so the story tool writes only through the bridge's story verbs, and this project's bridge does not serve them for this operation (its story stack is off or in shadow mode, where it saves nothing, or the operation has no story verb). Turn the story stack on in the launcher (KYKLOS_SSDLC_MODE unset or on, with the story token named) and relaunch. Nothing was changed." >&2
         printf '{}'; return 1
     fi
     if [ -n "${STORY_GL_STUB_DIR:-}" ]; then
@@ -321,8 +344,8 @@ _gl_self_user_id() {
     # than once never waits on an unreachable GitLab or bridge a second time.
     [ -e "$f.failed" ] && return 1
     if [ ! -s "$f" ]; then
-        if ! _gl_has_token; then
-            # No token of its own: the bridge's token is the identity the bridge writes with, so it is the one to assign.
+        if _gl_cannot_write_directly; then
+            # No token (or no address) of its own: the bridge's token is the identity the bridge writes with, so it is the one to assign.
             _uid="$(coordination_read coordination_whoami '{}' 2>/dev/null | jq -r '(.id // empty) | numbers' 2>/dev/null)"
             [ -n "$_uid" ] || { : > "$f.failed" 2>/dev/null; return 1; }
             printf '%s' "$_uid" > "$f" 2>/dev/null || true
@@ -726,7 +749,16 @@ backend_generate_index() {  # emit the BACKLOG index (reuse story_emit_header/ro
     # ONE paged list call feeds the whole index: each list element is a full issue object, so pre-seeding the
     # per-issue cache from it turns the former one-fetch-per-story pattern (the minutes-long sync on a real
     # backlog) into a single round-trip; every downstream _gl_issue read below hits the warm cache.
-    listing="$(_gl_paged "issues?scope=all&labels=$_GL_STORY_LABEL")"
+    # [no-fail-open] A page that failed, a list cut short (the page cap, the time limit) or an answer that is not a list
+    # makes the whole read a failure (rc 3): the index is never built from part of the list, and "no stories" is an
+    # empty backlog only when every page answered cleanly. The callers that judge it (the backlog, start and
+    # branch-cleanup guards, through resolve_backlog) then take their unreachable path instead of a silent pass.
+    local _lrc=0
+    listing="$(_gl_paged "issues?scope=all&labels=$_GL_STORY_LABEL")" || _lrc=$?
+    if [ "$_lrc" -ne 0 ] || ! printf '%s' "$listing" | json_test 'type=="array"'; then
+        echo "[story] the story list could not be read whole (exit $_lrc); no index is built from part of it." >&2
+        return 3
+    fi
     printf '%s' "$listing" | jq -c '.[]?' 2>/dev/null | while IFS= read -r _it; do
         _iid="$(printf '%s' "$_it" | jq -r '.iid // empty' 2>/dev/null)"
         [ -n "$_iid" ] && [ ! -s "$_GL_CACHE/issue-$_iid.json" ] && printf '%s' "$_it" > "$_GL_CACHE/issue-$_iid.json"
