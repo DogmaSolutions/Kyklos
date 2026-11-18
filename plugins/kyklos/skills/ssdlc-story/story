@@ -391,6 +391,36 @@ cmd_sync() {
   story_mirror_git_hygiene "$dir"
 }
 
+# cmd_sync_story <dir> <handle> — refresh the mirror after a write to ONE story: that story's folder is re-rendered
+# from the tracker and its BACKLOG row replaced (a story new to the index is added after the last row). The full sync
+# (cmd_sync) reads every story of the project missing from the mirror, which on a large project or a fresh mirror
+# takes many minutes; a single-story write never pays that. The local backend keeps its full sync: its files are the
+# record and its index is rebuilt from them without any network. Best-effort like the full sync it replaces.
+cmd_sync_story() {
+  local dir="$1" handle="$2"
+  if [ "${STORY_BACKEND:-local}" != gitlab ] || [ -z "$handle" ]; then cmd_sync "$dir"; return; fi
+  _ensure_stories_dir "$dir"
+  local id; id="$(backend_id_from_handle "$dir" "$handle")"
+  backend_materialize "$dir" "$handle" "$id"
+  if [ -f "$dir/BACKLOG.md" ] && [ -f "$dir/$id/requirements.md" ]; then
+    local row label tmp
+    row="$(story_emit_row "$dir/$id")"
+    label="$(printf '%s' "$id" | sed -nE 's/^(STORY-[0-9]+).*/\1/p')"
+    tmp="$(mktemp "$dir/.backlog.XXXXXX")" || return 0
+    story_tmp_register "$tmp"
+    # The row is free text (a title may hold a Windows path): it reaches awk through ENVIRON, never -v, which rewrites
+    # backslash escapes and would split the row over two lines.
+    AWKARG_label="$label" AWKARG_row="$row" awk '
+      BEGIN { label = ENVIRON["AWKARG_label"]; row = ENVIRON["AWKARG_row"] }
+      { line[++n] = $0
+        if (index($0, "| [" label "](") == 1) { line[n] = row; found = 1 }
+        if (index($0, "| [STORY-") == 1) last = n }
+      END { for (i = 1; i <= n; i++) { print line[i]; if (!found && i == last) print row } }' "$dir/BACKLOG.md" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
+    mv -f "$tmp" "$dir/BACKLOG.md"
+  fi
+  story_mirror_git_hygiene "$dir"
+}
+
 # cmd_refresh <dir> — keep the DERIVED local mirror honest under the gitlab backend.
 # GitLab is the source of truth; Stories/ is a portable OFFLINE mirror that must never silently drift. So, in gitlab
 # mode: if the API is REACHABLE, regenerate the mirror from the SoT (re-render every requirements.md so a Status flip
@@ -620,7 +650,7 @@ cmd_new() {
   # Materialize the on-disk story folder (no-op for the FS backend, which already wrote it; for the gitlab backend
   # this writes requirements.md from the new issue + a tasks.md scaffold) so BACKLOG links resolve + hand-off works.
   backend_materialize "$dir" "$handle" "$id"
-  cmd_sync "$dir"
+  cmd_sync_story "$dir" "$handle"
   printf '%s\n' "$id"
 }
 
@@ -688,6 +718,49 @@ cmd_discipline() {
   printf '%s\n' "$text"
 }
 
+# ask <id> --file <file|-> [--dir <StoriesDir>]
+# Post a question for the owner (or any note the agent writes) on story <id>, and print the note's link on its own line:
+# the link is what 'story block <id> --kind user --on <link>' names. The bridge's story_note verb is the only
+# implementation (the empty body, a non-story issue, the project and the quick-action check are its rules); this
+# reads the body from the file (or standard input with '-'), forwards it and prints the answer. It is the named command
+# for asking on a story, so a normal ask never needs a raw API call or an escape.
+cmd_ask() {
+  local id="${1:-}" file="" body project resp rc text link
+  case "$id" in ''|--*) die "ask: usage: story ask <id> --file <file holding the note> (or --file - to read it from standard input)" 2 ;; esac
+  shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --file) file="${2:-}"; shift 2 || die "ask: missing value after --file" 2 ;;
+      --dir) shift 2 || shift ;;
+      *) die "ask: unknown argument '$1' (story ask <id> --file <file|->)" 2 ;;
+    esac
+  done
+  [ -n "$file" ] || die "ask: --file <file|-> is required: write the question into a file with your editor tool, then pass it (or pipe it with --file -)" 2
+  if [ "$file" = - ]; then
+    body="$(cat)"
+  else
+    [ -f "$file" ] && [ -r "$file" ] || die "ask: no readable file: $file" 2
+    body="$(cat -- "$file")"
+  fi
+  [ "${STORY_BACKEND:-local}" = gitlab ] || die "ask: a note is posted on the tracker (STORY_BACKEND=gitlab); the local backlog has no comments" 2
+  project="$(ssdlc_project)"
+  resp="$(bridge_mcp_call story_note "$(jq -cn --arg p "$project" --arg i "$(ssdlc_story_key "$id")" --arg b "$body" '{project:$p,id:$i,body:$b}')" 120)"; rc=$?
+  case "$rc" in
+    0) : ;;
+    2) die "ask: no KyklosBridge is configured for this workspace; the note is posted only by the bridge's story_note verb (start the session through its launcher)" 3 ;;
+    *) die "ask: the KyklosBridge did not answer (transport rc $rc); the note may or may not have been posted (the bridge may have posted it before its answer was lost). Look at the story's newest notes before you retry, so the owner is not asked twice" 3 ;;
+  esac
+  text="$(bridge_mcp_text "$resp")"
+  case "$text" in "unknown tool: story_note"*) die "ask: this KyklosBridge predates the story_note verb; relaunch the session to update it" 3 ;; esac
+  if bridge_mcp_is_error "$resp"; then printf '%s\n' "$text" >&2; return 1; fi
+  # A shadow-mode bridge checks the note but saves nothing: reporting that as an ask would leave the owner unasked.
+  case "$text" in *"[shadow]"*) printf '%s\n' "$text" >&2; die "ask: the bridge's story stack is in shadow mode for this project, so the note was not posted" 1 ;; esac
+  printf '%s\n' "$text" >&2
+  link="$(printf '%s' "$text" | grep -oE 'https?://[^[:space:]]+#note_[0-9]+' | head -n 1)"
+  [ -n "$link" ] || die "ask: the note was posted, but the bridge did not answer its link; find the note on the story and pass its link to 'story block <id> --kind user --on <link>'" 1
+  printf '%s\n' "$link"
+}
+
 # adopt <N> --type <t> --epic <E0N> [--kind <k>] [--dir <StoriesDir>]
 # Bring an EXISTING (typically USER-created) gitlab issue #N into the SSDLC story lifecycle: stamp the story labels
 # (backend_adopt lists them), attach the epic's milestone (REQUIRED), inject the canonical metadata block preserving
@@ -729,13 +802,13 @@ cmd_adopt() {
   iid="$(resolve_story adopt "$dir" "$ref" "adopt: no issue resolves from '$ref' in this project (check the number).")" || exit $?
   backend_epic_has_milestone "$dir" "$epic" || die "adopt: epic $epic has no milestone — create it first: story epic set $epic --title \"...\", then retry."
   handle="$(backend_adopt "$dir" "$iid" "$type" "$epic" "$kind" "$severity")" || die "adopt: could not adopt issue #$iid (see the error above)."
-  # backend_adopt now sets status::doing AND the SSDLC phase ATOMICALLY (a fresh adopt -> Requirements,
-  # a re-adopt keeps its phase), so an adopted story is never left in the phase-less 'worked with no phase' state
-  # — no post-hoc phase-set needed here (that would fail-open + reset a re-adopt's phase).
+  # backend_adopt keeps the issue's open status (to do when it has none: adoption is not a start) AND sets the SSDLC
+  # phase ATOMICALLY (a fresh adopt -> Requirements, a re-adopt keeps its phase), so no post-hoc phase-set is needed
+  # here (that would fail-open + reset a re-adopt's phase).
   _story_record_branch "$dir" "$handle"
   id="$(backend_id_from_handle "$dir" "$handle")"
   backend_materialize "$dir" "$handle" "$id"
-  cmd_sync "$dir"
+  cmd_sync_story "$dir" "$handle"
   # MECHANICAL structure check AT PICKUP (no AI): a just-adopted story must carry the 7 required SSDLC-story
   # items. WARN loudly on stderr (not fatal — the agent adopts THEN restructures) so a non-conforming issue
   # is surfaced the moment it enters the lifecycle, never silently worked. `story structure` re-checks after the fix.
@@ -1100,17 +1173,33 @@ _story_record_branch() {
 _require_adopted_story() {
   local handle="$1" verb="${2:-operation}"
   command -v backend_is_adopted_story >/dev/null 2>&1 || return 0
-  local rc; backend_is_adopted_story "." "$handle" 2>/dev/null; rc=$?
+  local rc missing; missing="$(backend_is_adopted_story "." "$handle" 2>/dev/null)"; rc=$?
   case "$rc" in
     0|3) return 0 ;;
-    1)   die "$verb: issue #$handle is NOT an adopted story (no 'story' label, or a story label but never adopted - no tool-written metadata). A raw/user-created issue must enter the SSDLC lifecycle FIRST — otherwise its proof/phase/close run with no milestone, no spec scaffold, no adoption. Adopt it:  story adopt $handle --type <t> --epic <E0N>  then retry." ;;
+    1)   die "$verb: issue #$handle is NOT an adopted story; it lacks: $(printf '%s' "$missing" | paste -sd ';' - | sed 's/;/; /g'). An issue without the story label is no story; one with it is adoptable until its adoption is complete (the original words quoted verbatim, the story template, the type, kind, severity, status and phase labels, an epic). Adopt it (adoption completes only what is missing and keeps the rest):  story adopt $handle --type <t> --epic <E0N>  then retry." ;;
     2)   die "$verb: could NOT verify issue #$handle is an adopted story — a determinate auth/config error (401/403/404: the token cannot read the project, or #$handle is absent). Refusing to operate unverified (fail-closed). Fix the token/project scope, or adopt the story." ;;
     *)   return 0 ;;
   esac
 }
 
+# _story_set_reason_check <set args...> -- a reason belongs to a reopen only (it is recorded as the reopen's root cause).
+# A plain status change takes none: refused at once, before anything is read or written, so a `set` never falls to the
+# bash mechanics because of a flag the bridge's status write does not take (that fallback once wrote the label, then
+# re-read every story of the project for the mirror and ran past five minutes).
+_story_set_reason_check() {
+  local a has_reason=0 has_reopen=0
+  for a in "$@"; do
+    case "$a" in
+      --reason) has_reason=1 ;;
+      --reopen) has_reopen=1 ;;
+    esac
+  done
+  [ "$has_reason" -eq 0 ] || [ "$has_reopen" -eq 1 ] \
+    || die "set: --reason goes with --reopen only (it is recorded as the reopen's root cause); a status or field change takes no reason. Drop --reason; a motivation worth keeping goes on the story as a note (the bridge's story_note verb)." 2
+}
+
 cmd_set() {
-  local ref="" no_sync=0 dir="" no_proof_gate=0 no_quality_gate=0 reason="" have_reason=0 reopen=0 ; local -a assigns=()
+  local ref="" no_sync=0 dir="" no_proof_gate=0 no_quality_gate=0 reason="" have_reason=0 reopen=0 have_branch_opt=0 ; local -a assigns=()
   [ "$#" -ge 1 ] || die "set: missing <id|NNN>"
   ref="$1"; shift
   while [ "$#" -gt 0 ]; do
@@ -1119,6 +1208,10 @@ cmd_set() {
       --no-proof-gate)   no_proof_gate=1; shift ;;     # escape the Done-transition proof gate (migrate/grandfather)
       --no-quality-gate) no_quality_gate=1; shift ;;   # escape the Done-transition 2a-2f gate (migrate/legacy)
       --reason)  reason="${2:-}"; have_reason=1; shift 2 || die "missing value after $1" ;;   # mandatory motivation for a --reopen
+      --branch)  # the one deliverable the story records (the field's own spelling, branch=<value>); a second value is refused, never the last kept
+        [ "$#" -ge 2 ] || die "missing value after $1"
+        [ "$have_branch_opt" -eq 0 ] || die "set: --branch was given twice; a story records ONE Branch value. Put every deliverable in one value (branch=\"A, B\"), or cite them together on 'story proof <id> --draft --branch A --branch B'."
+        have_branch_opt=1; assigns+=("branch=$2"); shift 2 || die "missing value after $1" ;;
       --reopen)  reopen=1; shift ;;                     # explicit reopen of a CLOSED story (needs --reason; records the root cause)
       --dir) dir="${2:-}"; shift 2 || die "missing value after $1" ;;
       *=*)  assigns+=("$1"); shift ;;
@@ -1126,6 +1219,10 @@ cmd_set() {
     esac
   done
   [ "${#assigns[@]}" -ge 1 ] || die "set: no field=value pairs given"
+  # A story records ONE Branch value: a second one, in any spelling (--branch or branch=), is refused, never the last kept.
+  local _kvn _nbranch=0
+  for _kvn in "${assigns[@]}"; do [ "$(canonical_field "${_kvn%%=*}" 2>/dev/null)" = "Branch" ] && _nbranch=$((_nbranch+1)); done
+  [ "$_nbranch" -le 1 ] || die "set: branch was given twice; a story records ONE Branch value. Put every deliverable in one value (branch=\"A, B\"), or cite them together on 'story proof <id> --draft --branch A --branch B'."
   [ -n "$dir" ] || dir="$(default_stories_dir)"
 
   local handle; handle="$(resolve_story set "$dir" "$ref")" || exit $?
@@ -1253,7 +1350,7 @@ cmd_set() {
   # Tell the bridge GUI a story was started (display only, fail-open), so an agent's card shows it at once.
   if [ "$_to_doing" = 1 ]; then command -v fyi_emit >/dev/null 2>&1 && fyi_emit story-start "$ref" "started" "In-progress" || true; fi
 
-  [ "$no_sync" -eq 1 ] || cmd_sync "$dir"
+  [ "$no_sync" -eq 1 ] || cmd_sync_story "$dir" "$handle"
 
   # Auto-emit the ground-truth flow-strip at a STATUS TRANSITION. flow-strip.sh existed + was documented
   # in the skill, but nothing invoked it (no hook, no tool call) -> it "never appeared". A status change (via `set`
@@ -1294,7 +1391,8 @@ cmd_close() {
   ref="$1"; shift
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --branch)  branch="${2:-}"; have_branch=1; shift 2 || die "missing value after $1" ;;
+      --branch)  [ "$have_branch" -eq 0 ] || die "close: --branch was given twice; a close records ONE Branch value. Cite several deliverables in one value (--branch \"A, B\")."
+                 branch="${2:-}"; have_branch=1; shift 2 || die "missing value after $1" ;;
       --summary) summary="${2:-}"; have_summary=1; shift 2 || die "missing value after $1" ;;
       --no-sync) no_sync=1; shift ;;
       --no-proof-gate) no_proof_gate=1; shift ;;   # escape for migrate/grandfather flows
@@ -1794,7 +1892,7 @@ cmd_track_finding() {
   local level
   case "$sev" in blocker) level=critical ;; minor) level=medium ;; nit) level=low ;; *) level=high ;; esac
   backend_add_labels "$dir" "$handle" "severity::$level,ai-review"
-  cmd_sync "$dir"
+  cmd_sync_story "$dir" "$handle"
   printf 'tracked as %s (severity %s)\n' "$(backend_id_from_handle "$dir" "$handle")" "$level"
 }
 
@@ -2061,7 +2159,7 @@ cmd_phase() {
     fi
   fi
   backend_set_phase "$dir" "$handle" "$canon" || die "phase: could not set ssdlc:phase::$canon"
-  cmd_sync "$dir" >/dev/null 2>&1 || true
+  cmd_sync_story "$dir" "$handle" >/dev/null 2>&1 || true
   command -v fyi_emit >/dev/null 2>&1 && fyi_emit story-phase "$ref" "phase -> $canon" "$canon" || true
   if [ "$have_reason" -eq 1 ] && [ "$advance" -eq 0 ]; then printf 'ssdlc:phase::%s (regress justified + recorded)\n' "$canon"; else printf 'ssdlc:phase::%s\n' "$canon"; fi
 }
@@ -2113,7 +2211,7 @@ cmd_parent() {
     die "parent: refusing — setting #$child_num's parent to #$parent_num would create a CYCLE (#$child_num is already an ancestor of #$parent_num)."
   fi
   backend_set_field "$dir" "$child_handle" "Parent" "#$parent_num" || die "parent: could not record the parent bullet"
-  cmd_sync "$dir" >/dev/null 2>&1 || true
+  cmd_sync_story "$dir" "$child_handle" >/dev/null 2>&1 || true
   printf 'STORY-%s parent set to #%s\n' "$(printf '%03d' "$child_num")" "$parent_num"
 }
 
@@ -2197,6 +2295,13 @@ cmd_requirements() {
       fi
     fi
   fi
+  # KEEP the spec marker: it sits on its own line between the header and the first `## `, so it belongs to neither the
+  # header kept above nor the spec taken from the file, and a spec write used to drop it. The marker turns on the 2a-2f
+  # close gate, so losing it would lighten the gate silently. Kept when the story or the file carries it.
+  if { printf '%s' "$cur" | grep -cF "$STORY_SPEC_MARKER" >/dev/null || grep -cF "$STORY_SPEC_MARKER" "$file" >/dev/null; } \
+     && ! printf '%s' "$spec" | grep -cF "$STORY_SPEC_MARKER" >/dev/null; then
+    spec="$(printf '%s\n%s' "$STORY_SPEC_MARKER" "$spec")"
+  fi
   local newbody
   if [ -n "$(printf '%s' "$header" | tr -d '[:space:]')" ]; then
     if [ -n "$(printf '%s' "$original" | tr -d '[:space:]')" ]; then
@@ -2211,7 +2316,7 @@ cmd_requirements() {
     die "requirements: $ref has no story metadata (Status / Story-Type / Epic) - it was never adopted. Adopt it first: $PROG adopt $ref --type <type> --epic <E0N>, then re-run requirements." 1
   fi
   backend_set_body "$dir" "$handle" "$newbody" || die "requirements: the body write did not take (see the error above)" 1
-  command -v cmd_sync >/dev/null 2>&1 && cmd_sync "$dir" >/dev/null 2>&1 || true   # refresh the mirror (best-effort)
+  cmd_sync_story "$dir" "$handle" >/dev/null 2>&1 || true   # refresh the mirror (best-effort)
   # Tool-owned phase choreography — the AUTHORED transition: once the spec is authored AND conforms (all 7
   # required items present, no unfilled <FILL:> placeholders), advance Requirements -> Design (monotonic; a story
   # already at/after Design is unchanged). This fires at the explicit "author the spec" action, NOT the read-only
@@ -2608,6 +2713,11 @@ Usage:
                                                          sets Blocked and posts one note. '$PROG block <id>' alone re-checks the
                                                          blocker and lifts the block once that reference closes or merges.
                                                          Needs the bridge's story stack in mode 'on' for this project)
+  $PROG ask <id|NNN> --file <file|->   (ask the owner on the story: posts the file's text (or standard input with '-')
+                                                         as a note through the bridge's story_note verb and prints the
+                                                         note's link on the last line, the target of
+                                                         '$PROG block <id> --kind user --on <link>'. The named command for
+                                                         an ask: never a raw API call or an escape)
   $PROG reopen-root-cause <id|NNN> (--reason "<why>" | --file <f>) [--dir <StoriesDir>]
                                                         (record why an already reopened story was reopened; the re-close gate needs it)
   $PROG resume <id|NNN> [--dir <StoriesDir>]   (un-park - phase present -> In-progress, else Todo)
@@ -2619,7 +2729,7 @@ Usage:
                                                         (--format text = the terminal form of the stored table: show THAT
                                                          in a reply; markdown, the default, is the table GitLab shows;
                                                          --template = the blank canonical scaffold)
-  $PROG proof <id|NNN> --draft [--branch "<deliverable>"] [--dir <StoriesDir>]
+  $PROG proof <id|NNN> --draft [--branch "<deliverable>"]... [--dir <StoriesDir>]
                                                         (START HERE: the bridge assembles the proof from the evidence it holds
                                                          - receipt, tokens, review, pipeline, tests, spec - and leaves open,
                                                          with what each needs, only the rows evidence cannot prove; fill those
@@ -2703,7 +2813,7 @@ main() {
   case "$sub" in
     new)      ssdlc_route new "$@" ;;
     adopt)    ssdlc_route adopt "$@" ;;
-    set)      ssdlc_route set "$@" ;;
+    set)      _story_set_reason_check "$@"; ssdlc_route set "$@" ;;
     block)    ssdlc_block "$@" ;;
     resume)   ssdlc_route resume "$@" ;;   # un-park: phase present -> In-progress, else Todo
     reopen-root-cause) ssdlc_route reopen_root_cause "$@" ;;   # record why an already reopened story was reopened
@@ -2715,6 +2825,7 @@ main() {
     structure) ssdlc_route structure "$@" ;;
     next)      cmd_next "$@" ;;   # the next work, as the bridge's next_work verb orders it
     discipline) cmd_discipline "$@" ;;   # read a story's Proof Discipline, or ask the owner to change it (bridge only)
+    ask)       cmd_ask "$@" ;;   # post a question for the owner on a story and print the note's link (bridge only)
     attach)    cmd_attach "$@" ;;   # attach a proof report and print its markdown link
     attach-coverage) cmd_attach_coverage "$@" ;;   # attach a shell (bashcov) coverage receipt through the bridge
     audit)     cmd_audit "$@" ;;

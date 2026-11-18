@@ -88,14 +88,14 @@ backend_fs_set_field_in_file() {
 
   if [ "$field" = "title" ]; then
     # Rewrite the H1's title text (after the first ": "). Keep the "# STORY-...: " prefix.
-    awk -v val="$value" -f "$BACKEND_FS_HERE/fs-set-title-field.awk" "$file" > "$tmp"
+    AWKARG_val="$value" awk -f "$BACKEND_FS_HERE/fs-set-title-field.awk" "$file" > "$tmp"
     mv -f "$tmp" "$file"
     return 0
   fi
 
   # If the field bullet already exists, replace its line in place.
   if grep -qiE "^[[:space:]]*[-*][[:space:]]+\*\*${field}:\*\*" "$file"; then
-    awk -v f="$field" -v val="$value" -f "$BACKEND_FS_HERE/fs-set-field-bullet.awk" "$file" > "$tmp"
+    AWKARG_f="$field" AWKARG_val="$value" awk -f "$BACKEND_FS_HERE/fs-set-field-bullet.awk" "$file" > "$tmp"
     mv -f "$tmp" "$file"
     return 0
   fi
@@ -115,10 +115,10 @@ backend_fs_set_field_in_file() {
   fi
 
   if [ -n "$pos" ]; then
-    awk -v anchor="$pos" -v f="$field" -v val="$value" -f "$BACKEND_FS_HERE/fs-insert-after-anchor.awk" "$file" > "$tmp"
+    AWKARG_anchor="$pos" AWKARG_f="$field" AWKARG_val="$value" awk -f "$BACKEND_FS_HERE/fs-insert-after-anchor.awk" "$file" > "$tmp"
   else
     # Insert right after the first H1 line (or at top if no H1).
-    awk -v f="$field" -v val="$value" -f "$BACKEND_FS_HERE/fs-insert-header-field.awk" "$file" > "$tmp"
+    AWKARG_f="$field" AWKARG_val="$value" awk -f "$BACKEND_FS_HERE/fs-insert-header-field.awk" "$file" > "$tmp"
   fi
   mv -f "$tmp" "$file"
 }
@@ -194,7 +194,7 @@ backend_proof_write() {
   story_tmp_register "$tmp"
   if grep -qE '^##[[:space:]]+Proof([[:space:]]|$)' "$tasks"; then
     # Emit everything BEFORE the `## Proof` heading, then the fresh table, then everything from the NEXT `## `.
-    awk -v tbl="$table" -f "$BACKEND_FS_HERE/fs-replace-proof.awk" "$tasks" > "$tmp"
+    AWKARG_tbl="$table" awk -f "$BACKEND_FS_HERE/fs-replace-proof.awk" "$tasks" > "$tmp"
   else
     { cat "$tasks"; printf '\n%s\n' "$table"; } > "$tmp"
   fi

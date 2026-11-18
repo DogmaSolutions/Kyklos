@@ -68,6 +68,22 @@ Copy this table into one message to the person, say that none of the answers is 
 
 **Expected:** the person confirms every answer. If the project name or a path does not fit the rule in the table, ask again now: the Launcher refuses it later anyway.
 
+### A team project
+
+In the same message, ask: **"Will other people work on this project with Kyklos, each on their own computer, and is the project already set up by a teammate?"** Each person runs their own Launcher, Bridge and container; what is shared and why is explained in [Working as a team](TEAMS.md). Then follow the matching case.
+
+**Joining a project a teammate set up.** Take these values **from the team**, not from the person's own choice, and use them in steps 6, 8, 10 and 11:
+
+| From the team | Used in |
+|---|---|
+| the GitLab address, the story project ID, the source project ID, the clone and push addresses, the layout, the source folder name and the story store | steps 6 and 8. If the team gives an exported configuration file, the person imports it on the Launcher's configurations page (**Import…**) instead of step 8's create; then change only the personal values below, and run step 8's `validate` command on the result before going on |
+| the Bridge settings repository, if the team keeps one | step 4 (`Projects` → `SettingsRoot` names the person's clone of it) and step 10; use exactly the team's project name |
+| whether the team shares the proof signing key | step 11: the person presses **Import from the secrets manager** instead of **Set a new key** |
+
+Set these **personally**, never copied from a teammate: the workspace folder, the agent's own GitLab user with its own two tokens and credential names (step 5: one user per person's agent, because an agent works only on stories assigned to its own user or to nobody), the commit author, and how the agent is started. The repository already holds the team's project files: the first launch writes only what is missing, so step 14's commit holds only what the launch added, possibly nothing.
+
+**Setting up a project others will join.** Choose the GitLab story store. After step 14, also: commit and push the project files (step 14 already does), ask the person to add each teammate's agent user to the projects with the Developer role, and tell them how to hand over the configuration (the **Export** button on the saved configuration) and, if stories should close from any teammate's computer, how to share the proof signing key (**Export to the secrets manager**). The checklist is in [Working as a team](TEAMS.md#set-up-a-project-for-a-team).
+
 ---
 
 ## Step 2: check the prerequisites
@@ -606,6 +622,7 @@ The person can do the same with **Check** on the configuration, then **Copy repo
 | `policy.corporate-template` | no, and it cannot be forced: a Corporate policy file still holds the sample's blanks | fill in the blanks, or remove the Corporate policy from the configuration's **Policy** tab | person |
 | `tokens.api-in-container` | no or warning: `KYKLOS_API_TOKEN_IN_CONTAINER` is set | remove that setting (the examples never set it) | agent |
 | `configuration.bridge-settings` | warning: the built-in default, or a file that is not versioned | nothing for a new project (step 10). A "no" means a file inside the workspace or with a wrong content: move or correct it | agent |
+| `configuration.agent-arguments` | always shows the arguments the agent starts with and what each flag means; warning when `KYKLOS_AGENT_ARGUMENTS` (or the host-wide default) switches the permission checks off | nothing for a new project (the field stays empty, free text). To keep some checks, enter `--permission-mode acceptEdits`; keep `--dangerously-skip-permissions` only when the person accepts that the agent then acts without any confirmation | person decides |
 | `configuration.session-settings` | no: settings do not reach the session | update the Launcher; the finding names the settings | agent |
 | `configuration.standards-drift` | warning: the workspace's `.claude/standards.env` disagrees with the configuration | decide which value is right and make the two agree | person decides |
 | `configuration.source-ignore` | no (public source) or warning (private source): the companion's `.gitignore` lacks the source folder's line | add the line `/Repo/` (the source folder name) to the companion's `.gitignore` and commit it; the first launch adds it by itself unless the file is read-only | agent |
@@ -649,7 +666,7 @@ try {
 } finally { Remove-Variable link,h -ErrorAction SilentlyContinue }
 ```
 
-The person can follow every step on the configuration's page as well (or press **Launch** there instead). The launch runs the same checks first and stops if one answers no or cannot tell. Only when the person has decided to accept a forceable finding, add `?force=true` to the launch address (`"$base/api/configs/hello-world/launch?force=true"`); the Launcher accepts it only after a finished Check whose every finding may be forced. A finding that cannot be forced always stops the launch.
+The person can follow every step on the configuration's page as well (or press **Launch** there instead, which runs the Check first by itself). The Launcher starts a launch, whoever asks for it (the page, this API, a rebuild or Rebuild selected), only after a finished Check of the configuration as it is saved now: a launch with no Check, or after the configuration was saved again, is refused with `409` and the outcome `DoctorCheckRequired`, whose message says to run Check on this configuration. Without `?force=true` the Check must be healthy. Only when the person has decided to accept a forceable finding, add `?force=true` to the launch address (`"$base/api/configs/hello-world/launch?force=true"`); the Launcher accepts it only after a finished Check whose every finding may be forced. A finding that cannot be forced always stops the launch. `KYKLOS_DOCTOR=off` in the configuration is the one way to launch without a Check (`doctor.switched-off` then warns about it).
 
 On a BitLocker-locked drive, Windows shows an elevated prompt naming the drive: the person approves it and types the password there.
 

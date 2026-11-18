@@ -61,9 +61,10 @@ if [ "$TOPO" = "PriSouPubArt" ] && [ -z "$ARTIFACT" ]; then
   [ -n "$ARTIFACT" ] || { printf 'topology-declare: PriSouPubArt REQUIRES its public artifact project — re-run with --artifact-project <id>. The story-routing control (routing_check in repo-role.sh) cannot protect a private source whose artifact is unknown, so this is refused up-front rather than declared into an unprotected state.\n' >&2; exit 2; }
 fi
 
-# idempotent upsert / remove of a KEY=VALUE line (atomic via temp+rename)
+# idempotent upsert / remove of a KEY=VALUE line (atomic via temp+rename). The value is free text (a path may hold
+# backslashes): it reaches awk through ENVIRON, never -v, which rewrites backslash escapes.
 _upsert(){ local f="$1" k="$2" v="$3"
-  awk -v k="$k" -v v="$v" 'BEGIN{d=0} $0 ~ "^"k"=" {print k"="v; d=1; next} {print} END{if(!d)print k"="v}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"; }
+  AWKARG_v="$v" awk -v k="$k" 'BEGIN{d=0; v=ENVIRON["AWKARG_v"]} $0 ~ "^"k"=" {print k"="v; d=1; next} {print} END{if(!d)print k"="v}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"; }
 _remove_key(){ local f="$1" k="$2"; [ -f "$f" ] || return 0; grep -vE "^${k}=" "$f" > "$f.tmp" 2>/dev/null; mv "$f.tmp" "$f"; }
 _upsert "$ENVF" KYKLOS_PROJECT_TOPOLOGY "$TOPO"
 _upsert "$ENVF" KYKLOS_REPO_SHAPE "$SHAPE"

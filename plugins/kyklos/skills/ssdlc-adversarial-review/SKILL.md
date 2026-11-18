@@ -50,6 +50,11 @@ to be kept carries no `Refs:` naming the story, or its branch is deleted after t
 
 ## Workflow — the review+fix LOOP (phase-enforced, bounded)
 
+0. **Draft the proof first.** Before the author asks for the final review, it runs `story proof <id> --draft` on the
+   pushed branch (see [`ssdlc-story-proof`]). The draft names every use case, failure mode or other spec item that no
+   test names yet; the author adds or tags those tests now, so they are part of the code this review reads. A use case
+   is proved only by a test that names it: a run, a pipeline or a host record never replaces that test, and the
+   reviewer does not accept one in its place.
 1. **Run the review** over the story diff; write EVERY finding to a report file in the **review template** below (one
    finding per bullet, with its severity, file:line and why). The bridge refuses a report that does not follow it,
    before any token is minted, and its refusal names the line and repeats the template.
@@ -130,7 +135,9 @@ to be kept carries no `Refs:` naming the story, or its branch is deleted after t
      review over the new diff). Each iteration posts its OWN comment.
 4. **The loop stops** only when a review finds **nothing relevant to fix**, OR after **3** iterations in this story.
    If the third iteration still has residual findings, STOP and surface the residual to the user — never silently
-   close.
+   close. Offer the user only the two options the close gate can read: one more review round (fix, then a fresh
+   review), or the owner's `proof-override` label with a named cause. Never offer "accept the review with its
+   findings", "cite a run instead" or any other choice no gate reads: the close refuses it after the user agreed.
 5. **Fill the Proof row** from the FINAL (clean) run's helper output:
    `story proof <id> --set 'Adversarial Review=PROVEN|clean self-review, N iteration(s)|<kbd>Report:</kbd> <comment-url><br><kbd>Token:</kbd> <token><br>'`
    The close gate has the bridge re-verify the Token with its key (MCP tool `advreview_check`, under the story's

@@ -439,8 +439,10 @@ project; it never repeats these steps.
     repository"): a bare "pushed" is ambiguous.
 12. **Ask the owner well.** When a decision is theirs, ask it as a tickable comment on the story (one question per
     item, context from the start in plain words, the references, why it is theirs, the effect of each option; never a
-    label or enum name without saying what it means), and point to it from the terminal. Notes are top-level, one
-    linear conversation. Judgements that are yours to make are not asked. Before asking for a click, a permission or a
+    label or enum name without saying what it means), and point to it from the terminal. Post it with `story ask <id>
+    --file <file>`, which prints the note's link (the target of `story block <id> --kind user`); never a raw API call
+    or an escape. A closing message that asks the owner about a story or issue with no note posted on it this session
+    is refused at Stop (`KYKLOS_STORY_ASK_CHECK=off` switches that check off). Notes are top-level, one linear conversation. Judgements that are yours to make are not asked. Before asking for a click, a permission or a
     credential, search how the project's own tests and scripts already do it (sign in, seed data, start the
     application) and use that; a credential that is really missing is forwarded through the Launcher with the recipe in
     "Search before you ask" (Response style), never pasted into the conversation. When you cannot go on until the person does
@@ -511,8 +513,9 @@ You then read it with `$(bridge-secret <NAME>)` inside the one command that uses
 <!-- kyklos:rule response.ask-on-the-story -->
 **A story's question is asked on the story, and the terminal points to it.** When a user decision, opinion or action
 concerns a story (or an issue) and the project keeps its stories in a store with comments (GitLab), ask it as a comment
-on that story — tickable, with the full context and reason above, mentioning the user — not only in the terminal. In
-the terminal give a short descriptive reminder: what is asked, why, and the link to the comment. The comment records the
+on that story — tickable, with the full context and reason above, mentioning the user — not only in the terminal. Post
+it with `story ask <id> --file <file>`, the named command for it: it prints the comment's link, and no raw API call or
+escape is needed (a permission checker may refuse an escape as switching off a safety control). In the terminal give a short descriptive reminder: what is asked, why, and the link to the comment. The comment records the
 decision next to the work it governs, keeps it findable later, and carries the context the question needs. Questions
 that concern no story stay in the terminal. A story blocked on that question (`story block <id> --kind user`) carries in
 its reason a line starting with `searched:` that names what you looked at before asking; the bridge refuses the block

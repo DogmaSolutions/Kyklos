@@ -79,6 +79,7 @@ story new <slug> --type <t> --kind <k> --severity <critical|high|medium|low> --e
 story next                                                       # what to work on next (the bridge's next_work order)
 story discipline <id>                                            # read the story's Proof Discipline (the owner's section of its header)
 story discipline <id> --ask <subject> --wanted <value> --why <reason> [--measured <value>]   # ask the owner to change it (a tickable comment; changes nothing)
+story ask <id> --file <file|->                                   # ask the owner on the story: posts the file's text as a note (bridge story_note) and prints its link last
 #   --epic is REQUIRED: give an epic id (e.g. --epic E<nn>) OR --no-epic to DELIBERATELY leave it ungrouped.
 #   Omitting both is rejected — a story must never be silently orphaned from an epic.
 #   GITLAB backend: the epic MUST resolve to a milestone (--no-epic is NOT allowed) — a gitlab story is milestone-backed.
@@ -87,13 +88,14 @@ story discipline <id> --ask <subject> --wanted <value> --why <reason> [--measure
 #   (analysis/documentation carry a reduced Proof set + a soft no-code nudge; ops carries the full set minus i18n and makes
 #   Test Discipline metrics optional for untestable/destructive ops work). Absent -> development.
 story parent <child> <N>                                         # set/re-point <child>'s parent to #N (self/cycle-rejected)
-story adopt <N> --type <t> --epic <E0N> [--kind <k>] [--severity <s>]   # GITLAB: bring a USER-created issue #N into the lifecycle (--severity required unless it has one)
+story adopt <N> --type <t> --epic <E0N> [--kind <k>] [--severity <s>]   # GITLAB: adopt story #N (completes only the missing pieces of the four; --severity required unless it has one)
 #   On adopt, a MECHANICAL structure check runs (no AI): if the issue lacks any of the 7 required SSDLC-story items
 #   it WARNS (restructure it before working, then re-check). Run it anytime with `story structure <id>`.
 #   Adoption PRESERVES an existing kind:: label; absent -> kind::development (stamped atomically with status/phase).
 #   A --kind that CONFLICTS with a different existing kind:: label is refused (re-kind only via `story set kind=`).
 story kind [<id>]                                                # print the story's kind (defaults to the active story)
-story set <id> status=In-progress                                # edit the ONE place (requirements.md), then sync
+story set <id> status=In-progress                                # edit the ONE place, then refresh that story's mirror folder and BACKLOG row
+#   --reason goes with --reopen only (the reopen's root cause); a plain status or field change with --reason is refused.
 story set <id> summary="<one concise line>" branch="<ref>"       # any of: status,type,epic,kind,target,branch,summary,title
 story close <id> --branch "<ref>" --summary "<one-liner>"        # = set status=Done (+fields), then sync
 story attach-coverage <id> <bashcov report or folder> [--tree <host tree>]  # SHELL coverage receipt: the bridge reads the change from its tree, posts ONE comment on the
@@ -374,23 +376,38 @@ that is already TRACKED gets one warning naming the one-time fix: `git rm -r -q 
 leftover scan reports tracked copies on their own line with the same fix. Hand-written files under `Stories/` (no
 banner) are never touched. Opt out: `STORY_MIRROR_GIT_HYGIENE=off`.
 
-### Working a USER-created issue (GitLab backend) — you MUST `adopt` it first
+### Adoptable versus adopted (GitLab backend) — a story is adopted before it is worked
 
-When the SSoT is GitLab, an **adopted** story is an issue carrying the `story` label **and** the tool-written
-metadata block (the `Story-Type` bullet that `story adopt` / `story new` write). The label alone is NOT adoption: a
-human can file an issue with the `story` label pre-applied, and it still has no metadata, status, phase or proof
-scaffold. An un-adopted issue is *outside* the SSDLC lifecycle: work it as-is and it closes with **no milestone and no
-Proof** (the exact hole this enforces against). So before you touch it:
+An issue **without** the `story` label is neither adoptable nor adopted: it is no story. An issue **with** the label is
+**adopted** only when all four hold: (1) the words a person wrote are quoted verbatim and (2) the description follows the
+story template (the metadata header, of which its Story-Type and Epic lines are judged; the original words under
+`## Original request (verbatim)`); (3) the type, kind, severity, phase labels are applied, and the status label while it is
+open; (4) it is attached to an epic (its milestone, open or closed, has an epic id title). A story-labelled issue missing any of
+them — for example one the owner created by hand in GitLab, or one whose status label was removed — is **adoptable**.
+The rule exists once per side: `hooks/lib/story-adoption.sh` (the story tool and the branch guard) and the bridge's
+`StoryAdoption` (its verbs, `next_work` and the Doctor). The labels are read with the bridge's label codec vocabulary, the
+reference: the bare legacy `bug` is the type fix, a free-form type such as `type::security` is no type, and a bare `parked`
+or an `S:todo` is no status. One shared table of cases (`tests/fixtures/adoption-rule.json`) is judged by both rules, so
+they cannot drift. A Story-Type or Epic header line counts only with a value (`-` is none). A closed story needs no status
+label. **A story whose epic milestone is closed becomes adoptable** (it is attached to no open epic): the way out is
+`story adopt <N> --type <t> --epic <an open epic>`, which attaches the open epic and sets the header's Epic line to it.
 
-- `story adopt <N> --type <t> --epic <E0N>` — stamps the `story` label, attaches the epic's **milestone** (REQUIRED),
-  and injects the canonical metadata block (preserving the user's title + body). Now #N is a first-class story: the
-  proof gate sees it on close, and it has a milestone.
-- Every command that changes the story refuses an un-adopted issue and names the same remedy: `set`, `proof`,
+- `story adopt <N> --type <t> --epic <E0N>` adopts it **incrementally**: it completes only what is missing and keeps
+  every piece already there unchanged (an existing type label and an existing epic win over the arguments; the tool says
+  when a requested one was not applied). A body without the template gets it, with every word of the original quoted
+  verbatim, so content that does not fit the template is never dropped: you restructure the spec from the quote with
+  `story requirements`. The header's Epic line is set to the epic of the milestone. A free-form type label is replaced by
+  the adopted type, and a legacy status label by its scoped form, never a second label beside it. Adoption is not a start:
+  an open status is kept and a missing one becomes to do; in progress is set by the first real start. A closed story is
+  never reopened. It reports `done: ...; already there: ...`, and on an adopted story it writes nothing.
+- `story next` (the bridge's `next_work`) lists every adoptable story under **TO ADOPT** with what it lacks and the
+  command, and the Doctor's `stories.adoption` check warns about them.
+- Every command that changes the story refuses an adoptable (or raw) issue, names the missing pieces and the same remedy: `set`, `proof`,
   `phase`, `close`, and the body writers `requirements`, `parent` and `ra --apply`. So adopt BEFORE authoring the spec:
   a spec written first would leave the story with no type, epic or status, and adoption would then quote it as the
   requester's original words.
 - The **gitflow branch guard HARD-BLOCKS** a `feature/story-<N>` commit when issue #N is not adopted (raw, or
-  label-only) — it names the remedy (`story adopt <N> …`). It judges the story config of the TARGET repo, and for a
+  adoptable) — it names the missing pieces and the remedy (`story adopt <N> …`). It judges the story config of the TARGET repo, and for a
   nested public source repo (which carries no `.claude/`) the workspace project's. So you cannot accidentally freelance
   on a user's issue. (Transient-safe: if the API can't confirm, it warns and allows rather than wedge a commit.)
 - When a repo inside the workspace (the project, or its nested source repo) is on a branch that names a story, the
@@ -513,8 +530,14 @@ From here, execution is regulated by the **stories** (the one ACTIVE In-progress
      `group/project#<n>`, `group/project!<n>` or its web link); the bridge refuses a target it cannot read or that is
      already closed or merged. An issue also gets GitLab's "blocked by" link; a merge request only the bullet.
    - `status::blocked-on-user`: the target is the web link to the note that asks the user (ending in `#note_<n>`), on
-     an issue or merge request that is still open; the note must exist. Post the question on the story itself with the
-     bridge's `story_note` verb (`id`, `project`, `body`); its answer is that link. The reason must hold a line starting with
+     an issue or merge request that is still open; the note must exist. Post the question on the story itself with
+     `story ask <id> --file <file>` (write the tickable question into the file first; `--file -` reads standard input):
+     it posts the note through the bridge's `story_note` verb (`id`, `project`, `body`) and prints the note's link on its
+     last line, which is this target. Never post the question by a raw API call or with the `AGENT_MSG_RAW_OK=1` escape:
+     asking is a normal step with its own command. A turn that ends with the question asked only in the terminal is
+     refused at Stop (hook `kyklos-story-ask-guard.sh`, off-switch `KYKLOS_STORY_ASK_CHECK=off`): post it with
+     `story ask` first and point to its link. If `story ask` fails in transport, the note may already be on the story:
+     look at its newest notes before you retry. The reason must hold a line starting with
      `searched:` that names what you looked at before asking (the project's tests and scripts that sign in, seed data
      or start the application), for example `--reason $'which pilot project\nsearched: the sign-in fixture of the tests'`;
      without it the bridge refuses the block (opt-out: bridge setting `Agile:Proof:AskSearchedRequired=false`).

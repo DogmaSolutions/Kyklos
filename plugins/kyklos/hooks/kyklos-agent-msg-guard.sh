@@ -29,8 +29,10 @@
 # FAIL-HARD: the detector library missing, failing to load or lacking a function => every command refused, named.
 # Escape, for a deliberate operation on an EXISTING issue only (a note, an admin edit, close, reopen or delete):
 # AGENT_MSG_RAW_OK=1 (in the environment or set inline in the command), always audited. It never admits creating an
-# issue. A raw NOTE is told apart by the issue it targets: a story gets the story tool's verbs, a coordination issue
-# `agent-msg reply`; the lookup only shapes the message, never the decision.
+# issue. A raw NOTE is told apart by the issue it targets: a story gets the story tool's verbs (first `story ask`, the
+# named command for a question or any other note on a story, so a normal ask never needs the escape), a coordination
+# issue `agent-msg reply`; the lookup only shapes the message, never the decision. `story ask` posts through the
+# bridge's story_note verb from inside its own process, so this hook never sees that call.
 # Wired: PreToolUse, matcher Bash.
 set +e -uo pipefail
 
@@ -160,14 +162,14 @@ while IFS= read -r seg || [ -n "$seg" ]; do
     # REPLY / NOTE: a write to `/issues/<n>/notes`, or `glab issue note|comment`.
     if iad_seg_hits_notes "$seg" \
        || printf '%s' "$seg" | grep -cE 'glab[[:space:]]+issue[[:space:]]+(note|comment)' >/dev/null; then
-        _story_verbs="'story reopen-root-cause <id> --reason \"<why>\"' for the reason a closed story was reopened, 'story proof <id> --set ...' for the proof, 'story ra <id> ...' for the risk register, 'story block <id> --on <reference> --reason \"...\"' for a block and its reason"
+        _story_verbs="'story ask <id> --file <file>' for a question to the owner or any other note (it prints the note's link), 'story block <id> --kind user --on <that link> --reason \"...\"' to wait on the answer, 'story reopen-root-cause <id> --reason \"<why>\"' for the reason a closed story was reopened, 'story proof <id> --set ...' for the proof, 'story ra <id> ...' for the risk register"
         case "$(_amg_note_target_kind "$seg")" in
             story)
-                block "BLOCKED: a raw note on a STORY issue via curl/wget/glab/python. The story tool posts the notes a story needs: $_story_verbs. (Another deliberate note: set AGENT_MSG_RAW_OK=1; every use is audited.)" ;;
+                block "BLOCKED: a raw note on a STORY issue via curl/wget/glab/python. The story tool posts the notes a story needs: $_story_verbs. (A one-off no command covers: set AGENT_MSG_RAW_OK=1; every use is audited.)" ;;
             coordination)
                 block "BLOCKED: replying to a cross-agent coordination issue via raw curl/wget/glab/python. Use: agent-msg reply <iid> \"<body>\" — it keeps the ball-in-court state the inbound gate relies on. (Another deliberate note: set AGENT_MSG_RAW_OK=1; every use is audited.)" ;;
             *)
-                block "BLOCKED: a raw note on a GitLab issue via curl/wget/glab/python. On a cross-agent coordination issue use 'agent-msg reply <iid> \"<body>\"' (it keeps the ball-in-court state); on a story use the story tool: $_story_verbs. (Another deliberate note: set AGENT_MSG_RAW_OK=1; every use is audited.)" ;;
+                block "BLOCKED: a raw note on a GitLab issue via curl/wget/glab/python. On a cross-agent coordination issue use 'agent-msg reply <iid> \"<body>\"' (it keeps the ball-in-court state); on a story use the story tool: $_story_verbs. (A one-off no command covers: set AGENT_MSG_RAW_OK=1; every use is audited.)" ;;
         esac
     fi
 

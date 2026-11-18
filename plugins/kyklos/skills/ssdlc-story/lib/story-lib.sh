@@ -958,8 +958,9 @@ _story_metadata_header() {
   printf '%s\n' "$1" | awk -f "$_SL_DIR/sl-extract-header.awk"
 }
 
-# _story_adopt_body <type> <epic> <title> <original-desc> -> the body `story adopt` writes for a NEWLY-adopted issue:
-# the canonical metadata bullet block, then — when the original description is non-empty — a `## Original request
+# _story_adopt_body <type> <epic> <title> <original-desc> [status] -> the body `story adopt` writes for a NEWLY-adopted
+# issue: the canonical metadata bullet block (its Status line carries [status], Todo when none is given: adoption is not
+# a start), then — when the original description is non-empty — a `## Original request
 # (verbatim)` section quoting the original as a markdown blockquote (`> ` on every line, blanks included, so it stays
 # one contiguous quote). Preserves the user's original request verbatim + clearly cited. Pure + unit-tested (no API).
 # _story_extract_original_request <body> -> the `## Original request (verbatim)` section (heading +
@@ -988,8 +989,8 @@ _story_strip_title_h1() {
 }
 
 _story_adopt_body() {
-  local type="$1" epic="$2" title="$3" orig="$4" meta quoted skel
-  meta="$(printf -- '- **Status:** In-progress\n- **Story-Type:** %s\n- **Epic:** %s\n- **Branch:** -\n- **Summary:** %s' "$type" "$epic" "$title")"
+  local type="$1" epic="$2" title="$3" orig="$4" status="${5:-Todo}" meta quoted skel
+  meta="$(printf -- '- **Status:** %s\n- **Story-Type:** %s\n- **Epic:** %s\n- **Branch:** -\n- **Summary:** %s' "$status" "$type" "$epic" "$title")"
   # SCAFFOLD the SSDLC section skeleton on ADOPT — the SAME one `story new` emits (story_emit_spec_skeleton),
   # plus a Risk-assessment section — so an adopted user-issue is STRUCTURALLY COMPLETE by construction: the sections can never be
   # MISSING; the agent only fills the <FILL:> placeholders

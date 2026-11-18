@@ -273,18 +273,20 @@ the [adversarial review](ADVERSARIAL_REVIEW.md).
 | **Test Discipline token** | A small file in the Bridge's state folder, kept per project and per story | No: it belongs to the machine whose Bridge signed it | The link between one run and one receipt, and the content of the changed files at that moment, signed. |
 | **Trunk-base cache** | `base-coverage` in the Bridge's state folder | No, on purpose | Used by the receipt path only: coverage runs of the trunk commit a story started from, to compare each changed file with its coverage before the story and to tell which failing tests already failed there. Rebuilt when missing (at most 24 entries, each kept 14 days). Sharing it would let one machine's broken base run judge every developer's stories. |
 
-**What this means for a team today.** The receipt is shared; the ledger and the tokens are not. A story measured on one
-developer's machine closes from that machine. Closed from another machine, the close finds no facts or no token there, and
-that developer runs the covering tests once, which costs time but loses nothing: facts are keyed by content, so only the
-tests that cover the changed lines need to run.
+**What this means for a team.** The receipt is shared; the ledger and the tokens are not. A run's receipt also carries
+the ledger lines that run recorded, signed with the key. When every developer's Bridge reads the **same** signing key
+from a shared secrets manager (`KYKLOS_PROOF_KEY_SOURCE=secrets-manager`), the agent on another computer calls
+`coverage_receipt_import` with the story and the receipt comment's note id: the Bridge checks the archive against the
+fingerprint the receipt records and every line against the key (or the previous key), refuses anything else whole, and
+adds the facts to its own ledger, so the story needs no new run there. Without a shared key, the receipt's lines do not
+verify on another computer: that developer runs the covering tests once, which costs time but loses nothing, because
+facts are keyed by content and only the tests that cover the changed lines need to run.
 
-**Could this evidence live in a shared place?** The folders are settings, so technically yes, but a shared folder alone does
-not make the evidence portable. A signature verifies only with the key that made it, so sharing facts or tokens means every
-developer's Bridge holds the **same** signing key, read from a shared secrets manager instead of each machine's credential
-store. That keeps the guarantee that matters (the agent never sees the key) and adds an organisational one: everyone who
-holds the key can sign. Committing tokens to a repository would add commits and merge conflicts on every measurement. The
-cleaner direction is to carry the signature inside the receipt comment, so the issue tracker is the one shared store; it
-needs the same team key.
+A shared key keeps the guarantee that matters (the agent never sees the key) and adds an organisational one: everyone
+who can read the shared entry can sign. Committing tokens or ledger files to a repository is not how evidence travels:
+it would add commits and merge conflicts on every measurement, and the issue tracker already holds the receipt. How to
+share the key: [Secrets](SECRETS.md#the-proof-signing-key-where-it-comes-from); what else a team shares, and what stays
+on each computer: [Working as a team](TEAMS.md).
 
 ## Practical examples
 

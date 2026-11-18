@@ -356,6 +356,10 @@
           },
           {
             "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/kyklos-story-ask-guard.sh\""
+          },
+          {
+            "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/kyklos-continue-guard.sh\"",
             "timeout": 300
           }

@@ -231,7 +231,7 @@ ssdlc_verb_for() {
     local id; id="$(ssdlc_story_key "$ref")"; shift
     case "$op" in
         set)
-            local kv status="" flags=0 fields='{}'
+            local kv status="" flags=0 nbranch=0 fields='{}'
             while [ "$#" -gt 0 ]; do
                 kv="$1"
                 case "$kv" in
@@ -240,7 +240,12 @@ ssdlc_verb_for() {
                     --reason) flags=1; shift ;;   # its value is free text, never a field=value pair
                     --*) flags=1 ;;
                     *=*) if [ "$(canonical_field "${kv%%=*}" 2>/dev/null)" = "Status" ]; then status="${kv#*=}"
-                         else fields="$(printf '%s' "$fields" | jq -c --arg k "${kv%%=*}" --arg v "${kv#*=}" '. + {($k): $v}')"; fi ;;
+                         else
+                             if [ "$(canonical_field "${kv%%=*}" 2>/dev/null)" = "Branch" ]; then
+                                 [ "$nbranch" -eq 0 ] || { printf 'refuse\t%s' "set: branch was given twice; a story records ONE Branch value. Put every deliverable in one value (branch=\"A, B\")."; return 0; }
+                                 nbranch=1
+                             fi
+                             fields="$(printf '%s' "$fields" | jq -c --arg k "${kv%%=*}" --arg v "${kv#*=}" '. + {($k): $v}')"; fi ;;
                 esac
                 shift
             done
@@ -287,7 +292,8 @@ ssdlc_verb_for() {
             local branch="" summary="" have_branch=0 have_summary=0
             while [ "$#" -gt 0 ]; do
                 case "$1" in
-                    --branch) branch="${2:-}"; have_branch=1; shift 2 || break ;;
+                    --branch) [ "$have_branch" -eq 0 ] || { printf 'refuse\t%s' "close: --branch was given twice; a close records ONE Branch value. Cite several deliverables in one value (--branch \"A, B\")."; return 0; }
+                              branch="${2:-}"; have_branch=1; shift 2 || break ;;
                     --summary) summary="${2:-}"; have_summary=1; shift 2 || break ;;
                     --dir) shift 2 || break ;;
                     *) shift ;;
@@ -345,7 +351,8 @@ ssdlc_verb_for() {
             while [ "$#" -gt 0 ]; do
                 case "$1" in
                     --draft) draft=1; shift ;;
-                    --branch) branch="${2:-}"; have_branch=1; shift 2 || return 0 ;;
+                    --branch) [ "$#" -ge 2 ] || return 0   # a repeated --branch APPENDS: the bridge reads every cited deliverable together
+                              branch="${branch:+$branch, }$2"; have_branch=1; shift 2 || return 0 ;;
                     --format) format="${2:-}"; shift 2 || return 0 ;;
                     --set) sets+=("${2:-}"); set_metrics+=("[]"); shift 2 || return 0 ;;
                     --metric)
@@ -565,6 +572,23 @@ ssdlc_verb_is_read() {
     esac
 }
 
+# ssdlc_transport_failure <verb> <rc> <ref> -> the message for a routed call whose answer did not come back. A read
+# changed nothing. A write may have landed before the answer was lost (the bridge saves, then finishes its follow-up
+# steps), so it is never reported as "nothing was changed": the message says the outcome is unknown and how to look.
+ssdlc_transport_failure() {
+    local verb="$1" rc="$2" ref="$3" why
+    case "$rc" in
+        3) why="no answer within the time limit, or the connection broke" ;;
+        2) why="no bridge address is configured" ;;
+        *) why="transport code $rc" ;;
+    esac
+    if ssdlc_verb_is_read "$verb"; then
+        printf "story-stack mode is 'on' but the bridge call '%s' failed (%s); nothing was changed." "$verb" "$why"
+    else
+        printf "story-stack mode is 'on' and the bridge call '%s' did not answer (%s). The write may have landed before the answer was lost: look at the story before retrying (story_get %s, or the issue in GitLab)." "$verb" "$why" "$(ssdlc_story_key "${ref:-?}")"
+    fi
+}
+
 _ssdlc_route_run() {
     local op="$1"; shift
     local routed; routed="$(ssdlc_verb_for "$op" "$@")"
@@ -593,7 +617,7 @@ _ssdlc_route_run() {
                 story_trunk_reach_route_gate "$@" || return 1
             fi
             resp="$(bridge_mcp_call "$verb" "$args" 300)"; rc=$?
-            [ "$rc" -eq 0 ] || die "story-stack mode is 'on' but the bridge call '$verb' failed (transport rc $rc); nothing was changed." 3
+            [ "$rc" -eq 0 ] || die "$(ssdlc_transport_failure "$verb" "$rc" "$1")" 3
             resp="$(ssdlc_collect_pending "$resp")"; rc=$?
             if [ "$rc" -eq 4 ]; then
                 die "the bridge job of '$verb' ($(printf '%s' "$resp" | jq -r '.result.jobId // "unknown id"')) was still running after $(ssdlc_job_collect_seconds) s of waiting; it keeps running on the bridge and nothing is lost: collect it with get_job_result. $(bridge_mcp_text "$resp")" 3

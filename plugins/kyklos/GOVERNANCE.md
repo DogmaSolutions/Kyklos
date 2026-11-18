@@ -89,7 +89,16 @@ single owner means one canonical rule, one escape path, and one state directory 
   `AGENT_MSG_RAW_OK=1` (in the environment or inline, always audited), covers only a deliberate operation on an
   EXISTING issue (a note, an admin edit, close, reopen or delete); no comment in the command counts as an escape. A
   refused raw note names the right tool for the issue it targets: `agent-msg reply` for a coordination issue, the
-  story verbs (`story reopen-root-cause`, `story proof`, `story ra`, `story set --reason`) for a story.
+  story verbs for a story, first `story ask <id> --file <file>` (a question to the owner or any other note; it prints
+  the note's link, which `story block <id> --kind user --on <link>` takes), then `story reopen-root-cause`,
+  `story proof`, `story ra`. No normal workflow step needs the escape: it is for one-off repairs no command covers,
+  because a permission checker rightly reads a command carrying it as switching off a safety control. The Stop hook
+  `kyklos-story-ask-guard.sh` closes the other way out: a closing message that asks the owner something about a story
+  or issue is refused unless a note was posted on that item in the session (or the message links one). Only a question
+  that names the item in the question sentence itself (or in a parenthesis right after its question mark) counts, in
+  the forms the project writes (`#<n>`, `story <n>`, `issue <n>`); a status line before a generic "Do you want me to
+  continue?", a question the message answers itself and a bare number never count. Off-switch
+  `KYKLOS_STORY_ASK_CHECK=off`.
 
 - **Un-self-grantable outward overrides.** The two OUTWARD, irreversible-facing overrides
   — `push-ok` (`kyklos-no-push-guard`) and `merge-ok` (`kyklos-merge-green-guard`) — must not be self-grantable by a

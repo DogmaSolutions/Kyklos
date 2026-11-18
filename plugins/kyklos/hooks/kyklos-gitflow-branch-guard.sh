@@ -154,7 +154,8 @@ _enforce_adopted_story() {
       STORY_SEAM_PROBLEM="cannot load $_GD_HERE/lib/require-lib.sh completely"
       { . "$_GD_HERE/lib/require-lib.sh" 2>/dev/null && require_story_seam "$seam" backend_is_adopted_story 2>/dev/null; } \
         || { printf '%s' "$STORY_SEAM_PROBLEM"; exit 5; }
-      backend_is_adopted_story . "$num" >/dev/null 2>&1 || exit $?
+      # Not adopted: what the story lacks goes to stdout (captured below) for the refusal to name.
+      backend_is_adopted_story . "$num" 2>/dev/null || exit $?
       # adopted -> now REQUIRE the spec to be AUTHORED before work (a commit) proceeds. The gap is a story left as the `story new`/adopt SKELETON: block a commit while the linked story body
       # still carries an unfilled `<FILL: ...>` placeholder — the SAME discriminator the story CLI structure check
       # and the close gate use (a legitimately-authored `<word>` never matches `<FILL:`). Scoped to that POSITIVE
@@ -165,7 +166,7 @@ _enforce_adopted_story() {
       printf '%s' "$_body" | grep -c '<FILL:' >/dev/null || exit 0
       exit 4 )" || rc=$?
     if [ "$rc" = 1 ]; then
-        block "Story-first: issue #$num exists but is NOT an adopted story (no 'story' label, or a story label but never adopted - no tool-written metadata). A raw/user-created issue bypasses the proof gate AND the milestone requirement — exactly the hole that let a story close with no proof + no milestone. Adopt it into the lifecycle first:  story adopt $num --type <t> --epic <E0N>  (stamps the story label, attaches the epic milestone, injects the proof scaffold). Then work feature/story-$num-<slug>. Override once: bash $OVERRIDE_MARKER_CLI set gitflow-ok <repo-dir>."
+        block "Story-first: issue #$num exists but is NOT an adopted story; it lacks: $(printf '%s' "$miss" | paste -sd ';' - | sed 's/;/; /g'). An issue without the story label is no story; one with it is adoptable until its adoption is complete (the original words quoted verbatim, the story template, the type, kind, severity, status and phase labels, an epic). An unadopted issue bypasses the proof gate AND the milestone requirement — exactly the hole that let a story close with no proof + no milestone. Adopt it first:  story adopt $num --type <t> --epic <E0N>  (it completes only what is missing and keeps the rest). Then work feature/story-$num-<slug>. Override once: bash $OVERRIDE_MARKER_CLI set gitflow-ok <repo-dir>."
     elif [ "$rc" = 2 ]; then
         # FAIL-CLOSED on a DETERMINATE auth/config failure (HTTP 401/403/404 — the story token cannot
         # read STORY_GITLAB_PROJECT, or #$num is absent). A story gate that CANNOT verify must NOT silently pass:

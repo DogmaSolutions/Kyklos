@@ -31,7 +31,7 @@ _RR_LIB="$BACKEND_GL_HERE/../../../hooks/lib/repo-role.sh"
 if [ -f "$_RR_LIB" ]; then . "$_RR_LIB" || printf 'story: gitlab backend: routing resolver %s FAILED to load (routing check will hard-fail at create).\n' "$_RR_LIB" >&2; fi
 # the shared kyklos-version resolver, so every story issue we create or mutate is stamped with a
 # `kyklos:version::<v>` label. Best-effort (labelling nicety) — safe to double-source (guarded internally).
-# the SINGLE "is this issue an adopted story" definition (story label AND the tool-written metadata header).
+# the SINGLE "is this issue an adopted story" definition (the four-part adoption, in the bridge codec's vocabulary).
 _SA_LIB="$BACKEND_GL_HERE/../../../hooks/lib/story-adoption.sh"
 # shellcheck source=/dev/null
 [ -f "$_SA_LIB" ] && { . "$_SA_LIB" || printf 'story: gitlab backend: adoption helper %s FAILED to load (adoption checks will refuse).\n' "$_SA_LIB" >&2; }
@@ -630,9 +630,9 @@ backend_epic_has_milestone() {
 # backend_is_adopted_story <dir> <iid> -> classify an issue for the branch guard (does it belong to the SSDLC
 # lifecycle?). A raw user-created issue lacks the story label, so it is invisible to the proof gate + milestone
 # logic — the guard must catch it BEFORE work begins.
-#   rc 0: an adopted story (carries the story label AND the adoption metadata block in its body)
-#   rc 1: the issue exists but is NOT an adopted story (a raw issue, OR a user-created issue that merely carries a
-#         pre-applied story label but was never `story adopt`ed -> must be adopted first)
+#   rc 0: an adopted story (the story label AND all four parts of the adoption, hooks/lib/story-adoption.sh)
+#   rc 1: the issue exists but is NOT an adopted story (a raw issue, OR an adoptable story: the label without all of the
+#         adoption -> `story adopt` first); what it lacks is printed on stdout, one piece per line
 #   rc 3: could not determine (missing issue / API / transport error) -> caller should warn+allow, never hard-block
 backend_is_adopted_story() {
     local iid="$2" body got msg
@@ -642,9 +642,12 @@ backend_is_adopted_story() {
         # Adoption = the story label AND the tool-written metadata header (a label-only issue is NOT adopted). The one
         # definition lives in hooks/lib/story-adoption.sh; a broken install (helper absent) is a determinate config
         # error (rc 2 -> the caller BLOCKS loudly), never a silent pass.
-        command -v story_issue_is_adopted >/dev/null 2>&1 || return 2
-        story_issue_is_adopted "$body" "$_GL_STORY_LABEL" && return 0
-        return 1   # exists but not adopted (no story label, or a label-only issue)
+        command -v story_issue_adoption_missing >/dev/null 2>&1 || return 2
+        local missing
+        missing="$(story_issue_adoption_missing "$body" "$_GL_STORY_LABEL")" || missing="the story label (an issue without it is no story)"
+        [ -z "$missing" ] && return 0
+        printf '%s\n' "$missing"   # what it lacks, one piece per line, for the caller's refusal
+        return 1   # exists but not adopted: no story label, or an adoptable story missing part of the adoption
     fi
     # The check could not resolve. DISTINGUISH a DETERMINATE auth/config error (a token that cannot read
     # the project, a missing/absent issue: HTTP 401/403/404) from a TRANSIENT transport failure (network/timeout ->
@@ -739,6 +742,18 @@ backend_find_by_title() {
     return 1
 }
 
+# _gl_seed_issue_cache <listing> -> store each issue of a paged list answer as that issue's cached read (an issue already
+# cached is left as it is), so the per-story steps that follow read it without one request per story. Only a whole issue
+# (it carries its title, labels and description) is stored: a cut-down element is read on its own as before.
+_gl_seed_issue_cache() {
+    local _it _iid
+    printf '%s' "$1" | jq -c '.[]? | select(has("title") and has("labels") and has("description"))' 2>/dev/null | while IFS= read -r _it; do
+        _iid="$(printf '%s' "$_it" | jq -r '.iid // empty' 2>/dev/null)"
+        [ -n "$_iid" ] && [ ! -s "$_GL_CACHE/issue-$_iid.json" ] && printf '%s' "$_it" > "$_GL_CACHE/issue-$_iid.json"
+    done
+    return 0
+}
+
 backend_generate_index() {  # emit the BACKLOG index (reuse story_emit_header/row/footer on materialized dirs)
     local dir="$1" iid id tmpd listing
     story_emit_header "$dir"
@@ -759,10 +774,7 @@ backend_generate_index() {  # emit the BACKLOG index (reuse story_emit_header/ro
         echo "[story] the story list could not be read whole (exit $_lrc); no index is built from part of it." >&2
         return 3
     fi
-    printf '%s' "$listing" | jq -c '.[]?' 2>/dev/null | while IFS= read -r _it; do
-        _iid="$(printf '%s' "$_it" | jq -r '.iid // empty' 2>/dev/null)"
-        [ -n "$_iid" ] && [ ! -s "$_GL_CACHE/issue-$_iid.json" ] && printf '%s' "$_it" > "$_GL_CACHE/issue-$_iid.json"
-    done
+    _gl_seed_issue_cache "$listing"
     for iid in $(printf '%s' "$listing" | jq -r '.[]?.iid' 2>/dev/null | sort -n); do
         # story_emit_row links to the dir BASENAME, so materialize into a temp dir named with the CANONICAL on-disk
         # id (backend_id_from_handle: zero-padded + reusing the real folder if present) — otherwise the BACKLOG links
@@ -1094,8 +1106,11 @@ backend_materialize() {
 #   mode=full (default) : re-render EVERY story from the issue (refreshes stale requirements.md). Used by the
 #                  explicit `story materialize --all`.
 backend_materialize_all() {
-    local storiesdir="$1" mode="${2:-full}" iid id
-    for iid in $(_gl_paged "issues?scope=all&labels=$_GL_STORY_LABEL" | jq -r '.[]?.iid' 2>/dev/null | sort -n); do
+    local storiesdir="$1" mode="${2:-full}" iid id listing
+    listing="$(_gl_paged "issues?scope=all&labels=$_GL_STORY_LABEL")"
+    # Each list element is the full issue: seeding the per-issue cache from it spares one issue read per story.
+    _gl_seed_issue_cache "$listing"
+    for iid in $(printf '%s' "$listing" | jq -r '.[]?.iid' 2>/dev/null | sort -n); do
         [ -n "$iid" ] || continue
         id="$(backend_id_from_handle "$storiesdir" "$iid")"
         [ "$mode" = missing ] && [ -f "$storiesdir/$id/requirements.md" ] && continue
@@ -1134,27 +1149,89 @@ backend_adopt() {
     body="$(_gl_issue "$iid" 2>/dev/null)"
     [ "$(printf '%s' "$body" | jq -r '.iid // "null"')" = "$iid" ] \
         || { printf 'story: gitlab backend_adopt: issue #%s does not exist in project %s.\n' "$iid" "${_GL_PID:-?}" >&2; return 1; }
-    mid="$(_gl_milestone_id "$epic")"
-    [ -n "$mid" ] || { printf 'story: gitlab backend_adopt: epic %s has no milestone in project %s — create it first (story epic set %s --title "..."). A gitlab story must be milestone-backed.\n' "$epic" "${_GL_PID:-?}" "$epic" >&2; return 1; }
+    # INCREMENTAL: adoption completes only what is missing of the four parts (hooks/lib/story-adoption.sh) and keeps the
+    # rest unchanged; what it did and what was already there is reported on stderr (_adopt_done / _adopt_kept).
+    local _adopt_done="" _adopt_kept=""
+    # (4) The epic: an issue already attached to an epic milestone, open or closed, keeps it (a closed story of a finished
+    # epic is never moved to another one); otherwise the requested epic is attached.
+    local _cur_epic _cur_mid
+    _cur_epic="$(printf '%s' "$body" | jq -c '[.milestone // empty]' 2>/dev/null | jq -c -f "$BACKEND_GL_HERE/epic-records.jq" 2>/dev/null \
+        | jq -r '[.[]?][0].epic // empty' 2>/dev/null)"
+    _cur_mid="$(printf '%s' "$body" | jq -r '.milestone.id // empty' 2>/dev/null)"
+    if [ -n "$_cur_epic" ] && [ -n "$_cur_mid" ]; then
+        mid="$_cur_mid"
+        _adopt_kept="${_adopt_kept:+$_adopt_kept; }the epic $_cur_epic"
+        [ "$_cur_epic" = "$epic" ] || printf 'story: adopt #%s: it is already attached to epic %s, which it keeps (the requested %s was not applied; move it with: story set %s epic=%s).\n' "$iid" "$_cur_epic" "$epic" "$iid" "$epic" >&2
+        epic="$_cur_epic"
+    else
+        mid="$(_gl_milestone_id "$epic")"
+        [ -n "$mid" ] || { printf 'story: gitlab backend_adopt: epic %s has no milestone in project %s — create it first (story epic set %s --title "..."). A gitlab story must be milestone-backed.\n' "$epic" "${_GL_PID:-?}" "$epic" >&2; return 1; }
+        _adopt_done="${_adopt_done:+$_adopt_done; }attached the epic $epic"
+    fi
+    # (3) The type: an existing type label is kept; the requested type is applied only when there is none.
+    # The type the bridge's label codec reads (the shared vocabulary, hooks/lib/story-adoption-vocabulary.jq): the bare
+    # "bug" is fix; a free-form type (type::security) is no type, so the requested type REPLACES it — never a second label.
+    local _cur_type _type_add="" _type_rem=""
+    _cur_type="$(story_issue_vocabulary "$body" 'codec_type')"
+    # [CySec] Prevents CWE-74 "Injection": a type read from a label lands in the metadata and a label write; only a plain word is kept.
+    case "$_cur_type" in *[!a-z0-9-]*) _cur_type="" ;; esac
+    if [ -n "$_cur_type" ]; then type="$_cur_type"; else _type_add="type::$type"; _type_rem="$(story_issue_vocabulary "$body" 'type_labels | join(",")')"; fi
     title="$(printf '%s' "$body" | jq -r '.title // ""')"
     desc="$(printf '%s' "$body" | jq -r '.description // ""')"
-    if printf '%s' "$desc" | grep -ciE '^[[:space:]]*[-*][[:space:]]+\*\*Story-Type:\*\*' >/dev/null; then
-        newdesc="$desc"   # already carries the story metadata (re-adopt) — keep the body verbatim
+    # Adoption is not a start: an open issue keeps the status it carries (to do, in progress, blocked, parked), and one
+    # with no status label (or a closed one) becomes to do. In progress is set by the first real start of the work.
+    # A closed issue is never reopened by adoption and keeps no status label (a close clears it). A legacy status form the
+    # codec does not read (a bare "parked", "S:doing") becomes its scoped label, never a second status beside it.
+    local _adopt_status_add="" _adopt_status_rem="" _adopt_status_word _legacy_status _legacy_label _closed=0
+    [ "$(printf '%s' "$body" | jq -r '.state // ""')" = closed ] && _closed=1
+    if [ "$_closed" = 1 ] || [ "$(story_issue_vocabulary "$body" 'has_status')" = true ]; then
+        _adopt_status_word="$(_gl_status "$iid")"
     else
-        # Prepend the canonical metadata block; preserve the user's ORIGINAL description verbatim in a
-        # `## Original request (verbatim)` section (blockquoted), not a bare `---` + raw prose.
-        newdesc="$(_story_adopt_body "$type" "$epic" "$title" "$desc")"
+        _legacy_status="$(story_issue_vocabulary "$body" 'legacy_status.status // ""')"
+        _legacy_label="$(story_issue_vocabulary "$body" 'legacy_status.label // ""')"
+        case "$_legacy_status" in
+            todo|doing|blocked|parked) : ;;
+            *) _legacy_status="todo"; _legacy_label="" ;;
+        esac
+        _adopt_status_add="status::$_legacy_status"
+        _adopt_status_rem="$(_gl_status_others "$_legacy_status")${_legacy_label:+,$_legacy_label}"
+        case "$_legacy_status" in todo) _adopt_status_word="Todo" ;; doing) _adopt_status_word="In-progress" ;; blocked) _adopt_status_word="Blocked" ;; parked) _adopt_status_word="Parked" ;; esac
+    fi
+    # (1)+(2) The template, with the original words quoted. A body that already carries the metadata header is kept
+    # verbatim, and only a missing Story-Type or Epic line is added to its header; a body without it gets the template,
+    # with every word of the original kept verbatim in the quoted `## Original request (verbatim)` section (nothing that
+    # does not fit the template is ever dropped: the agent restructures the spec from the quote).
+    # A header line counts only with a value ("-" is none), as the shared vocabulary reads it; the Epic line follows the
+    # milestone, the epic the story is attached to.
+    local _has_st=0 _has_ep=0 _hdr_epic
+    [ "$(story_issue_vocabulary "$body" 'header("Story-Type")')" = true ] && _has_st=1
+    [ "$(story_issue_vocabulary "$body" 'header("Epic")')" = true ] && _has_ep=1
+    _hdr_epic="$(printf '%s\n' "$desc" | awk 'match($0, /^[[:space:]]*[-*][[:space:]]+\*\*[Ee][Pp][Ii][Cc]:\*\*/) { v = substr($0, RSTART + RLENGTH); gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); print v; exit }')"
+    if [ "$_has_st" = 1 ] && [ "$_has_ep" = 1 ] && [ "$_hdr_epic" = "$epic" ]; then
+        newdesc="$desc"
+        _adopt_kept="${_adopt_kept:+$_adopt_kept; }the story template"
+    elif [ "$_has_st" = 1 ] && [ "$_has_ep" = 1 ]; then
+        newdesc="$(_gl_set_header_bullet "$desc" Epic "$epic")"
+        _adopt_done="${_adopt_done:+$_adopt_done; }set the story template's Epic line to $epic, the epic of its milestone"
+    elif [ "$_has_st" = 1 ] || [ "$_has_ep" = 1 ]; then
+        newdesc="$desc"
+        [ "$_has_st" = 1 ] || newdesc="$(_gl_put_header_bullet "$newdesc" Story-Type "$type")"
+        [ "$_has_ep" = 1 ] || newdesc="$(_gl_put_header_bullet "$newdesc" Epic "$epic")"
+        _adopt_done="${_adopt_done:+$_adopt_done; }completed the story template (its missing $( [ "$_has_st" = 1 ] && printf 'Epic' || printf 'Story-Type' ) line)"
+    else
+        newdesc="$(_story_adopt_body "$type" "$epic" "$title" "$desc" "$_adopt_status_word")"
+        _adopt_done="${_adopt_done:+$_adopt_done; }wrote the story template, quoting the original words verbatim"
     fi
     local _vl; _vl="$(command -v kyklos_version_label >/dev/null 2>&1 && kyklos_version_label || true)"
-    # Adoption sets status::doing — and a story worked at status::doing MUST carry an SSDLC phase, else
-    # it is the incoherent 'worked with no phase' state. Set the phase ATOMICALLY in this SAME PUT (no phase-less window, no fail-open):
+    # An adopted story always carries an SSDLC phase (a story kept in progress would otherwise be the incoherent 'worked
+    # with no phase' state). Set the phase ATOMICALLY in this SAME PUT (no phase-less window, no fail-open):
     # preserve an EXISTING phase on re-adopt, default a FRESH adopt to Requirements, and mutex-remove any other phase.
     # Dual-read the phase (scoped `ssdlc:phase::X` AND legacy `ssdlc:phase:X`) so a re-adopt PRESERVES + converts
     # an existing phase; a fresh adopt (no phase) defaults to Requirements. Mutex-remove EVERY other phase label (both
     # schemes) so the result carries exactly one, scoped.
     local _adopt_ph _ph_rem
     _adopt_ph="$(printf '%s' "$body" | jq -r '([.labels[]? | select(startswith("ssdlc:phase:"))][0] // "") | sub("^ssdlc:phase::?"; "")' 2>/dev/null)"
-    [ -n "$_adopt_ph" ] || _adopt_ph="Requirements"
+    local _had_ph=1; [ -n "$_adopt_ph" ] || { _adopt_ph="Requirements"; _had_ph=0; }
     _ph_rem="$(printf '%s' "$body" | jq -r --arg keep "ssdlc:phase::$_adopt_ph" '[.labels[]? | select(startswith("ssdlc:phase:")) | select(. != $keep)] | join(",")' 2>/dev/null)"
     # Resolve the story KIND for this adoption: PRESERVE an existing kind:: label (dual-scheme read);
     # a fresh adopt defaults to development (the STRICTEST set — an omission can never lighten the gate). An
@@ -1213,38 +1290,75 @@ backend_adopt() {
         return 1
     fi
     _s_rem="$(printf '%s' "$body" | jq -r --arg keep "severity::$_adopt_sev" '[.labels[]? | select(startswith("severity:")) | select(. != $keep)] | join(",")' 2>/dev/null)"
-    # SELF-ASSIGN: an adopted (status::doing) story must show WHO is working it. When the issue has NO assignee,
-    # claim it for the token's own user, stamped ATOMICALLY in this SAME PUT (no unassigned-while-doing window). NEVER
-    # overwrite an EXISTING assignee — a human or another agent may have claimed it, and stealing that is worse than a
-    # blank. If the id can't be resolved (offline), adopt WITHOUT assign and warn (fail-open — an assignee never blocks
-    # adoption). This prevents a story being status::doing but unassigned ("half-adopted").
-    local _assign_field="" _ast
-    _ast="$(_gl_self_assign_state "$iid" "$body")"
+    # SELF-ASSIGN: a story kept in progress must show WHO is working it. When it is in progress and the issue has NO
+    # assignee, claim it for the token's own user, stamped ATOMICALLY in this SAME PUT (no unassigned-while-doing window).
+    # NEVER overwrite an EXISTING assignee — a human or another agent may have claimed it, and stealing that is worse than
+    # a blank. If the id can't be resolved (offline), adopt WITHOUT assign and warn (fail-open — an assignee never blocks
+    # adoption). A story adopted as to do is claimed by its first real start, not here.
+    local _assign_field="" _ast=""
+    [ "$_adopt_status_word" = In-progress ] && _ast="$(_gl_self_assign_state "$iid" "$body")"
     case "$_ast" in
         assign:*) _assign_field="assignee_ids=${_ast#assign:}" ;;
         unresolved|unreadable)
             printf 'story: gitlab backend_adopt: could not resolve this token'\''s GitLab user id — adopting #%s WITHOUT self-assign (assign it with: story set %s assignee=self).\n' "$iid" "$iid" >&2 ;;
     esac
+    # The labels part of the report: those added, those already there.
+    local _l_added="" _l_kept="" _had_kind
+    _had_kind="$(printf '%s' "$body" | jq -r '[.labels[]? | select(startswith("kind:"))] | length' 2>/dev/null)"
+    if [ -n "$_type_add" ]; then _l_added="$_l_added type"; else _l_kept="$_l_kept type"; fi
+    if [ "${_had_kind:-0}" -gt 0 ] && [ -z "$_k_rem" ]; then _l_kept="$_l_kept kind"; else _l_added="$_l_added kind"; fi
+    if [ "$_sev_vals" = "$_adopt_sev" ]; then _l_kept="$_l_kept severity"; else _l_added="$_l_added severity"; fi
+    if [ -n "$_adopt_status_add" ]; then _l_added="$_l_added status"; else _l_kept="$_l_kept status"; fi
+    if [ "$_had_ph" = 1 ] && [ -z "$_ph_rem" ]; then _l_kept="$_l_kept phase"; else _l_added="$_l_added phase"; fi
+    story_issue_adoption_missing "$body" "$_GL_STORY_LABEL" >/dev/null || _l_added=" story$_l_added"
+    [ -z "$_l_added" ] || _adopt_done="${_adopt_done:+$_adopt_done; }applied the labels:$_l_added"
+    [ -z "$_l_kept" ] || _adopt_kept="${_adopt_kept:+$_adopt_kept; }the labels:$_l_kept"
+    local _adopt_rem; _adopt_rem="$(printf '%s' "$_adopt_status_rem,$_type_rem,$_ph_rem,$_k_rem,$_s_rem" | tr -s ',' | sed -e 's/^,//' -e 's/,$//')"
+    # Idempotent: a story already adopted is not written at all.
+    if [ -z "$_adopt_done" ]; then
+        printf 'story: adopt #%s: done: nothing (it was already adopted); already there: %s.\n' "$iid" "${_adopt_kept:-nothing}" >&2
+        printf '%s' "$iid"
+        return 0
+    fi
     _gl_write PUT "issues/$iid" \
         "description=$(_gl_strip_title_h1 "$newdesc")" "milestone_id=$mid" \
-        "add_labels=$_GL_STORY_LABEL,status::doing,type::$type,ssdlc:phase::$_adopt_ph,kind::$_adopt_kind,severity::$_adopt_sev${_vl:+,$_vl}" \
-        "remove_labels=$(_gl_status_others doing)${_ph_rem:+,$_ph_rem}${_k_rem:+,$_k_rem}${_s_rem:+,$_s_rem}" \
+        "add_labels=$_GL_STORY_LABEL${_adopt_status_add:+,$_adopt_status_add}${_type_add:+,$_type_add},ssdlc:phase::$_adopt_ph,kind::$_adopt_kind,severity::$_adopt_sev${_vl:+,$_vl}" \
+        "remove_labels=$_adopt_rem" \
         ${_assign_field:+"$_assign_field"} || return 1
     _gl_forget_issue "issues/$iid" rendered   # the description was replaced: later steps must read the adopted body
     [ -z "$_assign_field" ] || _gl_warn_lost_claim "$iid" "${_ast#assign:}"
+    printf 'story: adopt #%s: done: %s; already there: %s.\n' "$iid" "$_adopt_done" "${_adopt_kept:-nothing}" >&2
     printf '%s' "$iid"
+}
+
+# _gl_set_header_bullet <body> <field> <value> -> the body with its first `- **Field:**` line set to <value>, every other
+# line kept verbatim (gl-set-field-bullet.awk).
+_gl_set_header_bullet() {
+    printf '%s\n' "$1" | AWKARG_f="$2" AWKARG_v="$3" awk -f "$BACKEND_GL_HERE/gl-set-field-bullet.awk"
+}
+
+# _gl_put_header_bullet <body> <field> <value> -> the body with its `- **Field:**` line set to <value>: an existing line
+# (one whose value is "-" counts as missing) is set, a missing one is added to the metadata header (before the Proof
+# Discipline section, the first `## ` section or the spec marker, as gl-insert-metadata-bullet.awk places a new bullet).
+_gl_put_header_bullet() {
+    if printf '%s\n' "$1" | grep -ciE "^[[:space:]]*[-*][[:space:]]+\*\*$2:\*\*" >/dev/null; then
+        _gl_set_header_bullet "$1" "$2" "$3"
+    else
+        printf '%s\n' "$1" | AWKARG_line="- **$2:** $3" awk -f "$BACKEND_GL_HERE/gl-insert-metadata-bullet.awk"
+    fi
 }
 
 # _gl_set_desc_bullet <iid> <field> <val> — set/insert a `- **Field:** val` bullet in the issue DESCRIPTION and
 # PUT it back. Uses awk (NOT sed) to write the value: a `val` containing `|`/`&`/`\` corrupts sed's `s|…|…|`
-# (`&` expands to the whole match, `|` ends the command). awk carries `val` as an opaque -v variable — verbatim.
+# (`&` expands to the whole match, `|` ends the command). awk reads `val` from ENVIRON, never -v (which rewrites
+# backslash escapes), so it is carried verbatim.
 _gl_set_desc_bullet() {
     local iid="$1" field="$2" val="$3" d t
     d="$(_gl_materialize "$iid")/requirements.md"
     if grep -qiE "^[[:space:]]*[-*][[:space:]]+\*\*${field}:\*\*" "$d"; then
         t="$(mktemp)"
         story_tmp_register "$t"
-        awk -v f="$field" -v v="$val" -f "$BACKEND_GL_HERE/gl-set-field-bullet.awk" "$d" > "$t" && mv -f "$t" "$d"
+        AWKARG_f="$field" AWKARG_v="$val" awk -f "$BACKEND_GL_HERE/gl-set-field-bullet.awk" "$d" > "$t" && mv -f "$t" "$d"
     else
         # A NEW metadata bullet is inserted INTO the header — before the first '## ' section OR the
         # '<!-- spec' marker — NOT appended at EOF. Appending put it after the spec body, where `story requirements`
@@ -1252,7 +1366,7 @@ _gl_set_desc_bullet() {
         # other metadata AND makes it survive a spec rewrite. Falls back to EOF only if there is no section/marker.
         t="$(mktemp)"
         story_tmp_register "$t"
-        awk -v line="- **$field:** $val" -f "$BACKEND_GL_HERE/gl-insert-metadata-bullet.awk" "$d" > "$t" && mv -f "$t" "$d"
+        AWKARG_line="- **$field:** $val" awk -f "$BACKEND_GL_HERE/gl-insert-metadata-bullet.awk" "$d" > "$t" && mv -f "$t" "$d"
     fi
     _gl_write PUT "issues/$iid" "description=$(_gl_strip_title_h1 "$(cat "$d")")"   # strip the title H1 (the FS mirror keeps it)
 }

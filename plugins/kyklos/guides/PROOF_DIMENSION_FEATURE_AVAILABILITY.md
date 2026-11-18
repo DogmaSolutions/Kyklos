@@ -52,7 +52,9 @@ flowchart TD
    The Bridge (`proof_set`) refuses a row whose evidence is not real text, and a row that cites an item the signed record lists
    as uncovered. So an agent cannot cite `R3` until a test (or the review) really names it.
 3. **The close.** For a PROVEN row, the Bridge's correlation gate (`ProofCorrelationGate`) reads the `<kbd>` labels of this row's
-   metrics, and each `R` item of `## Requirements` must appear there as a whole token (`R1` never stands for `R10`). An item
+   metrics, and each `R` item of `## Requirements` must appear there as a whole token (`R1` never stands for `R10`), or inside
+   a range written in a label (`R1 to R4`, `R1-R4` or `R1–R4`: the same prefix, ascending, at most 50 items, names every item
+   inside it; a range in the spec section, such as `**R2-R4**`, declares every item inside it too). An item
    named in the evidence prose, or in another row, does not count. Every missing item is one finding, and all findings come in
    one answer.
 4. **The judgement.** Whether a cited test really drives the public interface (and not a mock) is not something a program can

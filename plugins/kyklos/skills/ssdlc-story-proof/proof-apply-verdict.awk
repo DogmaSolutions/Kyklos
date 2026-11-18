@@ -1,6 +1,7 @@
 # proof-apply-verdict.awk — apply a Verdict/Evidence/Metrics to a named dimension row (exit 3 => dimension not found). Externalized from proof-dimensions.sh: an inline multi-line awk is mis-counted
-# by kcov as 0-hit bash phantom lines. Vars are passed with awk -v. Behaviour byte-identical to the inline form.
-    BEGIN{ found=0; gsub(/^[ \t]+|[ \t]+$/,"",dim); ldim=tolower(dim) }
+# by kcov as 0-hit bash phantom lines. The evidence and metrics cells are free text: they arrive through ENVIRON
+# (AWKARG_ev, AWKARG_mx), never awk -v, which rewrites backslash escapes (a Windows path in the evidence would break the row).
+    BEGIN{ ev = ENVIRON["AWKARG_ev"]; mx = ENVIRON["AWKARG_mx"]; found=0; gsub(/^[ \t]+|[ \t]+$/,"",dim); ldim=tolower(dim) }
     {
       line=$0
       if (line ~ /^\|/) {

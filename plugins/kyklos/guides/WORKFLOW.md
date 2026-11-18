@@ -38,6 +38,13 @@ Before we start, let's clarify some terms used in the diagrams below:
   [EU Cyber Resilience Act](https://eur-lex.europa.eu/eli/reg/2024/2847/oj)). Each mitigating piece of code carries a marker naming its risk item, and security controls are annotated with a formal
   reference ([CWE](https://cwe.mitre.org/), [OWASP Top 10](https://owasp.org/www-project-top-ten/), IEC 62443, [CAPEC](https://capec.mitre.org/)), so
   the control inventory can be listed with a single search.
+- **Adoptable and adopted stories**: an issue without the `story` label is not a story, so it is neither adoptable nor adopted. An issue with the label is
+  *adopted* only when all four hold: the words a person wrote are quoted verbatim, the description follows the story template, the type, kind, severity,
+  phase and (while it is open) status labels are applied, and it is attached to an epic. Until then it is *adoptable*, for example a story someone created by
+  hand in GitLab. `story adopt` completes only what is missing and keeps everything the story already has: content that does not fit the template is kept
+  word for word in a quoted section, and the agent restructures the story from it. Adoption sets the status to "to do", never "in progress", because adopting
+  a story does not start it; running it again on an adopted story changes nothing. Until a story is adopted, the tools refuse to change it and name what it
+  lacks, and the next-work list and the health check show it as work to adopt.
 - **Commits and merge requests**: all the work of a story happens on its own `feature/story-<id>-<slug>` branch, in commits that follow [Conventional Commits](https://www.conventionalcommits.org/) and
   name the story. The trunk is never
   edited directly: the branch is pushed with a merge request that is created already *armed* (set to merge automatically as soon as the pipeline is green), and CI merges it into the trunk only when the pipeline is green. Arming is refused unless the branch
@@ -150,7 +157,9 @@ flowchart TD
 - **Where the facts come from.** The deliverable, its merge request, its pipeline and the story's notes and label history are read from the tracker (for example GitLab) with the story token the Bridge holds on the host (see [Secrets](SECRETS.md)); the agent's container never holds that token. The trunk history is read from the repository after a `git fetch` (a failed fetch refuses). The tool tokens are re-computed from the files in the host's copy of the project.
 - **How the tokens are checked.** Every token is an HMAC-SHA256 (a keyed hash) of a text the Bridge builds: for the file tokens, the sorted list of `path:hash` lines of the files the token covers; for the [review token](ADVERSARIAL_REVIEW.md#how-the-review-token-is-made-and-checked), `advreview:<story>:<hash of the report>`. The key, [`KYKLOS_PROOF_HMAC_KEY`](PROOF_DIMENSION_TEST_DISCIPLINE.md#signatures-the-key-and-when-they-are-checked), lives in the operating system's credential store and reaches only the Bridge process, so a token cannot be made by hand. At the close the Bridge re-computes each token over the current files and compares the two in constant time. The computation lives in `bridge/src/DogmaSolutions.ProjectManagement.Agile.Ssdlc/ProofTokenBinding.cs`; the close decision in `StoryCloseEvaluator.cs` beside it.
 - **What a failure causes.** A refused close changes nothing: the story stays open in its phase, the refusal names every finding, and the [Stop rules](HOOKS_AND_SKILLS.md#forced-productivity) keep the agent working on it (an open story is open work). A token that no longer matches (a file changed after it was measured) needs a new measurement; a deliverable not yet merged needs the merge; a missing review needs a review.
-- **What the user does.** Usually nothing: the agent fixes what the findings name. A person is needed only for a genuine exception, through the owner's [override label](#the-owners-proof-override-label), never through a switch the agent sets.
+- **Draft the proof before the final review.** The agent drafts the [Proof Table](PROOF.md) on the pushed branch before it asks for the final [adversarial review](ADVERSARIAL_REVIEW.md). The draft names every use case or other item of the specification that no test names yet, so the missing test is written while the code still moves and goes into the same review round, instead of turning up at the close.
+- **A use case is proved only by a test that names it** (in a story that has tests; a documentation, analysis or data-only story keeps its tool receipt). A test run, a green pipeline or a record of a run on the host never replaces that test, because none of them says which test exercised the use case. A run in the real environment is welcome extra evidence on top of the named test, never instead of it.
+- **What the user does.** Usually nothing: the agent fixes what the findings name. A person is needed only for a genuine exception, through the owner's [override label](#the-owners-proof-override-label), never through a switch the agent sets. The agent offers the user only options the close can read: for a review that still has findings, one more review round or the override label, never "accept the review as it is" or "cite the run instead", which the close would refuse after the user agreed.
 
 The repository the rules judge is always the **item's own** repository: the Bridge maps the repository's origin address to one of the projects it serves (a renamed project's old address is accepted with a warning that names the command to repoint it). A command run in a repository the Bridge does not serve (a scratch clone, another team's repository) is **not judgeable**: the story rules are skipped for it with a named notice ("not judgeable here: story rules not checked"), recorded in the audit log, and never reported as passed.
 
@@ -395,6 +404,16 @@ Two rules accept a variable on the command itself instead of a marker, for delib
 Both last for that one command, and every use is written to the escape audit log (the session transcript and a log in the Kyklos state folder). **Do not use them** to post a proof the
 proof tool would refuse: the proof tool's own checks are the point.
 
+**No normal step needs them.** Every note an agent writes in a normal workflow has a named command: a question to the owner, or any other note on a story, is
+`story ask <id> --file <file>` (it prints the note's link, which `story block <id> --kind user --on <link>` takes); a reply on a coordination issue is `agent-msg reply`;
+the proof, the risk register, the review reports, the reason a story was reopened and a block each have their own story command or Bridge verb. A permission checker (for
+example an agent's automatic permission mode) reads a command carrying an escape as switching off a safety control and may refuse it, so an escape is kept for
+one-off repairs no command covers. A turn whose closing message asks the owner something about a story or issue ends only once a note was posted on that item in the session (or the
+message links a note on it): the Stop hook `story-ask-guard` refuses it otherwise, names the item and the `story ask` command, and lets the same refusal through after two
+identical stops in a row (a stop that passes in between starts the count again) so it never holds an agent whose note cannot be posted. Only a question that names the
+item in the question sentence itself (or in a parenthesis right after its question mark) counts, written the way the project writes its items (`#<n>`, `story <n>`,
+`issue <n>`); a status line followed by a generic "Do you want me to continue?", a question the message answers itself and a bare number are never read as an ask.
+
 ### Greppable opt-out switches
 
 **What they are.** Every check that can be switched off has exactly one named switch, read by one shared reader (`plugins/kyklos/hooks/lib/control-switch.sh`). The rule for every switch is the
@@ -460,6 +479,7 @@ The checks and their switches:
 | `CONTINUE_GUARD`, `CONTINUE_GUARD_DIRECTIVE`, `CONTINUE_GUARD_WATCH_HOLD` | the Stop rule that keeps the agent working while work is open (see [Forced productivity](HOOKS_AND_SKILLS.md#forced-productivity)) | on |
 | `KYKLOS_BLOCKER_CHECK` | the re-check of a blocked story's recorded blocker at every Stop | on |
 | `KYKLOS_ASK_USER_GUARD` | the refusal of a needless question to the user | on |
+| `KYKLOS_STORY_ASK_CHECK` | the refusal of a closing question to the owner about a story or issue with no note posted on it | on |
 | `KYKLOS_AWAITING_CI_SLOT_FREE` | freeing the work slot of a story that only waits for CI | on |
 | **Safety** | | |
 | `KYKLOS_RM_CRITICAL_PATH_GUARD` | the immediate refusal of an `rm` on a critical path | on |

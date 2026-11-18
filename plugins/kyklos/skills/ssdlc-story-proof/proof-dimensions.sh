@@ -300,8 +300,8 @@ proof_apply_verdict() {
   # stays clean and the tally is correct. (A markdown '\|' would render but still break the awk split.)
   evidence="${evidence//|/"&#124;"}"   # quote the replacement: bash 5.x treats a bare & as the matched text
   metrics="${metrics//|/"&#124;"}"
-  printf '%s' "$table" | awk -v dim="$dim" -v verdict="$verdict" -v ev="$evidence" -v haveev="${4+1}" \
-                             -v mx="$metrics" -v havemx="${5+1}" \
+  printf '%s' "$table" | AWKARG_ev="$evidence" AWKARG_mx="$metrics" awk -v dim="$dim" -v verdict="$verdict" -v haveev="${4+1}" \
+                             -v havemx="${5+1}" \
                              -f "$_PROOF_DIM_DIR/proof-apply-verdict.awk" 2>/dev/null
   local rc=$?
   [ "$rc" -eq 3 ] && return 1 || return 0
@@ -644,9 +644,17 @@ proof_section_text() {
 }
 
 # proof_item_tokens -> the spec-item tokens of standard input, one per line, by the one token rule
-# (proof-item-tokens.awk, the same as the bridge's): exact upper case, no letter or digit touching the id.
+# (proof-item-tokens.awk, the same as the bridge's): exact upper case, no letter or digit touching the id. A range
+# (R1 to R4) names only its two ends: this is the literal reading of a test's identity.
 proof_item_tokens() {
   awk -f "$_PROOF_DIM_DIR/proof-item-tokens.awk"
+}
+
+# proof_cited_item_tokens -> the spec-item tokens of proof citation text or of a spec section: the tokens of
+# proof_item_tokens plus every item inside a range (R1 to R4, UC5-UC8, RA-01 to RA-04), as the bridge's
+# SpecItemCoverage.CitedItemsIn and DeclaredItemsIn read them.
+proof_cited_item_tokens() {
+  awk -v ranges=1 -f "$_PROOF_DIM_DIR/proof-item-tokens.awk"
 }
 
 # proof_section_ids <body> <section prefix> <id-pattern> [<id-pattern2>] -> sorted-unique, UPPER-cased whole-token
@@ -668,8 +676,8 @@ proof_section_ids() {
     } | sort -u
     return 0
   fi
-  # The tokens of the section by the one rule, then those of this section's kind (the whole token is the pattern).
-  proof_section_text "$body" "$prefix" | proof_item_tokens | { grep -xE "($pat)" || true; } | sort -u
+  # The tokens of the section by the one rule (a range declares every item in it), then those of this section's kind.
+  proof_section_text "$body" "$prefix" | proof_cited_item_tokens | { grep -xE "($pat)" || true; } | sort -u
 }
 
 # proof_dimension_metrics_cell <proof-text> <dimension> -> the Metrics cell (4th content cell / awk $5 on a 4-column
@@ -697,7 +705,7 @@ proof_correlation_problems() {
     kbdlabels="$(printf '%s' "$cell" | grep -oiE '<kbd>[^<]*</kbd>' | tr '\n' ' ')"
     while IFS= read -r id; do
       [ -n "$id" ] || continue
-      printf '%s\n' "$kbdlabels" | proof_item_tokens | grep -cxF -- "$id" \
+      printf '%s\n' "$kbdlabels" | proof_cited_item_tokens | grep -cxF -- "$id" \
  >/dev/null        || printf 'dimension "%s" is PROVEN but story item "%s" (declared in "%s") is not cited as a formal metric of that row, only in loose prose or not at all - send it as the structured metric {"item":"%s","tool":"<tool>","value":"<value>"} in proof_set '"'"'metrics'"'"' (story tool: --metric '"'"'%s|<tool>|<value>'"'"' after its --set), and the bridge writes the formal group\n' "$dim" "$id" "$prefix" "$id" "$id"
     done <<IDS
 $ids
