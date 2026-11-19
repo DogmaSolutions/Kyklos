@@ -77,6 +77,13 @@ bridge_mcp_endpoint() {
     if kyklos_seal_refuses "bridge-mcp" "$endpoint"; then
         return 7
     fi
+    # A suite's curl stand-in may hand every request it does not know to the real curl, and an endpoint file found from
+    # the folder the suite runs in (a session's own .mcp.json) names the live bridge: in a sealed shell a bridge address
+    # is reachable only on loopback, whatever curl would run. Every stand-in bridge a suite starts listens on loopback.
+    if kyklos_test_sealed && ! kyklos_url_is_loopback "$endpoint"; then
+        echo "bridge-mcp: refusing to reach $(kyklos_url_host "$endpoint") from a sealed test shell: a bridge is reachable there only on a loopback stand-in the test started itself, even with a curl stand-in on PATH. Nothing was sent." >&2
+        return 7
+    fi
     printf '%s' "$endpoint"
 }
 

@@ -1,8 +1,10 @@
 #!/usr/bin/perl
 # story-ask-detect.pl -- read the agent's closing message on stdin and print the stories and issues it asks the owner
 # about, one line each:
-#   ask <iid>      a question addressed to the owner names this story or issue
-#   linked <iid>   the message links a note on this story or issue (an issue web link ending in "#note_<n>")
+#   ask <iid> [<project>]     a question addressed to the owner names this story or issue (the project path only
+#                             when the reference names one, "<group>/<project>#<n>")
+#   linked <iid> [<project>]  the message links a note on this story or issue (an issue web link ending in
+#                             "#note_<n>"; the project path is the link's)
 #
 # A question addressed to the owner is a sentence that ends with a question mark and carries an owner tell (you, your,
 # "should I", "may we", "ok to", approve, agree, confirm, decide, prefer, which, whether), or the owner-blocker form (a
@@ -43,7 +45,7 @@ $text = join("\n", @kept);
 $text =~ s/`[^`\n]*`/ /g;
 
 my %linked;
-while ($text =~ m{https?://\S*?/-/issues/(\d+)#note_\d+}g) { $linked{$1 + 0} = 1; }
+while ($text =~ m{https?://[^/\s]+/(\S*?)/-/issues/(\d+)#note_\d+}g) { $linked{($2 + 0) . "\t" . $1} = 1; }
 $text =~ s{https?://\S*?/-/issues/(\d+)\S*}{ issue $1 }g;
 $text =~ s{https?://\S+}{ link }g;
 
@@ -51,16 +53,16 @@ my $KEY = 'story' . '-0*';
 sub refs_in {
     my ($s) = @_;
     my %found;
-    while ($s =~ /(?<![\w\/.-])$KEY(\d+)\b/gi) { $found{$1 + 0} = 1; }
+    while ($s =~ /(?<![\w\/.-])$KEY(\d+)\b/gi) { $found{($1 + 0) . "\t"} = 1; }
     while ($s =~ /\b(?:stor(?:y|ies)|issues?)\s+(#?\d+(?:\s*(?:,|and|or|&)\s*#?\d+)*)\b/gi) {
         my $list = $1;
-        $found{$_ + 0} = 1 for ($list =~ /(\d+)/g);
+        $found{($_ + 0) . "\t"} = 1 for ($list =~ /(\d+)/g);
     }
     while ($s =~ /(?<![&\w])((?:[\w.-]+(?:\/[\w.-]+)*)?)#(\d+)\b/g) {
         my ($path, $n, $at) = ($1, $2, $-[0]);
         my $before = lc substr($s, $at < 30 ? 0 : $at - 30, $at < 30 ? $at : 30);
         next if $path eq '' && $before =~ /(pipeline|job|run|note|mr|merge request|step|case|item)\s*$/;
-        $found{$n + 0} = 1;
+        $found{($n + 0) . "\t" . $path} = 1;
     }
     return keys %found;
 }
@@ -104,5 +106,7 @@ for my $block (@blocks) {
     }
 }
 
-print "ask $_\n" for sort { $a <=> $b } keys %asked;
-print "linked $_\n" for sort { $a <=> $b } keys %linked;
+sub order { my ($x) = split /\t/, $a; my ($y) = split /\t/, $b; return $x <=> $y || $a cmp $b; }
+sub show { my ($kind, $key) = @_; my ($n, $path) = split /\t/, $key, 2; return $kind . " $n" . (defined $path && $path ne '' ? " $path" : '') . "\n"; }
+print show('ask', $_) for sort order keys %asked;
+print show('linked', $_) for sort order keys %linked;

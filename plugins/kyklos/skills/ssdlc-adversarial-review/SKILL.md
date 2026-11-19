@@ -77,9 +77,16 @@ to be kept carries no `Refs:` naming the story, or its branch is deleted after t
    (optional) what was checked and found sound
    Not checked: <ids> — why (optional, one line for what you did not check)
    ```
-   - Name each spec item you checked (`R1`, `AC1`, `FAIL-HARD`, ...) in `### Checked, no finding`: a clean review covers
-     what it names, whatever words the line uses. On a documentation, analysis or ops story it also covers `UC1`, `FM1`
-     and `RA-01`; on a story with tests those stay proved by tests.
+   - Name each spec item you checked (`R1`, `AC1`, `FAIL-HARD`, `RA-01`, ...) in `### Checked, no finding`: the review
+     covers what it names, whatever words the line uses. On a documentation, analysis or ops story it also covers `UC1`
+     and `FM1`; on a story with tests those stay proved by tests.
+   - **The cover is decided item by item.** A finding takes the cover only from the items its own bullet (with its
+     continuation lines) names: items the spec declares and the review may cover (`R`, `AC`, `FAIL-`, `RA-`; on a
+     documentation, analysis or ops story every declared item); ids joined by a slash or a comma (`R1/AC2`) each count. An
+     id inside a file name or path (`src/R1.cs`, `docs/AC2/x.md`), a use case on a
+     story with tests, or an id the spec does not declare names nothing. A finding that names no such item cannot be
+     tied to any, so it takes the cover from every item until a note on the story settles it. Name the items a finding
+     is about, outside the location, so the rest keep their cover.
    - Anything you did not check goes under a `Not checked` label in `### Checked, no finding`: `Not checked: <ids> - why`
      (a colon, a dash or nothing after the label; an optional bullet, number, quote mark or emphasis before it), with
      the ids on the line, on the lines that follow, or in bullets under it; or a `Not checked` heading of any level
@@ -89,7 +96,7 @@ to be kept carries no `Refs:` naming the story, or its branch is deleted after t
      examined|verified|tested|reviewed|covered`, `did not|didn't|haven't check|examine|verify|test|read|run|review`,
      `was/is/left unchecked`, `skipped`, `deferred`, `out of scope` or `out of time` loses it for every id in it, so
      keep such words out of units that name an id you did check. Other words ("never", "open", "missing") are ordinary prose and take nothing away. An item named in a
-     `### Findings` bullet loses its cover too.
+     `### Findings` bullet loses its cover too, even once that finding is settled.
    - **Severity:** `blocker` (must be fixed before the merge), `major` (a real defect or gap), `minor` (small, low
      impact). Findings are listed blocker first, then major, then minor, numbered F1, F2, ... in that order, so a
      search for `· blocker ·` finds every blocker.
@@ -135,9 +142,23 @@ to be kept carries no `Refs:` naming the story, or its branch is deleted after t
      review over the new diff). Each iteration posts its OWN comment.
 4. **The loop stops** only when a review finds **nothing relevant to fix**, OR after **3** iterations in this story.
    If the third iteration still has residual findings, STOP and surface the residual to the user — never silently
-   close. Offer the user only the two options the close gate can read: one more review round (fix, then a fresh
-   review), or the owner's `proof-override` label with a named cause. Never offer "accept the review with its
-   findings", "cite a run instead" or any other choice no gate reads: the close refuses it after the user agreed.
+   close. Offer the user only options the close gate can read: one more review round (fix, then a fresh review); for
+   a finding that names no spec item, settling it with a note (below); or the owner's `proof-override` label with a
+   named cause. Never offer "accept the review with its findings", "cite a run instead" or any other choice no gate
+   reads: the close refuses it after the user agreed.
+   **Settling a finding** (only a finding that names no spec item needs it; one that names items keeps taking their
+   cover). Post one note on the story whose first line is exactly one of:
+   - `Finding F<n> of review round <r> moved to #<issue>` — the finding is now the work of that issue, which must be an
+     OPEN issue of the story's own project, carrying the `story` label, and not the story itself; the draft reads the
+     issue from the tracker. A target in another project (`group/project#45`) settles nothing.
+   - `Finding F<n> of review round <r> accepted`, followed by the box `- [ ] accept this finding` — the owner accepts
+     it by ticking the box. Only a tick by one of the owner accounts (`Agile:Acceptance:OwnerAccounts`) counts, read
+     from GitLab's own record: the last editor of an edited note, the author only of a note never edited. An agent's
+     tick, an edited note whose last editor GitLab does not name, or no owner account configured accepts nothing.
+     Ask the owner for the tick as a tickable note, with the finding's text and why it is theirs.
+   A note for another round, for a finding the report does not list, or written before the review settles nothing.
+   An optional reason may follow the line after a colon or a dash. Then run `proof_draft` again: an open row says why
+   each settle note it did not take settles nothing.
 5. **Fill the Proof row** from the FINAL (clean) run's helper output:
    `story proof <id> --set 'Adversarial Review=PROVEN|clean self-review, N iteration(s)|<kbd>Report:</kbd> <comment-url><br><kbd>Token:</kbd> <token><br>'`
    The close gate has the bridge re-verify the Token with its key (MCP tool `advreview_check`, under the story's

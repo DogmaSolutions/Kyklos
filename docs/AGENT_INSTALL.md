@@ -170,7 +170,7 @@ Test-Path C:\Tools\Kyklos\DogmaSolutions.Kyklos.Launcher.exe
 - **A download answers 404.** Open `https://github.com/DogmaSolutions/Kyklos/releases` and tell the person what you see. When the person's own browser shows the release but your download answers 404, the repository is not public to you: GitHub answers 404 for a repository a visitor may not see. Ask the person to sign in to GitHub in their browser and download `kyklos-launcher-win-x64.zip` and `SHA256SUMS.txt` from the release page into `C:\Tools\Kyklos` themselves, then run the Check above on those files. Never ask for their GitHub password or token.
 - **`Test-Path` answers `False`.** The zip did not unpack where expected: list `C:\Tools\Kyklos` and unpack it there again.
 - **The signature is not `Valid`.** Stop and tell the person. Do not run the program.
-- **Keep the folder whole.** The program needs the files beside it (`appsettings.json`, `engine`, `Parameters`); never move the program out of its folder.
+- **Keep the folder whole.** The program needs the files beside it (`appsettings.json`, `engine`, `Parameters`); never move the program out of its folder. An update unzips a new release over this folder and replaces `appsettings.json`; the person's own settings live in `appsettings.Production.json` (step 4), which no release carries, so an update keeps them.
 
 From here on, the Launcher downloads the Kyklos Bridge itself, at every launch, from the same releases page, and refuses a file whose checksum does not match. Nothing else is installed by hand.
 
@@ -178,10 +178,10 @@ From here on, the Launcher downloads the Kyklos Bridge itself, at every launch, 
 
 ## Step 4: the Launcher's own settings file
 
-`C:\Tools\Kyklos\appsettings.json` ships with the Launcher. **A new project with the public Kyklos marketplace needs no change in it.** Its defaults are:
+`C:\Tools\Kyklos\appsettings.json` ships with the Launcher and holds the defaults; every update replaces it, so **never edit it**. The person's own settings go in `C:\Tools\Kyklos\appsettings.Production.json` beside it, which holds only the keys that change, in the same layout, and wins over the defaults (the .NET convention `appsettings.<environment>.json`; the environment is `Production` unless the .NET variable DOTNET_ENVIRONMENT or ASPNETCORE_ENVIRONMENT names another; ASPNETCORE_ENVIRONMENT wins when both are set). **A new project with the public Kyklos marketplace needs no such file.** The defaults are:
 
 - `Marketplace` → `RepositoryUrl` empty: the Kyklos Plugin is installed from the public Kyklos marketplace (`https://github.com/DogmaSolutions/Kyklos.git`), which needs no token. Leave `Marketplace` → `TokenName` empty too: a token name without a marketplace address of its own is ignored, and the Check warns about it.
-- `Projects` → `SettingsRoot` empty: the Launcher looks for a project's optional Bridge settings file in its own folder (`C:\Tools\Kyklos\projects\<project>\bridge.appsettings.json`), see step 10.
+- `Projects` → `SettingsRoot` empty: the Launcher looks for a project's optional Bridge settings file in its own folder (`C:\Tools\Kyklos\projects\<project>\appsettings.Production.json`), see step 10.
 - The configurations are kept in `%APPDATA%\KyklosLauncher\configs`, one file per project.
 - The Launcher listens on `http://127.0.0.1:8787`, or on the next free port up to 8796.
 
@@ -192,15 +192,30 @@ Change something only for a reason the person gave:
 | The person keeps Bridge settings files in a folder of their own (for example a Git repository) | `Projects` → `SettingsRoot` | that folder's absolute path, outside every workspace, with every `\` written as `\\` |
 | Docker Desktop's data or the person's tools are on a BitLocker drive other than the workspace's | `Launch` → `AlwaysUnlockDrives` | the drive letter, for example `D` (the Launcher unlocks the workspace's own drive by itself) |
 
-Edit the file with your file-editing tool; keep every other key as it is.
+Write only those keys into `C:\Tools\Kyklos\appsettings.Production.json` with your file-editing tool, inside `{ "Launcher": { ... } }`, creating the file if it does not exist; keep any key already in it.
 
 **Check:**
 
 ```powershell
-(Get-Content C:\Tools\Kyklos\appsettings.json -Raw | ConvertFrom-Json).Launcher.Marketplace
+if (Test-Path C:\Tools\Kyklos\appsettings.Production.json) { (Get-Content C:\Tools\Kyklos\appsettings.Production.json -Raw | ConvertFrom-Json).Launcher }
 ```
 
-**Expected:** no parse error, and `RepositoryUrl` empty (or the person's own marketplace).
+**Expected:** no parse error, and only the keys the person asked for (no output when no file was needed).
+
+---
+
+## Life-cycle of the settings files
+
+Tell the person this when they ask where a setting goes, and follow it yourself. No project launch writes any of these files:
+
+- **`C:\Tools\Kyklos\appsettings.json`**: ships with every release, holds the defaults, read at every Launcher start and never written. An update replaces it. Never put a setting there.
+- **`C:\Tools\Kyklos\appsettings.Production.json`**: no release carries it. You create it in step 4 only when the person needs a Launcher setting; the Launcher also writes it at its own start, once per change it has to carry over (values the person had changed in `appsettings.json`, a setting moved to a new name), and never replaces a value already there. A project launch never writes it, a change takes effect at the next Launcher start, and an update keeps it. Every Launcher setting goes here.
+- **The project configurations** (`%APPDATA%\KyklosLauncher\configs`, one file per project): the Launcher creates one in step 8 and rewrites it only when a configuration is saved through its page or API (the previous version kept as `.bak`). A launch only reads it, and an update keeps it.
+- **`projects\<project name>\appsettings.Production.json`** in the settings folder (step 10): only the person creates it, when the project needs more than the built-in default; the Launcher never writes it. It is read at every Bridge start, and an update keeps it (no release carries it). Every Bridge setting goes here. A file under the former name `bridge.appsettings.json` is still read: the Bridge renames it once to `appsettings.Production.json` in the same folder at its next start and says so; when both are there, the standard file is used and the former one is named in a warning and not read.
+- A list setting never has a non-empty default in the shipped `appsettings.json`: its default lives in the code that reads it and applies when the setting is missing or empty, so a list written in `appsettings.Production.json` replaces the default whole.
+- Not to be edited: the Bridge's own `appsettings.json` in the downloaded Bridge (replaced with every Bridge version) and the dev-container definition the Launcher renders again from the configuration at every launch.
+
+Over time: at the first launch only `appsettings.json` exists; a later Launcher setting creates `appsettings.Production.json` with only that key; an update replaces `appsettings.json` and leaves the other files as they are.
 
 ---
 
@@ -559,7 +574,7 @@ try {
 
 **When a file is needed.** Only when the project's Bridge needs more than the default: another role, plain values for the Bridge process, or the names of secrets that only the Bridge receives. These settings decide what the agent may reach, so they live in a file the agent cannot write.
 
-**Where.** `<settings folder>\projects\<project name>\bridge.appsettings.json`, where the settings folder is the Launcher's own folder (`C:\Tools\Kyklos`) unless `Projects` → `SettingsRoot` names another one (step 4). The folder name must be exactly the project name. The file must lie outside the workspace folder and every extra folder the container mounts; the Launcher refuses it otherwise.
+**Where.** `<settings folder>\projects\<project name>\appsettings.Production.json` (formerly `bridge.appsettings.json`), where the settings folder is the Launcher's own folder (`C:\Tools\Kyklos`) unless `Projects` → `SettingsRoot` names another one (step 4). The folder name must be exactly the project name. The file must lie outside the workspace folder and every extra folder the container mounts; the Launcher refuses it otherwise.
 
 The smallest file, the same as the built-in default:
 

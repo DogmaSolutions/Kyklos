@@ -236,6 +236,30 @@ if [ -n "${cmd:-}" ]; then
   fi
 fi
 
+# The project of the event repository's stories, when neither its own settings nor the command name it: the bridge's
+# one repository resolver answers it from the repository's origin (item_story_project_of), never the session's settings.
+# A repository outside the session's workspace (another project's worktree, or a worktree of a repository whose
+# settings file is untracked and so absent) is answered only for a project the bridge serves; a code from the bridge
+# stops the agent naming the setting to declare. Without any bridge to ask, a foreign repository stays unresolved (the
+# "no story backend" stop below) and the session's own repository keeps its settings as before.
+# [CySec] Prevents CWE-639: a story is moved only in the project of the repository the work happened in.
+_pa_declared="$(standards_env_value "$_cwd/.claude/standards.env" STORY_GITLAB_PROJECT 2>/dev/null)"
+if [ -z "$_pa_declared" ] && [ -z "${_pa_cmd_project:-}" ] && [ "${STORY_BACKEND:-gitlab}" = gitlab ]; then
+  _pa_scope=""; case "$_pa_evt/" in "$_pa_own"/*) ;; *) _pa_scope=served ;; esac
+  # shellcheck source=lib/item-project.sh
+  command -v item_story_project_of >/dev/null 2>&1 || . "$_PA_HERE/lib/item-project.sh" 2>/dev/null || true
+  _pa_res=""; _pa_rrc=2
+  if command -v item_story_project_of >/dev/null 2>&1; then
+    _pa_res="$(item_story_project_of "$_cwd" $_pa_scope 2>/dev/null)"; _pa_rrc=$?
+  fi
+  case "$_pa_rrc" in
+    0) export STORY_BACKEND=gitlab STORY_GITLAB_PROJECT="$_pa_res" ;;
+    1) unset STORY_GITLAB_PROJECT
+       _phase_advance_fail "the bridge does not name the project of the stories of $_cwd (${_pa_res:-no reason given}), so no story of another project is moved instead. Declare STORY_GITLAB_PROJECT=<id> in that repository's .claude/standards.env, or give it on the git command (STORY_GITLAB_PROJECT=<id> git ...)."
+       exit 0 ;;
+  esac
+fi
+
 # Tell the bridge GUI who committed or pushed on which story, in which project (display only, fail-open). Placed after
 # the event repository's settings are loaded, so the project reported is that repository's, not the session's.
 if [ -n "${_op:-}" ] && [ -f "$_PA_HERE/lib/fyi.sh" ]; then

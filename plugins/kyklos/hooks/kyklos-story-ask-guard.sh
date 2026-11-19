@@ -69,17 +69,23 @@ CLOSING="$(tail -n 400 -- "$TRANSCRIPT" 2>/dev/null | jq -rs '
 [ -n "$CLOSING" ] || clean_stop
 
 DETECTED="$(printf '%s' "$CLOSING" | perl "$HERE/lib/story-ask-detect.pl" 2>/dev/null)" || cannot_tell "the question reader failed"
-ASKED="$(printf '%s\n' "$DETECTED" | awk '$1 == "ask" { print $2 }')"
+ASKED="$(printf '%s\n' "$DETECTED" | awk '$1 == "ask" { print $2 "\t" $3 }')"
 [ -n "$ASKED" ] || clean_stop
-LINKED="$(printf '%s\n' "$DETECTED" | awk '$1 == "linked" { print $2 }')"
+LINKED="$(printf '%s\n' "$DETECTED" | awk '$1 == "linked" { print $2 "\t" $3 }')"
+HOME_PROJECT="${STORY_GITLAB_PROJECT:-}"
 
-# The items a note was posted on this session. The candidate calls are found first (cheap grep), then their answers
-# by id, so a long transcript is never parsed whole.
-CALLS="$(grep -E '"tool_use"' -- "$TRANSCRIPT" 2>/dev/null | grep -E 'story_note|coordination_reply|agent-msg|story[^"]{0,40}ask' \
+# The posts of this session, each as "<item>TAB<project the call named>TAB<project path of the note link>" (an empty
+# field means the call named none: the session's home project). Found by the candidate calls first (cheap grep), then
+# their answers by id, so a long transcript is never parsed whole. Only a post PROVEN on that item counts: a shell
+# command counts only when one of the commands it runs IS `story ask` or `agent-msg reply|new` (after optional
+# environment assignments, a wrapper such as `timeout 60` or `bash -c '...'`, a path; inside `$(...)` too, see
+# posting_segments), so a command that merely mentions them (`agent-msg show 42`, `grep "story ask"`) never does, and
+# its note link or "replied on" line must name the item the command was given.
+CALLS="$(grep -E '"tool_use"' -- "$TRANSCRIPT" 2>/dev/null | grep -E 'story_note|coordination_reply|agent-msg|story.{0,40}ask' \
     | jq -c '(.message.content // .content) | if type == "array" then .[] else empty end
              | select(type == "object" and .type == "tool_use")
-             | {id, name, cmd: (.input.command // ""), item: ((.input.id // .input.iid // "") | tostring)}
-             | select((.name | test("(^|__)(story_note|coordination_reply)$")) or (.name == "Bash" and (.cmd | test("agent-msg|(^|[/[:space:]])story[^[:space:]]*[[:space:]]+ask[[:space:]]"))))' 2>/dev/null)"
+             | {id, name, cmd: (.input.command // ""), project: ((.input.project // "") | tostring), item: ((.input.id // .input.iid // "") | tostring)}
+             | select((.name | test("(^|__)(story_note|coordination_reply)$")) or .name == "Bash")' 2>/dev/null)"
 POSTED=""
 if [ -n "$CALLS" ]; then
     IDS="$(printf '%s\n' "$CALLS" | jq -r '.id // empty' 2>/dev/null)"
@@ -89,21 +95,108 @@ if [ -n "$CALLS" ]; then
                  | {id: .tool_use_id, error: (.is_error // false),
                     text: (.content | if type == "string" then . else ([.[]? | select(type == "object") | .text // empty] | join("\n")) end)}' 2>/dev/null)"
     POSTED="$(jq -rn --slurpfile calls <(printf '%s\n' "$CALLS") --slurpfile answers <(printf '%s\n' "$ANSWERS") '
+        # The commands a shell command line runs, one per line: the line is cut at &, |, ;, a newline, ( and ) and a
+        # backtick only where the shell would cut it, outside quotes. Inside single quotes nothing is cut; inside double
+        # quotes only a command substitution ($( or a backtick) opens a new command, and its closing ) or backtick
+        # returns to the quote it was opened in. A backslash outside single quotes keeps the next character.
+        def shell_commands:
+            reduce (split("")[]) as $c ({o: "", q: "", st: [], esc: false, prev: ""};
+                if .esc then .o += $c | .esc = false
+                elif .q == "\u0027" then (if $c == "\u0027" then .q = "" else . end) | .o += $c
+                elif $c == "\\" then .o += $c | .esc = true
+                elif $c == "`" then
+                    (if ((.st | length) > 0 and (.st[-1] | startswith("`"))) then .q = (.st[-1] | .[1:]) | .st |= .[:-1]
+                     else .st += ["`" + .q] | .q = "" end) | .o += "\n"
+                elif .q == "\"" then
+                    if $c == "\"" then .q = "" | .o += $c
+                    elif $c == "(" and .prev == "$" then .st += [.q] | .q = "" | .o += "\n"
+                    else .o += $c end
+                elif $c == "\u0027" or $c == "\"" then .q = $c | .o += $c
+                elif $c == "(" then .st += [""] | .o += "\n"
+                elif $c == ")" and (.st | length) > 0 and ((.st[-1] | startswith("`")) | not) then .q = .st[-1] | .st |= .[:-1] | .o += "\n"
+                elif $c == ";" or $c == "|" or $c == "&" or $c == "\n" then .o += "\n"
+                else .o += $c end
+                | .prev = $c)
+            | .o | split("\n")[];
+        # The posting commands of a shell command line, each as {verb, rest}: a command (shell_commands) posts when,
+        # after environment assignments, a wrapper (timeout <n>, env, nice, nohup, command, exec, time, bash or sh with
+        # their flags such as -c) and their opening quotes, and an optional path (quoted or not), it runs
+        # `story ask`, `agent-msg reply` or `agent-msg new`. A command that only mentions them (grep, agent-msg show, a
+        # quoted text) never matches, because the verb must be the command itself.
+        def posting_segments:
+            [shell_commands
+             | capture("^[\\s\"\u0027]*(?:(?:[A-Za-z_][A-Za-z0-9_]*=\\S*|timeout(?:\\s+-\\S+(?:\\s+[A-Z0-9]+)?)*\\s+[0-9.]+[smhd]?|env(?:\\s+-\\S+)*|nice(?:\\s+-n\\s*-?[0-9]+|\\s+-[0-9]+)?|nohup|command|exec|time|(?:bash|sh)(?:\\s+-[A-Za-z]+)*)\\s+[\"\u0027]*)*(?:\"[^\"]*/|\u0027[^\u0027]*/|[^\\s\"\u0027]*/)?(?<verb>story[\"\u0027]?\\s+ask|agent-msg[\"\u0027]?\\s+(?:reply|new))(?=[\\s\"\u0027)]|$)(?<rest>.*)$")];
+        # The item a posting command was given: its first argument that is not an option or an option value (every
+        # option of story ask and agent-msg reply takes a value), read the way the story tool reads a story key: a
+        # leading hash, the upper- or lower-case story key prefix, a slug after the number and leading zeros are
+        # dropped, so the key form of story 42 names 42.
+        def first_item:
+            [scan("\"[^\"]*\"|\u0027[^\u0027]*\u0027|\\S+")] as $t
+            | (reduce range(0; $t | length) as $i ({skip: false, item: null};
+                  if .item != null then .
+                  elif .skip then .skip = false
+                  elif ($t[$i] | startswith("--")) then .skip = ($t[$i] | test("=") | not)
+                  else .item = $t[$i] end)
+               | .item // "")
+            | gsub("[\"\u0027`)(#]"; "") | sub("^(?:STORY|story)-"; "") | sub("-.*$"; "") | sub("^0+(?=[0-9])"; "")
+            | select(test("^[0-9]+$"));
         ($answers | map({(.id): .}) | add // {}) as $by
         | $calls[] | . as $c | ($by[$c.id] // empty) | select(.error | not) | .text as $t
         | if $c.name == "Bash" then
-              ($t | [scan("/-/issues/([0-9]+)#note_[0-9]+"), scan("replied on #([0-9]+)"), scan("opened #([0-9]+)"), scan("posted the note on story ([0-9]+)")] | .[][])
+              ($c.cmd | posting_segments) as $segs
+              | if ($segs | length) == 0 then empty else
+                    ($c.cmd | ([scan("STORY_GITLAB_PROJECT=([^\\s]+)"), scan("--project[ =]([^\\s]+)")] | flatten | .[0] // "") | gsub("[\"\u0027]"; "")) as $pp
+                    | ($segs | any(.verb | test("new$"))) as $isnew
+                    | ($segs | map(.rest | first_item)) as $args
+                    | ([($t | scan("https?://[^/\\s]+/(\\S*?)/-/issues/([0-9]+)#note_[0-9]+") | {iid: .[1], lp: .[0]}),
+                        ($t | scan("replied on #([0-9]+)") | {iid: .[0], lp: ""}),
+                        ($t | scan("opened #([0-9]+)") | {iid: .[0], lp: ""}),
+                        ($t | scan("posted the note on story ([0-9]+)") | {iid: .[0], lp: ""})]
+                       | .[] | select($isnew or (.iid as $i | $args | index($i) != null))
+                       | "\(.iid)\t\($pp)\t\(.lp)")
+                end
           elif ($c.name | test("story_note$")) and ($t | test("\\[shadow\\]")) then empty
-          else ($c.item | gsub("[^0-9]"; ""))
-          end
-        | select(length > 0) | tonumber | tostring' 2>/dev/null)"
+          else ($c.item | gsub("[^0-9]"; "")) as $iid | select($iid | length > 0) | "\($iid)\t\($c.project)\t"
+          end' 2>/dev/null)"
 fi
 
+# path_match <a> <b>: two project paths name the same project (equal, or one is the other's trailing part).
+path_match() { local a="${1,,}" b="${2,,}"; [ -n "$a" ] && [ -n "$b" ] && { [ "$a" = "$b" ] || [[ "$a" == */"$b" ]] || [[ "$b" == */"$a" ]]; }; }
+is_number() { [[ "${1:-}" =~ ^[0-9]+$ ]]; }
+# on_project <call's project> <note link's project> <question's project>: the post is proven to be on the project the
+# question is about. A question that names a project needs the post's project proven equal to it; a question that
+# names none is about the home project, so only a PROVEN other project refuses it (an unknown home lets it through).
+on_project() {
+    local pp="$1" lp="$2" qp="$3"
+    if [ -n "$qp" ]; then
+        if [ -n "$lp" ]; then path_match "$lp" "$qp"; return; fi
+        if [ -n "$pp" ]; then is_number "$pp" && return 1; path_match "$pp" "$qp"; return; fi
+        path_match "$HOME_PROJECT" "$qp"; return
+    fi
+    if [ -n "$lp" ] && [ -n "$HOME_PROJECT" ] && ! is_number "$HOME_PROJECT"; then path_match "$lp" "$HOME_PROJECT" || return 1; fi
+    [ -z "$pp" ] || [ -z "$HOME_PROJECT" ] && return 0
+    if is_number "$pp" && is_number "$HOME_PROJECT"; then [ "$pp" = "$HOME_PROJECT" ]; return; fi
+    if ! is_number "$pp" && ! is_number "$HOME_PROJECT"; then path_match "$pp" "$HOME_PROJECT"; return; fi
+    return 0
+}
+
 UNPOSTED=""
-for iid in $ASKED; do
-    grep -cxF -- "$iid" <<<"$(printf '%s\n' "$POSTED" "$LINKED")" >/dev/null && continue
+while IFS=$'\t' read -r iid qp; do
+    [ -n "$iid" ] || continue
+    found=0
+    while IFS=$'\t' read -r piid pp lp; do
+        [ "$piid" = "$iid" ] || continue
+        on_project "$pp" "$lp" "$qp" && { found=1; break; }
+    done <<<"$POSTED"
+    if [ "$found" -eq 0 ]; then
+        while IFS=$'\t' read -r liid lqp; do
+            [ "$liid" = "$iid" ] || continue
+            on_project "" "$lqp" "$qp" && { found=1; break; }
+        done <<<"$LINKED"
+    fi
+    [ "$found" -eq 1 ] && continue
     UNPOSTED="${UNPOSTED:+$UNPOSTED, }$iid"
-done
+done <<<"$ASKED"
 [ -n "$UNPOSTED" ] || clean_stop
 
 # Repeat limit: the same refusal is given at most STORY_ASK_GUARD_REPEAT_LIMIT times in a row in this session.

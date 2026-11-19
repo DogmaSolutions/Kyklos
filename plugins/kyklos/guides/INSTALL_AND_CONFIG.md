@@ -105,7 +105,7 @@ Do not start it yet: it first reads the organisation settings below.
 
 ### 1.3 Where the Plugin and the Bridge come from (the organisation settings)
 
-The Launcher reads a few values from the `appsettings.json` next to its program (`DogmaSolutions.Kyklos.Launcher.exe` on Windows, `DogmaSolutions.Kyklos.Launcher` on Linux). The file ships with the Launcher; edit it, do not replace it. These values are not secrets: addresses, folders and the **names** under which tokens are stored (part 4), never the token values. The first two keys below are explained in [part 2](#part-2-the-policies); the marketplace is explained here.
+The Launcher reads a few values from the settings files next to its program (`DogmaSolutions.Kyklos.Launcher.exe` on Windows, `DogmaSolutions.Kyklos.Launcher` on Linux). `appsettings.json` holds the defaults and ships with every release, so **an update replaces it: never put your settings there.** Put them in `appsettings.Production.json` in the same folder (create it if it does not exist); it holds only the keys you change, in the same layout, and its values win over the defaults. No release ever carries that file, so an update keeps it. (The name follows the .NET convention `appsettings.<environment>.json`: the environment is `Production` unless the .NET variable DOTNET_ENVIRONMENT or ASPNETCORE_ENVIRONMENT names another; when both are set, ASPNETCORE_ENVIRONMENT wins.) If you edited `appsettings.json` for an earlier release, copy the keys you changed into `appsettings.Production.json` before you unzip a new release over the folder. A Launcher that starts with your changes still in `appsettings.json` copies them into `appsettings.Production.json` once and says so, but an update that has already replaced the file cannot bring them back. These values are not secrets: addresses, folders and the **names** under which tokens are stored (part 4), never the token values. The first two keys below are explained in [part 2](#part-2-the-policies); the marketplace is explained here.
 
 ```json
 {
@@ -181,7 +181,7 @@ A launch needs every drive its container binds: the workspace drive, the drive o
 
 A drive that stays locked, is missing, or cannot be mounted **stops the launch** before any container starts, naming the drive and why the launch needs it. On Linux there is nothing to unlock or mount: both phases report "not applicable on this host" and the launch goes on.
 
-| Setting (in `appsettings.json`) | What it is | Default |
+| Setting (in `appsettings.Production.json`) | What it is | Default |
 |---------|------------|---------|
 | `Launcher:Launch:AlwaysUnlockDrives` | Drive letters to unlock and mount on every launch even when no project path names them, for example `D` when Docker's data or your tools live on an encrypted drive | empty (none) |
 | `Launcher:Launch:BitLockerUnlockAttempts` | How many times the elevated unlock is offered for one drive | `3` |
@@ -189,6 +189,34 @@ A drive that stays locked, is missing, or cannot be mounted **stops the launch**
 | `Launcher:Launch:DriveMountRetryDelaySeconds` | The wait between two mount attempts, in seconds | `3` |
 
 If Docker Desktop never comes up and no drive was unlocked first, check whether Docker keeps its data on an encrypted drive that nothing names: add that letter to `Launcher:Launch:AlwaysUnlockDrives`.
+
+### 1.4 Life-cycle of the settings files
+
+Four kinds of file hold settings. No project launch writes any of them. Each has one place where your own changes survive an update:
+
+| File | Who creates it, and when | At a launch | At an update of the Launcher | Your own changes go |
+|------|--------------------------|-------------|------------------------------|---------------------|
+| `appsettings.json` next to the Launcher program | ships with every release | read, never written | replaced by the new release's defaults | never here |
+| `appsettings.Production.json` next to the Launcher program | you, when you first change a Launcher setting (the Launcher also writes it once when it finds values you had changed in `appsettings.json`) | read, never written by a launch; the Launcher writes it only at its own start, once per change it has to carry over (your changed values from `appsettings.json`, a setting moved to a new name), keeping every value you already set there; a change you make takes effect at the next Launcher start | kept: no release carries it | here, for every Launcher setting |
+| one file per project configuration, in the Launcher's configurations folder (on Windows `%APPDATA%\KyklosLauncher\configs`) | the Launcher, when you create the configuration on its page | read, never written; it is rewritten only when you save the configuration (the previous version is kept as a `.bak` file) | kept: it lives outside the Launcher's folder | the configuration's page |
+| `projects/<project name>/appsettings.Production.json` in the settings folder (section 6.1) | you, only when the project needs more than the built-in default; the Launcher never writes it. A file under the former name `bridge.appsettings.json` is still read; the Bridge renames it once to `appsettings.Production.json` in the same folder at its next start and says so | read at every Bridge start; a changed file restarts the Bridge at the next launch | kept: no release carries a `projects` folder | here, for every Bridge setting |
+
+A list setting never has a non-empty default in the shipped `appsettings.json`: its default lives in the code that reads it and applies when the setting is missing or empty, so the list you write in `appsettings.Production.json` replaces the default whole (.NET merges lists element by element, so a shipped list could never be shortened). The Bridge follows the same standard .NET stack: its own `appsettings.json` holds its defaults, is built into the Bridge program and is replaced with every Bridge version; the project's `appsettings.Production.json` comes next; environment variables come last. No release of the Launcher or the Bridge carries an `appsettings.Production.json` or an `appsettings.Development.json`, and the release checks fail if one would. The environment name comes from `ASPNETCORE_ENVIRONMENT`, then `DOTNET_ENVIRONMENT`, and is `Production` when neither is set; in another environment the file is `appsettings.<environment>.json`. When both `appsettings.Production.json` and a former `bridge.appsettings.json` are in a project's folder, the standard file is used and the former one is named in a warning and not read; move what you still need from it, then delete it. One more file is not yours to edit: the dev-container definition the Launcher renders for a project (`<data folder>\projects\<project name>\definition`) is rendered again from the configuration at every launch, so a hand edit there is lost.
+
+**How the Launcher's settings look over time.** At the first launch there is only `appsettings.json` and no change is needed for the public Kyklos marketplace. When you later need the organisation settings of section 1.3, you create `appsettings.Production.json` beside it with only those keys:
+
+```json
+{
+  "Launcher": {
+    "Projects": {
+      "PolicyOrganisationLayer": "C:\\KyklosSettings\\CLAUDE.org.md",
+      "SettingsRoot": "C:\\KyklosSettings"
+    }
+  }
+}
+```
+
+When you update the Launcher, you unzip the new release over the folder: `appsettings.json` is replaced with the new defaults, `appsettings.Production.json` stays as you wrote it, and its values still win. Your project configurations and Bridge settings files are not touched.
 
 ---
 
@@ -286,6 +314,8 @@ The stories live in the companion's issues. Kyklos drives them with a small set 
 | `status::` | `status::todo`, `status::doing`, `status::blocked-on-issue`, `status::blocked-on-user`, `status::blocked-on-external`, `status::parked` |
 | `ssdlc:phase::` | `ssdlc:phase::Requirements`, `ssdlc:phase::Design`, `ssdlc:phase::Implementation`, `ssdlc:phase::Testing`, `ssdlc:phase::Deployment`, `ssdlc:phase::Review` |
 | `type::` | for example `type::feat`, `type::fix`, `type::docs`, `type::ci` |
+
+Every open issue needs exactly one `severity::` label: the order in which the agent takes its work depends on it (see [How Kyklos chooses the next work](NEXT_WORK.md)).
 
 Then create the first **[epic](AGILE.md)**: a milestone in the companion project whose title starts with the letter `E` and a two-digit number, then a short name (for example "First steps"). Every story belongs to an epic.
 
@@ -412,7 +442,7 @@ A store that cannot be read, or a secrets manager that does not answer within th
 
 Each project's [`Kyklos Bridge`](COMPONENTS.md#kyklos-bridge) runs with a set of Bridge settings. Because those settings decide what the agent may reach, an agent must never be able to write them. The [Launcher](COMPONENTS.md#kyklos-launcher) therefore reads a settings file only from a folder the agent's container cannot write: the Launcher's settings folder (by default the Launcher's own folder, then its user data folder, on Windows `%APPDATA%\KyklosLauncher`) or the folder that `Launcher:Projects:SettingsRoot` names. No commit, push or review is needed: the file is used as you saved it. Keeping the file under version control is recommended (see below), never a condition.
 
-**The built-in default.** A new project needs no settings file. When the Launcher finds no `projects/<project name>/bridge.appsettings.json` in any folder it looks in, the project runs on the built-in default, which is the same as the smallest file:
+**The built-in default.** A new project needs no settings file. When the Launcher finds no `projects/<project name>/appsettings.Production.json` (nor a file under the former name `bridge.appsettings.json`) in any folder it looks in, the project runs on the built-in default, which is the same as the smallest file:
 
 ```json
 { "Bridge": { "Role": "Project" } }
@@ -422,7 +452,7 @@ The default gives the Bridge the least privileged role, `Project`, and nothing e
 
 **When you need your own file.** Add a settings file when the project's Bridge needs more than the default: the `Infrastructure` role, plain values for the Bridge process (`BridgeProcess:Environment`), or the names of secrets that only the Bridge receives (`BridgeProcess:EnvironmentSecrets`, whose values stay in the credential store).
 
-1. Create the file `projects/<project name>/bridge.appsettings.json` in the Launcher's settings folder (the warning names the exact path), or in the folder `Launcher:Projects:SettingsRoot` names, where `<project name>` is exactly the project name of section 6.2. Start from the smallest file above and add what the project needs.
+1. Create the file `projects/<project name>/appsettings.Production.json` in the Launcher's settings folder (the warning names the exact path), or in the folder `Launcher:Projects:SettingsRoot` names, where `<project name>` is exactly the project name of section 6.2. Start from the smallest file above and add what the project needs.
 2. Check the configuration again in the Launcher: the built-in default warning is gone, and any problem with the file is named.
 
 **Version control is recommended.** Keep the settings folder in a Git repository, with the file recorded in a commit and pushed to a shared remote, so that a change to what the agent may reach is recorded and can be reviewed. The Launcher does not insist: it uses the file as saved either way. When the file is not versioned, the configuration check, the doctor and the launch notices show a warning (never an error), and the agent tells you about it at the start of the session. The warning appears when the file is not in a Git repository (or Git is not installed), is not tracked, has changes that are not recorded in a commit, or differs from its upstream copy. It comes with three steps: put the folder in a Git repository, record the file in a commit and push it, then check the configuration again. If you accept an unversioned file, ignore the warning. The built-in default is a file the Launcher never writes, so it gets no such warning, only its own notice.
@@ -431,7 +461,7 @@ The default gives the Bridge the least privileged role, `Project`, and nothing e
 
 ```mermaid
 flowchart TD
-    L["Launch of project N"] --> F{"projects/N/bridge.appsettings.json<br/>exists in a folder the<br/>Launcher looks in?"}
+    L["Launch of project N"] --> F{"projects/N/appsettings.Production.json<br/>(or the former bridge.appsettings.json)<br/>exists in a folder the<br/>Launcher looks in?"}
     F -->|"no"| D{"Every such folder outside<br/>the workspace and every<br/>extra mount?"}
     D -->|"no"| X0["Refused: move the<br/>settings folder out"]
     D -->|"yes"| DB["Bridge started on the<br/>built-in default (role Project),<br/>with a warning"]
@@ -453,7 +483,7 @@ On the configurations page, create a configuration named `hello-world-sources`. 
 | `KYKLOS_GITLAB_URL` | `https://gitlab.example.com` | the GitLab the stories and CI verbs talk to; required while the stories are in GitLab. With the story token below it is the only GitLab address you set: the Launcher derives the rest (see [One address, one token](#one-address-one-token)) |
 | `STORY_BACKEND` | `gitlab` | where the stories live (`filesystem` keeps them in files) |
 | `STORY_GITLAB_PROJECT` | the companion project's number | the project whose issues hold the stories |
-| `STORY_GITLAB_TOKEN_ENV` | `HELLO_STORY_TOKEN` | the name of the story token |
+| `STORY_GITLAB_TOKEN_ENV` | `HELLO_STORY_TOKEN` | the name of the story token. When neither the Bridge nor this token can reach GitLab, the guards that check a story close, a hand merge or an arm refuse it and name this setting; they never let it through unchecked |
 | `KYKLOS_PROJECT_TOPOLOGY` | `PriComPubSou` | the topology of part 3 (`PriSta` for Private Standalone, `PriComPriSou` for Private Companion + Private Sources, `PriSouPubArt` for Private Sources + Public Artifacts); the shape, source folder and workflow are derived from it, and the first launch writes them into the workspace |
 | `KYKLOS_SOURCE_DIR` | `Repo` | the folder inside the workspace that holds the source (companion layouts only; `Repo` when empty). It decides together the folder the Bridge builds and tests in, the companion's `.gitignore` line and the default scenario |
 | `KYKLOS_PUSH_REPO_URL` | the source project's clone address | the repository the push credential is wired for |
@@ -462,7 +492,7 @@ On the configurations page, create a configuration named `hello-world-sources`. 
 | `KYKLOS_SECRETS` | `HELLO_STORY_TOKEN;HELLO_CI_TOKEN;HELLO_PUSH_TOKEN` | the secret names the Launcher serves to this project; API tokens among them stay on the host for the Bridge |
 | `KYKLOS_SECRETS_MODE` | `bridge` | the Bridge serves secrets on demand, so the values are not in the container's environment |
 | `KYKLOS` | `1` | the Kyklos Plugin on (the default) |
-| `KYKLOS_ENV` | *(leave empty)* | **optional:** extra names to pass into the agent's session, for variables the Kyklos does not declare (a tool of your own that reads one). Every setting of this table and of part 8 reaches the session by itself whenever the configuration sets it, including the names of tokens (`STORY_GITLAB_TOKEN_ENV`, `KYKLOS_PUSH_TOKEN_ENV`, `KYKLOS_CI_TOKEN_ENV`, `KYKLOS_ISSUES_TOKEN_ENV`), which the session's guards read to find their token; see [What reaches the agent's session](#what-reaches-the-agents-session). A listed name with no value is skipped with a warning at launch |
+| `KYKLOS_ENV` | *(leave empty)* | **optional:** extra names to pass into the agent's session, for variables the Kyklos does not declare (a tool of your own that reads one). Every setting of this table and of part 8 reaches the session by itself whenever the configuration sets it, including the names of tokens (`STORY_GITLAB_TOKEN_ENV`, `KYKLOS_PUSH_TOKEN_ENV`, `KYKLOS_CI_TOKEN_ENV`, `KYKLOS_ISSUES_TOKEN_ENV`), which the session's guards read to find their token; see [What reaches the agent's session](#what-reaches-the-agents-session). A listed name with no value is skipped with a warning at launch. A setting of this table or of part 8 named in the list is reported as unnecessary (a warning, never an error), and removing a setting that only repeats its default also removes its name from the list |
 
 The CI settings are set in part 8; they reach the session by themselves too.
 
@@ -661,7 +691,7 @@ Run these checks once, in order; together they prove the whole set-up. Each fail
 3. **The Plugin.** In the session, `/plugin` lists `kyklos` as installed (part 1, the marketplace).
 4. **The Bridge.** In the session, `/mcp` lists `KyklosBridge` as connected, and the Bridge's `get_status` names the project's solution (parts 6 and 7).
 5. **The model and the build channel.** `.claude/standards.env` in the workspace declares the topology and `BUILD_EXECUTION=bridge` (sections 9.1 and 9.2, part 7).
-6. **The backlog.** The Bridge's `next_work` answers for the story project, without an error about the token or the project (part 4).
+6. **The backlog.** The Bridge's `next_work` answers for the story project, without an error about the token or the project (part 4). What it answers is explained in [How Kyklos chooses the next work](NEXT_WORK.md).
 7. **The identity.** The agent's first note on a story shows the agent's name (section 4.3).
 8. **A push.** With `KYKLOS_CI_MONITOR=1`, the agent's first companion commit reaches the companion's `main` on GitLab (part 8).
 
@@ -717,7 +747,7 @@ The agent can run the same checks with the `health` skill (`/kyklos:health`), an
 ## When something does not work
 
 - **The [Launcher](COMPONENTS.md#kyklos-launcher) refuses to launch:** press **Check** ([Checking a configuration](#checking-a-configuration)); it names every missing setting, secret, folder or tool in one answer, and the configuration's secrets view shows which secrets are missing. A launch that stops later marks the step that failed and shows the reason on it.
-- **An organisation setting is reported missing:** check that `appsettings.json` sits next to the Launcher program, that its keys are under `Launcher:Bridge`, `Launcher:Projects` and `Launcher:Marketplace` exactly as in section 1.3, and that its paths are absolute. A file written for an earlier Launcher, with the marketplace keys under `Launcher:Projects`, is moved to `Launcher:Marketplace` when the Launcher starts (a backup of the file is kept beside it).
+- **An organisation setting is reported missing:** check that `appsettings.Production.json` sits next to the Launcher program, that its keys are under `Launcher:Bridge`, `Launcher:Projects` and `Launcher:Marketplace` exactly as in section 1.3, and that its paths are absolute. A file written for an earlier Launcher, with the marketplace keys under `Launcher:Projects`, is moved to `Launcher:Marketplace` when the Launcher starts (a backup of the file is kept beside it).
 - **The [Bridge](COMPONENTS.md#kyklos-bridge) settings file is refused, or the project runs on the built-in default although you added a file:** the file lies inside the workspace or an extra folder, or its folder name differs from the project name. Keep it in the Launcher's settings folder or the settings root, outside the workspace and the extra folders (section 6.1).
 - **The project name is refused because of its Bridge port:** another project's name leads to the same port. Rename one of the two projects, and rename its Bridge settings folder to match.
 - **The launch stops because a drive is unavailable (Windows):** the drive stayed locked, is not present, or could not be mounted. Unlock or connect it and press **Launch** again (see [Encrypted and extra drives](#encrypted-and-extra-drives-windows-only)).
@@ -761,7 +791,7 @@ Every setting a project configuration can hold, as the Launcher's configuration 
 | `KYKLOS_CORPORATE_POLICY_BRANCH` | Optional: the branch of the Corporate policy repository; empty means the repository's default branch. |  |
 | `KYKLOS_CORPORATE_POLICY_PATH` | Optional: the Corporate policy file's path inside the repository (relative, forward slashes); empty means CLAUDE.md. The file is plain UTF-8 text of at most 256 KB; nothing in it is expanded or run. |  |
 | `KYKLOS_CORPORATE_POLICY_TOKEN_NAME` | Optional: the credential-store name of the token that reads a private Corporate policy repository. When it is empty, the launcher uses the project's Git token (KYKLOS_PUSH_TOKEN_ENV). The launcher reads the repository on the host; the token is never given to the container for it and is never written to a log or a message. The name only, never the token. |  |
-| `KYKLOS_ENV` | Semicolon-separated list of the environment-variable NAMES the launcher forwards into the container. |  |
+| `KYKLOS_ENV` | Optional, semicolon-separated: extra environment-variable NAMES to pass into the agent's session, for variables the Kyklos does not declare. Every declared setting reaches the session by itself (see [What reaches the agent's session](#what-reaches-the-agents-session)); a credential's value never travels this way. |  |
 | `KYKLOS_SSDLC_MODE` | Selects the mode of the story stack the project's bridge runs. Left unset it is on for a GitLab story project that names its story token (a story project is named, the story backend is not filesystem and STORY_GITLAB_TOKEN_ENV is set) and off otherwise. Setting off is the only way to opt out: shadow runs the stack without writing and needs the same inputs as on (the GitLab address, the story project, the story token's name, bridge or both secrets mode and the token among the served secrets). |  |
 | `KYKLOS_DOCTOR` | Switches the launcher's doctor: the checks the Check button and every launch run on this project's configuration (the host, the policy, the tokens, the repositories, the push and the capabilities). On by default; off is the one opt-out, and the launch then shows that nothing was checked. | `on` |
 
@@ -849,8 +879,8 @@ Every setting a project configuration can hold, as the Launcher's configuration 
 | `CONTINUE_GUARD_GROUPS` | Comma-list of group ids whose every project's issues are in scope for the continue-guard. |  |
 | `CONTINUE_GUARD_LABEL` | Only issues carrying this label count towards the continue-guard scope. |  |
 | `CONTINUE_GUARD_SCOPE_ALL` | The label whose open issues are counted across every project the token can see, rather than only within the configured projects and groups - the widest continue-guard scope. Leave empty to count nothing instance-wide. |  |
-| `KYKLOS_INTERNAL_REPOS` | Repositories, by their path inside the container, that the write guard treats as internal: they may carry the infrastructure details they need, while every other repository is held to the external-audience bar. Separate several with ';'. |  |
-| `KYKLOS_OWN_NAMES` | The project's own product and customer names. The write guard lets these names into the project's own nested source although they are on the organisation's sealed list, and nowhere else; every other organisation name and every internal reference stays refused there. The project's own name (PROJECT_NAME_OVERRIDE, else the configuration's name) and its parts of three or more characters always count too, so leaving it empty still exempts them. The launcher forwards the names to the container together with KYKLOS_SOURCE_DIR. |  |
+| `KYKLOS_INTERNAL_REPOS` | Repositories, by their path inside the container, that the write guard treats as internal: they may carry the infrastructure details they need, while every other repository is held to the external-audience bar. Separate several with ':'. The list never exempts a repository shaped like a source clone (a clone in a companion's sources folder) from the check for private tracker identifiers: that check cannot be switched off. |  |
+| `KYKLOS_OWN_NAMES` | The project's own product and customer names. The write guard lets these names into the project's own nested source (each source clone of the project's companion: the folder KYKLOS_SOURCE_DIR names, a clone inside it, or a clone beside it in the same sources folder, each judged by its own folder, and only inside the session's own companion; a clone is recognised by its place, not its origin, so an unrelated repository cloned into the own sources folder is not detected, which the guard accepts because it protects against mistakes, not deliberate acts) although they are on the organisation's sealed list, and nowhere else; every other organisation name and every internal reference stays refused there. The project's own name (PROJECT_NAME_OVERRIDE, else the configuration's name) and its parts of three or more characters always count too, so leaving it empty still exempts them. The launcher forwards the names to the container together with KYKLOS_SOURCE_DIR. |  |
 | `CONTINUE_GUARD_STUCK_TURNS` | Identical-open-set stops before the continue-guard stuck-breaker auto-releases. | `3` |
 | `CONTINUE_GUARD_PARKED_STRICT` | 1 = a parked story is excused from the keep-rolling set only when someone other than the agent applied the park label. |  |
 

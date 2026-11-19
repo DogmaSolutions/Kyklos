@@ -99,6 +99,7 @@ The following sections illustrate how *Kyklos* works and how it helps to keep th
 18. [Troubleshooting: find your problem by the message you see](docs/TROUBLESHOOTING.md)
 19. [Versions and releases: what each release publishes, and which Bridge the Launcher runs](docs/RELEASES.md)
 20. [Knowledge base](docs/KB.md)
+21. [How Kyklos chooses the next work: started work, severity, age, dependencies](docs/NEXT_WORK.md)
 
 ---  
 

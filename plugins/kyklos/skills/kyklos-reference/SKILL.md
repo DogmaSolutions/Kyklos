@@ -29,6 +29,7 @@ https://github.com/DogmaSolutions/Kyklos/tree/main/docs.
 | What is supported (languages, tools) | `SUPPORT_MATRIX.md` |
 | Concepts and standards | `KB.md`, `COMPONENTS.md`, `WORKFLOW.md` |
 | Several people on one project: what is shared, what stays personal | `TEAMS.md` |
+| Why an issue is or is not offered as the next work, the order, severity | `NEXT_WORK.md` |
 
 ## Steps
 

@@ -259,6 +259,14 @@ _bridge_reason() {
     [ -n "$r" ] && printf ' The bridge said: %s.' "$r"
 }
 
+# _access_reason -> the shared sentence naming the token setting (STORY_GITLAB_TOKEN_ENV) and how to set it, for a
+# refusal made because neither the bridge nor a token reached GitLab. [CySec] CWE-636: such a refusal says how to fix it.
+_access_reason() {
+    . "$_AC_HERE/lib/gitlab-curl.sh" 2>/dev/null || true
+    if command -v gitlab_access_missing_reason >/dev/null 2>&1; then gitlab_access_missing_reason
+    else printf '%s' "Set STORY_GITLAB_TOKEN_ENV to the NAME of the environment variable that holds a GitLab API token."; fi
+}
+
 # _story_bridge_check -> the target rule on the merge request a bridge call names, as the bridge's own mr_get describes
 # it (an older bridge without mr_get: the container token reads it). Blocks when it cannot be described (fail closed).
 _story_bridge_check() {
@@ -286,7 +294,7 @@ _story_bridge_check() {
     _b_url="$(printf '%s' "$_b_text" | jq -r 'select(type == "object") | (.url // .web_url) // empty' 2>/dev/null)"
     _b_tgt="$(printf '%s' "$_b_text" | jq -r 'select(type == "object") | .target_branch // empty' 2>/dev/null)"
     { [ "$_b_rc" -eq 0 ] && [ -n "$_b_src" ] && [ -n "$_b_tgt" ]; } \
-        || block "Merge BLOCKED: the bridge could not describe merge request !${_b_mr:-?} (its source and target branch), so the guard cannot tell whether it is a story branch that must land on develop.$(_bridge_reason) Retry once the bridge answers."
+        || block "Merge BLOCKED: the bridge could not describe merge request !${_b_mr:-?} (its source and target branch), so the guard cannot tell whether it is a story branch that must land on develop.$(_bridge_reason) Retry once the bridge answers.$([ "$_b_rc" -eq 4 ] && printf ' %s' "$(_access_reason)")"
     story_target_check_named "${_bridge_proj:-$_b_repo}" "$_b_url" "$_b_src" "$(printf 'decided\n%s' "$_b_tgt")"
 }
 
@@ -393,7 +401,7 @@ if [ "$_mode" = "api" ] || [ "$_mode" = "apimerge" ]; then
         [ "$_mrrc" -eq 3 ] && block_state "Merge BLOCKED: the bridge could not read merge request !$_mr_iid, so the guard cannot check that it contains its target's current head.$(_bridge_reason) It never lets a merge through unchecked; retry once the bridge answers."
     fi
     if [ "$_mrrc" -ne 0 ]; then
-        [ -n "$_api" ] && [ -n "$_tok" ] || block_state "Merge BLOCKED: the guard cannot reach GitLab (the bridge has no mr_get, and no API address or token is configured), so it cannot check that merge request !$_mr_iid contains its target's current head. It never lets a merge through unchecked."
+        [ -n "$_api" ] && [ -n "$_tok" ] || block_state "Merge BLOCKED: the guard cannot reach GitLab (the bridge has no mr_get, and no API address or token is configured), so it cannot check that merge request !$_mr_iid contains its target's current head. It never lets a merge through unchecked. $(_access_reason)"
         command -v coordination_read_fallback >/dev/null 2>&1 && coordination_read_fallback automerge-guard "the bridge has no mr_get verb"
         _mr_json="$(gitlab_curl "$_tok" -s --max-time 12 "$_api/projects/$_mr_proj/merge_requests/$_mr_iid?include_diverged_commits_count=true" 2>/dev/null || true)"
     fi
@@ -767,7 +775,7 @@ fi
 # a production folder or file that merely ends in lowercase "test" (Latest/, Contest.cs) is NOT exempted.
 is_test_code() { printf '%s' "$1" | grep -cE '(^|/)([Tt]ests?|[^/]*[._-][Tt]ests?|[^/]*Tests?)(/|$)|(Tests?|[._-][Tt]ests?)\.cs$' >/dev/null; }
 
-# ledger_answers_story REPO STORY -> rc 0 when the bridge's content ledger (test_facts) says every changed executable C#
+# ledger_answers_story REPO STORY [JUDGED [BRANCH]] -> rc 0 when the bridge's content ledger (test_facts) says every changed executable C#
 # line of STORY was run by a passing test, for exactly the commit REPO has checked out: the answer's "Story N at <sha>"
 # head is a prefix of REPO's HEAD, and its C# summary reads "gap 0, expired 0". The same answer the story close reads,
 # so a change the close would accept is never refused here for want of the old whole-suite token. Anything else (no
@@ -782,7 +790,7 @@ is_test_code() { printf '%s' "$1" | grep -cE '(^|/)([Tt]ests?|[^/]*[._-][Tt]ests
 LEDGER_REASON=""
 LEDGER_ANSWERED=""
 ledger_answers_story() {
-    local repo="$1" story="$2" judged="${3:-}" here project="" reply text answered summary run exe gap exp rc dirty
+    local repo="$1" story="$2" judged="${3:-}" branch="${4:-}" here project="" reply text answered summary run exe gap exp rc dirty
     LEDGER_REASON=""; LEDGER_ANSWERED=""
     if kyklos_control_off "${KYKLOS_AUTOMERGE_LEDGER:-}"; then LEDGER_REASON="the ledger check is off (KYKLOS_AUTOMERGE_LEDGER=off)"; return 1; fi
     # JUDGED is the commit being armed (784-arm-mr); the checkout when none is named.
@@ -806,7 +814,9 @@ ledger_answers_story() {
         command -v item_story_project_of >/dev/null 2>&1 || . "$_AC_HERE/lib/item-project.sh"
         project="$(item_story_project_of "$repo" 2>/dev/null)" || project=""
     fi
-    reply="$(bridge_mcp_call test_facts "$(jq -cn --arg s "$story" --arg p "$project" '{story:$s} + (if $p == "" then {} else {project:$p} end)')" 120)"; rc=$?
+    # The branch judged (the pushed or armed request's), so the ledger reads that branch's head, never whatever commit the
+    # bridge's bound tree (a shared checkout, perhaps on another trunk) has checked out when the story records no branch.
+    reply="$(bridge_mcp_call test_facts "$(jq -cn --arg s "$story" --arg p "$project" --arg b "$branch" '{story:$s} + (if $p == "" then {} else {project:$p} end) + (if $b == "" then {} else {branch:$b} end)')" 120)"; rc=$?
     [ "$rc" -eq 0 ] && [ -n "$reply" ] || { LEDGER_REASON="the bridge's ledger could not be asked (exit $rc${project:+, project $project})"; return 1; }
     if bridge_mcp_is_error "$reply"; then
         text="$(bridge_mcp_text "$reply" | tr '\n' ' ' | cut -c1-300)"
@@ -915,7 +925,9 @@ for _r in "${_repos[@]}"; do
     fi
     # The content ledger first: the answer the story close reads. A change whose every changed C# line a passing test
     # ran, at exactly this commit, needs no whole-suite token.
-    if ledger_answers_story "$_r" "$_story" "$_judged"; then continue; fi
+    _lbranch="$_arm_branch"; [ -n "$_lbranch" ] || _lbranch="$(git -C "$_r" symbolic-ref -q --short HEAD 2>/dev/null || true)"
+    case "$(story_num_from_branch "$_lbranch" 2>/dev/null | sed -E 's/^0*([0-9])/\1/')" in "$_story") ;; *) _lbranch="" ;; esac
+    if ledger_answers_story "$_r" "$_story" "$_judged" "$_lbranch"; then continue; fi
     # Only test code by this hook's name rule and the ledger could not judge the commit: nothing to prove here, as before.
     [ "${#_prod[@]}" -gt 0 ] || [ -n "$LEDGER_ANSWERED" ] || continue
     # A token reads the checked-out files: for another head than the checkout only the ledger can settle the arm.

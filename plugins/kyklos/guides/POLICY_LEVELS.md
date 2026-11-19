@@ -16,7 +16,7 @@ is untouched.
 
 ## Settings
 
-Each setting has a launcher-wide value (in the [launcher](COMPONENTS.md#kyklos-launcher)'s `appsettings.json`, or the environment variable of the same
+Each setting has a launcher-wide value (in the [launcher](COMPONENTS.md#kyklos-launcher)'s `appsettings.Production.json`, or the environment variable of the same
 name) and a per-project value (the configuration's **Policy** tab). A project that sets its own repository address takes
 its branch, path and token name from its own configuration only, so the launcher's token never goes to a project's
 address.
@@ -196,7 +196,7 @@ own tests. A section's identifier names the whole section, its rules included.
 | `parallel.no-self-assigned-work` | rule | A fork or subagent never takes new work on its own. |  |
 | `parallel.no-nested-forks` | rule | A fork or subagent never starts its own forks or subagents for work that changes anything. |  |
 | `parallel.merge-one-at-a-time` | rule | Overlapping changes merge one at a time. |  |
-| `next-work` | section | Choosing the next work |  |
+| `next-work` | section | Choosing the next work (explained in [How Kyklos chooses the next work](NEXT_WORK.md)) |  |
 | `next-work.order` | rule | When you look for the next thing to work on, take it in this order, and never by any other: |  |
 | `next-work.dependencies` | rule | Dependencies are respected. |  |
 | `next-work.nothing-hidden` | rule | Nothing is hidden. |  |

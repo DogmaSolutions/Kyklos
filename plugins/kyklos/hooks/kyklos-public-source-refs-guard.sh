@@ -7,13 +7,19 @@
 #      ANY git repo that is not the session's OWN project repo — internal references live ONLY in the internal
 #      repo; every other repo may be or become publicly visible. DEFAULT-ON; opt out per-session with
 #      KYKLOS_BORDER_CONTROL=off; extra internal-tier repos via KYKLOS_INTERNAL_REPOS (colon-separated
-#      toplevels). The own repo is recognised by identity (lib/same-repository.sh), so its worktrees and clones
+#      toplevels). Neither switch reaches border 1: a repository shaped like a source clone keeps the tracker
+#      check. The own repo is recognised by identity (lib/same-repository.sh), so its worktrees and clones
 #      are home too. Blocks only on PROVEN classification (a real foreign git repo + a real marker) — anything
 #      ambiguous stays allowed so scratch files and new checkouts never wedge a session. The source named by
 #      KYKLOS_SOURCE_DIR takes the organisation half of this border, after the companion border.
 #
 # The project's OWN names (KYKLOS_OWN_NAMES, a launcher setting read from the environment, never from a file) are
 # exempted from the organisation half of border 2, and only for a write into the session project's own nested source.
+# A source clone is recognised by its place: the folder KYKLOS_SOURCE_DIR names, a clone inside it or a clone beside it
+# in the same sources folder, inside the session's OWN companion (proven by identity, lib/same-repository.sh). Within
+# the own companion the clone is judged by that folder shape alone, not by its origin: an agent that clones an unrelated
+# repository into its own sources folder is a mistake this guard does not detect, accepted under the threat model
+# "mistakes, not hostility" (a deliberate act inside the session's own workspace is out of scope).
 # The internal-reference half and every other repository keep the whole check; no list exempts nothing. A refusal for
 # an organisation name says so and never repeats the name.
 #
@@ -37,16 +43,47 @@ srcdir="${KYKLOS_SOURCE_DIR:-}"
 fp="$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null || true)"
 [ -n "$fp" ] || exit 0
 
-# Is the target under the nested public source? Its git toplevel ends in /<srcdir> AND is nested in an OUTER git
-# repo (the companion). PROJECT_DIR-independent. (The general resolver for the public source is
-# repo_public_source_of in lib/repo-role.sh.)
+# Is the target under the nested public source? A companion may hold several source clones: the folder KYKLOS_SOURCE_DIR
+# names (relative to the companion), a clone directly inside it (Repo/<clone>), or a clone beside it in the same sources
+# folder (Repo/<other> next to Repo/<clone>). Each is a git repository nested in an OUTER git repository (the companion).
+# PROJECT_DIR-independent. (The general resolver for the public source is repo_public_source_of in lib/repo-role.sh.)
 dir="$(dirname "$fp")"
 top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || echo "")"
 [ -n "$top" ] || exit 0
-_companion_target=1
-{ [ -z "$srcdir" ]; } && _companion_target=0
-case "$top" in */"$srcdir") : ;; *) _companion_target=0 ;; esac
-[ "$_companion_target" = 1 ] && { git -C "$(dirname "$top")" rev-parse --show-toplevel >/dev/null 2>&1 || _companion_target=0; }
+
+# source_clone_companion <toplevel> -> print the companion's toplevel and return 0 when <toplevel> is one of the
+# companion's source clones by the rule above; rc 1 otherwise (no KYKLOS_SOURCE_DIR, no outer repository, or another
+# place). Only the clone's own folder is judged, so the answer covers that clone and nothing nested elsewhere.
+source_clone_companion() {
+    local cand="$1" parent rel sd up
+    [ -n "$srcdir" ] && [ -n "$cand" ] || return 1
+    parent="$(git -C "$(dirname "$cand")" rev-parse --show-toplevel 2>/dev/null)" || return 1
+    [ -n "$parent" ] && [ "$parent" != "$cand" ] || return 1
+    rel="${cand#"$parent"/}"; [ "$rel" != "$cand" ] || return 1
+    sd="${srcdir%/}"; sd="${sd#./}"; up="$(dirname "$sd")"
+    case "$rel" in
+        "$sd"|"$sd"/*) [ "$rel" = "$sd" ] || [ "$(dirname "$rel")" = "$sd" ] || return 1 ;;
+        *) [ "$up" != . ] && [ "$(dirname "$rel")" = "$up" ] || return 1 ;;
+    esac
+    printf '%s' "$parent"
+}
+# The session's own repository: the companion whose source clones may take the narrower companion border. Read once here,
+# before either border, so a nested repository of ANY other repository is never taken for the session's own source.
+own="$(git -C "${CLAUDE_PROJECT_DIR:-.}" rev-parse --show-toplevel 2>/dev/null || echo "")"
+# shellcheck source=SCRIPTDIR/lib/same-repository.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/same-repository.sh"
+# own_companion <toplevel> -> rc 0 when <toplevel> is the session's own repository (or a worktree or clone of it).
+own_companion() { [ -n "$own" ] && [ -n "$1" ] && { [ "$1" = "$own" ] || same_repository "$1" "$own"; }; }
+# The companion border (and its narrower marker set in border 2) applies only to a source clone of the session's OWN
+# companion: the same folder shape inside another repository proves nothing, so that repository keeps the whole border.
+# [CySec] Prevents CWE-200: a foreign repository shaped like <repo>/Repo/<clone> never takes the own source's exemptions.
+# Border 1 (the tracker-id border, not switchable) holds for every repository shaped like a source clone, whether or not
+# the session's own repository is known: an unknown or foreign companion narrows only the companion exemption below.
+_source_shape=0; _companion_target=0
+if _sc_parent="$(source_clone_companion "$top")"; then
+    _source_shape=1
+    own_companion "$_sc_parent" && _companion_target=1
+fi
 
 # The NEW content being written (Write.content, Edit.new_string, or MultiEdit.edits[].new_string).
 newtext="$(printf '%s' "$INPUT" | jq -r '
@@ -66,25 +103,26 @@ block_with() {
     printf '{"decision":"block","reason":"%s"}' "$reason"
 }
 
-# own_nested_source -> 0 only when the target is a checkout of the nested source of the session's own project: the
-# target, or the main checkout of a linked worktree, sits exactly at the source folder of KYKLOS_SOURCE_DIR. The folder
-# comes from the environment only, never from a file the agent can edit; unset, nothing is the own source.
-# [CySec] Prevents CWE-200: the own-name exemption reaches no other repository, not even another repository nested in
-# the same companion, so the names cannot be carried into a repository they do not belong to.
+# own_nested_source -> 0 only when the target is a checkout of one of the source clones of the session's own companion
+# (source_clone_companion): the target, or the main checkout of a linked worktree, is the folder KYKLOS_SOURCE_DIR names
+# or a clone in its sources folder, and the companion around it is the session's own. The folder comes from the
+# environment only, never from a file the agent can edit; unset, nothing is the own source.
+# [CySec] Prevents CWE-200: the own-name exemption reaches only the session's own companion's source clones, each judged
+# by its own folder, never another repository nested elsewhere or in another companion.
 own_nested_source() {
     local cand parent
     [ -n "$srcdir" ] || return 1
     for cand in "$top" "$(_rr_main_checkout "$top" 2>/dev/null)"; do
         [ -n "$cand" ] || continue
-        parent="$(git -C "$(dirname "$cand")" rev-parse --show-toplevel 2>/dev/null)" || continue
-        [ "$cand" = "$parent/$srcdir" ] || continue
-        { [ "$parent" = "$own" ] || same_repository "$parent" "$own"; } && return 0
+        parent="$(source_clone_companion "$cand")" || continue
+        own_companion "$parent" && return 0
     done
     return 1
 }
 
-# --- border 1: the public source carries no private tracker identifier. Not switchable.
-if [ "$_companion_target" = 1 ]; then
+# --- border 1: the public source carries no private tracker identifier. Not switchable, and independent of whether the
+#     session's own repository could be read.
+if [ "$_source_shape" = 1 ]; then
     hit="$(printf '%s' "$newtext" | grep -oE "$pat" 2>/dev/null | sort -u | head -6 | tr '\n' ' ' | sed 's/ $//')"
     if [ -n "$hit" ]; then
         block_with "BLOCKED: '$(basename "$fp")' is in the PUBLIC source ('$srcdir') but the new content introduces internal tracker identifier(s): ${hit}. The public source must stay FREE of private process artifacts (STORY-NNN, StoryNNN, source#N, FOUND-N, companion#N) — they are AI/agent/process leakage, not shippable code. Rename/rephrase without the tracker id: e.g. a test type named after its story number -> a behaviour name like 'DbUtilsConversionCoverageTests'; cite a fix by WHAT it does, not its story number. (A genuine public GitHub issue number is none of these private shapes.)"
@@ -99,14 +137,10 @@ fi
     # shellcheck source=lib/control-switch.sh
     . "$(dirname "${BASH_SOURCE[0]}")/lib/control-switch.sh" 2>/dev/null || true   # kyklos_control_off: the one control-switch reader
     kyklos_control_off "${KYKLOS_BORDER_CONTROL:-}" && exit 0
-    own="$(git -C "${CLAUDE_PROJECT_DIR:-.}" rev-parse --show-toplevel 2>/dev/null || echo "")"
     [ -n "$own" ] || exit 0
-    [ "$top" = "$own" ] && exit 0
     # A linked worktree or a clone of the session's own repository is the same repository, judged by identity
     # (shared git store, or remotes that all point at it), never by its folder.
-    # shellcheck source=SCRIPTDIR/lib/same-repository.sh
-    . "$(dirname "${BASH_SOURCE[0]}")/lib/same-repository.sh"
-    same_repository "$top" "$own" && exit 0
+    own_companion "$top" && exit 0
     case ":${KYKLOS_INTERNAL_REPOS:-}:" in *":$top:"*) exit 0 ;; esac
     # The source named by KYKLOS_SOURCE_DIR already passed its tracker check above; of this border it takes only the
     # organisation half, because a public source may name a language version or an upstream project's issue.

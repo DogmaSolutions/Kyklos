@@ -150,7 +150,16 @@ if [ "$_pushes" = 1 ] && mr_push_creates "$CMD_REAL" && ! mr_push_creates_armed 
     fi
     is_story_branch "$_dest" || exit 0
     enabled || exit 0
-    push_repo_has_no_ci && note "[kyklos] mr-hands-off: the merge request for '$_dest' is created unarmed. $NO_CI_NEXT"
+    # The no-CI exception lets an unarmed create through only on GitLab's own word for the pushed repository; when GitLab
+    # cannot be asked and the local tree shows no pipeline file, the create is refused naming what would give access,
+    # never granted on the local tree alone. [CySec] Prevents CWE-636 "Not Failing Securely".
+    if [ "$_repo" != "__UNDECIDABLE__" ]; then
+        mr_repo_no_ci_verified "$_repo" "$_dest"; _nc=$?
+        [ "$_nc" = 0 ] && note "[kyklos] mr-hands-off: the merge request for '$_dest' is created unarmed. $NO_CI_NEXT"
+        if [ "$_nc" = 2 ] && mr_repo_has_no_ci "$_repo" "$_dest"; then
+            block "Merge request create REFUSED: this push creates the merge request for '$_dest' UNARMED, and the repository shows no pipeline file, but whether its project runs CI could not be asked of GitLab, so the no-CI exception cannot be granted: ${MR_NO_CI_WHY} Or create it armed in the same push: git push -o merge_request.create $ARM_HINT origin $_dest"
+        fi
+    fi
     _armed="$(mr_with_arm "$CMD_REAL")"
     # A create spelled with quotes or escapes inside the word gets no arm from mr_with_arm: suggest the plain form.
     [ "$_armed" != "$CMD_REAL" ] || _armed="git push -o merge_request.create $ARM_HINT origin $_dest"
@@ -185,6 +194,12 @@ if cmd_word_invokes "$CMD_REAL" glab '[[:space:]]+mr[[:space:]]+(create|new)([[:
     case "$_gcd2" in '') _gcd2="$HOOK_CWD" ;; /*) : ;; *) _gcd2="$HOOK_CWD/$_gcd2" ;; esac
     if is_story_branch "$_src" && enabled && ! mr_repo_has_no_ci "$_gcd2" "$_src"; then
         block "Merge request create REFUSED: glab mr create cannot arm the request in the same step, so it would sit unarmed after a green pipeline. Create it armed with one push instead: git push -o merge_request.create -o merge_request.target=<trunk> $ARM_HINT origin $_src"
+    fi
+    # The no-CI exception lets an unarmed create through: it holds only when GitLab could be asked. Without GitLab access
+    # the local tree alone cannot show where the pipeline lives, so the create is refused naming the missing setting.
+    # [CySec] Prevents CWE-636 "Not Failing Securely": no access never grants the exception silently.
+    if is_story_branch "$_src" && enabled && ! mr_gitlab_access; then
+        block "Merge request create REFUSED: whether this repository runs CI could not be asked of GitLab, so the no-CI exception for an unarmed glab mr create cannot be granted. $(gitlab_access_missing_reason) Or create it armed with one push: git push -o merge_request.create -o merge_request.target=<trunk> $ARM_HINT origin $_src"
     fi
 fi
 # The same words inside a commit message, a note body or an echo are text about the merge endpoint, not a call to it:
@@ -221,12 +236,25 @@ if cmd_word_invokes "$CMD_REAL" glab '[[:space:]]+mr[[:space:]]+merge([[:space:]
         ?*) _row="$(mr_row_for_branch "$_arg" "$_repo_addr")" ;;
         *) _row="$(mr_row_for_branch "$(git -C "$_gcd" rev-parse --abbrev-ref HEAD 2>/dev/null)" "$_repo_addr")" ;;
     esac
+    _row_rc=$?
+    # The request's state could not be read at all (no bridge answer and no GitLab token): the hand merge cannot be
+    # judged, so it is refused naming what would give access, never let through unchecked.
+    # [CySec] Prevents CWE-636 "Not Failing Securely".
+    if [ "$_row_rc" = 2 ] && enabled; then
+        _access=""; mr_gitlab_access || _access=" $(gitlab_access_missing_reason)"
+        block "Hand merge REFUSED: the merge request's state could not be read (merged, armed or open), so the guard cannot tell whether a hand merge is allowed.${_access} Let GitLab merge the armed request, or retry once the read works."
+    fi
     if [ -n "$_row" ]; then
         IFS=$'\t' read -r _st _armed_now _n _tgt <<< "$_row"
         if [ "$_st" = opened ] && [ "$_armed_now" = true ]; then
             _mcd="$(cmd_last_cd_dir "$(printf '%s' "$CMD_REAL" | sed -E 's/glab[[:space:]]+mr[[:space:]]+merge.*//')")"
             case "$_mcd" in '') _mcd="$HOOK_CWD" ;; /*) : ;; *) _mcd="$HOOK_CWD/$_mcd" ;; esac
-            mr_repo_has_no_ci "$_mcd" && exit 0   # no pipeline will ever fire the arm: the merge is the agent's to do
+            # No pipeline will ever fire the arm: the merge is the agent's to do, but only when GitLab could be asked
+            # (without access the local tree alone cannot show that the project runs no CI).
+            if mr_repo_has_no_ci "$_mcd"; then
+                mr_gitlab_access && exit 0
+                block "Hand merge REFUSED: merge request !${_n} is armed, and whether this repository runs CI could not be asked of GitLab, so the no-CI exception cannot be granted. $(gitlab_access_missing_reason) Or merge it with the bridge tool mr_merge, which checks the project's CI itself."
+            fi
         fi
         _why="$(mr_hand_merge_explain "$_st" "$_armed_now" "$_n" "$_tgt")" && block "$_why"
     fi

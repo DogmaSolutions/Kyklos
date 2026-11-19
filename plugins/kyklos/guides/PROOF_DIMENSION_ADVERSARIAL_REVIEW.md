@@ -143,7 +143,7 @@ like a review note. See [The Proof Table](PROOF.md).
 | `Token` | **required**: the 64-character token the [Bridge](COMPONENTS.md#kyklos-bridge) minted for that report; it must verify |
 | `Rounds` | how many review rounds ran (at most 3 before a person decides) |
 | `Open blockers or majors` | must be 0 |
-| one metric per specification item the review covers | for documentation, analysis and ops stories, a clean review covers the items its *Checked, no finding* section names, unless that section says an item was not checked |
+| one metric per specification item the review covers | the review covers the items its *Checked, no finding* section names (`R`, `AC`, `FAIL-`, `RA-`; for documentation, analysis and ops stories also use cases and failure modes), item by item: an item named in a finding or marked not checked is not covered, and a finding that names no item takes the cover from every item until a note settles it (moved to an open story, or accepted by the owner's tick; see [Completeness](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked)) |
 
 ## Why it exists
 

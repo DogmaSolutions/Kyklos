@@ -64,21 +64,35 @@ flowchart TD
    pipeline, the host tool receipts of the story (from a [`doc_build`](PROOF_DIMENSION_DOCUMENTATION.md#manuals-built-by-the-bridge-the-doc_build-receipt) or `host_app_screenshot` run made for it), the newest
    [adversarial review](ADVERSARIAL_REVIEW.md) note and the story's [risk register](PROOF_DIMENSION_RISK_ASSESSMENT.md). It reads them through the Bridge's one GitLab reader, which tells an
    answer it could not read from a real "no": a deliverable whose state is unknown is reported as unknown and never guessed.
-   The Bridge reads them in the story's **own** repository, whatever repository the agent's session sits in.
+   The Bridge reads them in the story's **own** repository, whatever repository the agent's session sits in. The texts of
+   the changed files are read from the host's local copy of that repository at the commit GitLab names (GitLab only
+   confirms the commit is on the server, and a large diff it leaves out is rebuilt from the two local texts); when the
+   local copy lacks that commit, the file is reported unread with the `git fetch` to run, never read from an older copy.
+   A project with no local copy on the host is read from GitLab.
 2. **What counts as a test naming an item.** Only the changed test files count (files under a `test` or `tests` folder or a
-   folder ending in `.Tests`, files named `*Test.cs`, `*Tests.cs` or a partial `*Tests.<Part>.cs`, and `test-*.sh` shell suites).
+   folder ending in `.Tests`, files named `*Test.cs`, `*Tests.cs` or a partial `*Tests.<Part>.cs`, `test-*.sh` shell suites, and Pester `*.Tests.ps1` files).
    In C# only a test that runs counts (a method marked `[Test]`, `[TestCase]`, `[Fact]`, `[Theory]`, `[TestMethod]` and similar,
    not skipped): its method name, or a string in `[Category]`, `[Trait]` or `[Property]` on the method or its class. In a shell
-   suite, the label of a check it calls. The item must appear as an exact upper-case token with no letter or digit touching it:
+   suite, the label of a check it calls. In a Pester file, the name of an `It` block not marked `-Skip` or `-Pending`, or a
+   `-Tag` value on it or on its `Describe` or `Context` block. The item must appear as an exact upper-case token with no letter or digit touching it:
    `AC1_band_starts_at_edge` and `[Property("Spec", "FAIL-OPEN")]` name their items; `SampleAC3Strips`, `ac4` and `AC_1` do
    not. Comments, descriptions and test-case arguments never count. The scanner lives in the Bridge
    (`TestSourceScanner`, `SpecItemCoverage`).
 3. **What else can cover an item.** A host tool receipt whose inputs name it; the newest adversarial review whose token the
-   Bridge verifies, for `AC`, `R` and `FAIL-` items its `Checked, no finding` section names, unless the item is named in a finding,
+   Bridge verifies, for `AC`, `R`, `FAIL-` and `RA-` items its `Checked, no finding` section names, unless the item is named in a finding,
    under a `Not checked` label or heading, or in a bullet or paragraph that says `(not checked)` or another fixed not-checked phrase (use cases and failure
    modes need a test); the risk register, for `RA-` items. A kind with no tests (documentation, analysis, operations) is the
-   exception: there, the review also covers `RA-`, use case and failure mode items. Other wording is not read: a line that says
+   exception: there, the review also covers use case and failure mode items. Other wording is not read: a line that says
    an item holds is not read for words such as "never" or "open".
+   The review's cover is decided item by item. A finding takes the cover only from the items its own bullet names, and
+   only items the spec declares and the review may cover count (an id inside a file path, a use case of a story with
+   tests or an undeclared id names nothing). A finding that names no such item cannot be tied to any, so it takes the
+   cover from every item until a note on the story settles it: `Finding F<n> of review round <r> moved to #<issue>`,
+   where the issue is an open story of the story's own project and not the story itself, or `Finding F<n> of review
+   round <r> accepted` with its box `- [ ] accept this finding` ticked by one of the owner accounts (the Bridge setting
+   `Agile:Acceptance:OwnerAccounts`; GitLab's record names who ticked: the last editor of an edited note, the author only
+   of a note never edited). An open row says why each settle note it did not take settles nothing. A report whose
+   findings section cannot be read covers nothing.
 4. **The signed draft record.** Next to the proof, the Bridge stores a record of the rows it proved and of the items no evidence
    covers. It signs that record with the proof signing key: HMAC-SHA256 over `proof-draft:` + story + project + a generation
    number + the record. Each new draft gets the next generation, and only the signed record with the highest generation counts,

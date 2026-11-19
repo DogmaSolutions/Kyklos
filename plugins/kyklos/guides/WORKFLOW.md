@@ -92,7 +92,7 @@ Being pushed is not enough: a story closed while its merge request was still ope
 
 Every commit whose message names the story in its `Refs:` line must be reachable from the trunk: `develop` or `main` in a [GitFlow](https://nvie.com/posts/a-successful-git-branching-model/)
 repository (a hotfix lands on `main` first), `main` in a [trunk-based](https://trunkbaseddevelopment.com/) one. The check fetches from the remote first, then looks at every local branch, every remote
-branch and every worktree, and in a companion topology (see [Project topologies](TOPOLOGIES.md)) it checks the nested source repository too.  
+branch and every worktree, and in a companion topology (see [Project topologies](TOPOLOGIES.md)) it checks only the nested source repository: a companion holds no code to evaluate, so its own notes and handover commits are never judged by the close gates (fresh review, coverage, trunk reach, Test Discipline), and inside the source repository a C# file stays code unless no project can build it. A companion that declares no nested source, or a companion story that cites no source deliverable, is refused rather than passed.  
 A change that reached the trunk through a rebase, a cherry-pick or a squash merge counts as reached. A commit that was abandoned on purpose is settled by deleting its branch.
 
 This catches the fix that was committed, named after the story, and then forgotten on a branch nobody merged.
@@ -203,7 +203,7 @@ This section lists **every** kind of override the product offers, from the stron
 | [Greppable opt-out switches](#greppable-opt-out-switches) | a whole check, for one project | the person (the agent only after the person confirms) | a line in `.claude/standards.env`, or the [launcher](COMPONENTS.md#kyklos-launcher) configuration | until the line is changed back | Claude Code's confirmation dialog, an audit note on the story |
 | [The owner's Proof Discipline](#the-owners-proof-discipline) | a dimension or a threshold of one story | the project owner | editing the story's [Proof Discipline](PROOF.md#the-owners-proof-discipline) section | that story | the Bridge's signed copy; the row shows the change |
 | [Bridge owner settings](#bridge-owner-settings) | proof rules for every story the Bridge serves | the person who owns the host | the Bridge settings file, or the launcher configuration | until changed back | the settings file, and its history where the organisation keeps one |
-| [Launcher opt-outs](#launcher-opt-outs) | a launch or Bridge start check | the person at the launcher | the launcher configuration or its `appsettings.json` | until changed back | the launch output, the Bridge or launcher log |
+| [Launcher opt-outs](#launcher-opt-outs) | a launch or Bridge start check | the person at the launcher | the launcher configuration or its `appsettings.Production.json` | until changed back | the launch output, the Bridge or launcher log |
 
 ```mermaid
 flowchart TD
@@ -486,7 +486,7 @@ The checks and their switches:
 | `KYKLOS_PIPED_SCRIPT_GUARD` | the refusal of a download piped into an interpreter | on |
 | `KYKLOS_TEST_RUN_BOUND_GUARD` | the refusal of a test run started from the shell without a `timeout <limit>` (the refusal shows the corrected command; the limit is `KYKLOS_TEST_RUN_LIMIT`, default `60m`) | on |
 | `KYKLOS_TEST_HOST_REAPER` | ending, at every end of turn, the test hosts without a `timeout` of their own (of at most 2 hours, not yet spent) that have run longer than `KYKLOS_TEST_RUN_LIMIT`, each reported with its command and its starter | on |
-| `KYKLOS_BORDER_CONTROL` | the refusal of internal references written into another repository | on |
+| `KYKLOS_BORDER_CONTROL` | the refusal of internal references written into another repository (the refusal of private tracker identifiers in a repository shaped like a source clone stays on: it cannot be switched off) | on |
 | `KYKLOS_ASK_FIRST` (*launcher*) | the Ask First confirmation itself | on |
 | **Notices only** (they inform, never refuse) | | |
 | `KYKLOS_BRIDGE_HEALTH_CHECK`, `KYKLOS_BRIDGE_FYI`, `KYKLOS_API_SCOPE_SURFACE`, `KYKLOS_OPERATING_MODE_SURFACE`, `KYKLOS_TOOL_CATALOG`, `KYKLOS_FETCH_LATEST`, `KYKLOS_FORK_ETIQUETTE`, `KYKLOS_MUTATION_TIMING`, `KYKLOS_SHARED_CHECKOUT_WARN`, `IDLE_WORK_NUDGE` | the matching start-up or progress notice | on |
@@ -530,7 +530,7 @@ write; see [Installing and configuring](INSTALL_AND_CONFIG.md)) or are set by th
 
 ### Launcher opt-outs
 
-These protect the launch and the [Bridge](COMPONENTS.md#kyklos-bridge) itself. They are set in the [launcher](COMPONENTS.md)'s configuration (per project) or its `appsettings.json` (for the whole launcher), outside the
+These protect the launch and the [Bridge](COMPONENTS.md#kyklos-bridge) itself. They are set in the [launcher](COMPONENTS.md)'s configuration (per project) or its `appsettings.Production.json` (for the whole launcher), outside the
 agent's reach, and each use is shown at launch or logged.
 
 | Setting | Default | What it relaxes | When it is acceptable |
@@ -542,7 +542,7 @@ agent's reach, and each use is shown at launch or logged.
 | `KYKLOS_ALLOW_UNPERSISTED_HMAC` | off | the Bridge runs with a temporary [proof signing key](PROOF_DIMENSION_TEST_DISCIPLINE.md#signatures-the-key-and-when-they-are-checked) when the credential store cannot keep one (tokens do not survive a restart) | a machine whose credential store is broken, briefly |
 | `KYKLOS_SSDLC_MODE` | on for a GitLab story project that names its story token (`STORY_GITLAB_TOKEN_ENV`), off otherwise | `off` runs no story stack at all | a project that does not use stories |
 | [`KYKLOS_MUTATION_SUSPENDED`](#greppable-opt-out-switches) | `0` | `1` suspends [mutation testing](#glossary) for the project (set `MUTATION_SUSPENDED=true` in CI too); the proof states it | a project whose stack has no mutation tool yet |
-| `KYKLOS_OWN_NAMES` | empty | lets the project's own product names into its own nested source, which the border check would otherwise refuse | a project whose public source must name its own product |
+| `KYKLOS_OWN_NAMES` | empty | lets the project's own product names into its own nested source (every clone in its sources folder: the folder `KYKLOS_SOURCE_DIR` names, a clone inside it, or a clone beside it), which the border check would otherwise refuse | a project whose public source must name its own product |
 | [Corporate policy](POLICY_LEVELS.md#writing-a-corporate-policy) `kyklos:replace` / `kyklos:remove` | none | replaces or removes the **text** of a Kyklos rule; the rule that enforces it stays on (see [Policy levels](POLICY_LEVELS.md)) | an organisation whose process differs, with a written reason |
 
 ### What no override lifts

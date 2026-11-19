@@ -205,7 +205,8 @@ requirement of the target environment (a real server, real hardware, a real exte
   move the test to a file of its own, run it on the host, and draft again.
 - **No such run, a failing run (the ledger records only runs in which every test passed), or a run of other content of
   the file** leaves the item open. The draft names the run to make, for example *run it on the host (`run_tests`, or
-  `get_coverage`, with the filter `Name=<test>`)*, then `proof_draft` again.
+  `get_coverage`, with the filter `FullyQualifiedName~<Namespace>.<Class>.<test>`)*, then `proof_draft` again. The filter
+  names the test by its class and its method, so a test of the same name in another class is never the run made.
 - Switching a failing test to `[Explicit]` therefore proves nothing: without a recorded passing run it cites nothing.
 
 Tests that are not marked `Explicit` count exactly as before: their name or tags name the item, and the story wrote them.

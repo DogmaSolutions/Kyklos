@@ -155,7 +155,7 @@ line, a bracketed `[#<id>]`, another project's path; the commit-message guard de
 only in hand-written commits. The trunk follows the repository model: for GitFlow `origin/develop` when it exists plus
 every production trunk that exists (`origin/HEAD`'s target, `origin/main`, `origin/master`: a hotfix lands there
 first); for a trunk-based repository the production trunk alone (`origin/HEAD`, else `origin/main`, else
-`origin/master`). `origin/HEAD` is a local ref, so it is followed only when it names `main`, `master` or `develop`. In a companion, the nested source repository is checked too. A commit off the trunk still counts when
+`origin/master`). `origin/HEAD` is a local ref, so it is followed only when it names `main`, `master` or `develop`. In a companion (the topology committed on the trunk is `PriComPubSou` or `PriComPriSou`), only the nested source repository is checked: a companion holds no code to evaluate, so its own notes and handover commits are never judged. A commit off the trunk still counts when
 its change landed another way: the same patch (a rebase or cherry-pick), or a branch or worktree that carries it merges
 into the trunk without changing anything (a squash merge, or a commit reverted later on its own branch, which counts as
 abandoned). A squash merge whose lines the trunk changed again afterwards cannot be told apart from an unmerged change;

@@ -294,9 +294,9 @@ trunk_reach_repo_problem() {
 }
 
 # story_trunk_reach_problem <workspace-root> <story-handle-or-id> -> one refusal line, or nothing. Checks the workspace
-# repository and, in a companion, its nested source repository. Runs with every environment variable that redirects
-# git (an injected config, another repository or object store) removed, so the close judges the repository on disk
-# against its real origin. [RiskMitigation RA-07]
+# repository and, in a companion, only its nested source repository (a companion holds no code to evaluate). Runs with
+# every environment variable that redirects git (an injected config, another repository or object store) removed, so
+# the close judges the repository on disk against its real origin. [RiskMitigation RA-07]
 story_trunk_reach_problem() {
     local out rc
     out="$(
@@ -315,7 +315,7 @@ story_trunk_reach_problem() {
 # abandoned list and the nested source directory come only from the workspace repository's .claude/standards.env as
 # committed on its integration trunk.
 _tr_story_problem() {
-    local root="$1" ref="$2" id srcdir="" p out="" abandoned="" trunk="" src="" extra=""
+    local root="$1" ref="$2" id srcdir="" p out="" abandoned="" trunk="" src="" extra="" topology=""
     # A tracker handle ends in the issue number; a local one is STORY-<number>-<slug>.
     id="$(basename "$ref")"; id="${id#STORY-}"; id="${id#\#}"; id="${id%%-*}"
     id="$(printf '%s' "$id" | sed 's/^0*//')"
@@ -327,9 +327,17 @@ _tr_story_problem() {
         kyklos_control_off "$(_tr_committed_setting "$root" "$trunk" KYKLOS_TRUNK_REACH)" && return 0
         abandoned="$(_tr_committed_setting "$root" "$trunk" KYKLOS_TRUNK_REACH_ABANDONED)"
         srcdir="$(_tr_committed_setting "$root" "$trunk" KYKLOS_SOURCE_DIR)"
+        topology="$(_tr_committed_setting "$root" "$trunk" KYKLOS_PROJECT_TOPOLOGY)"
     fi
-    p="$(trunk_reach_repo_problem "$root" "$id" "$abandoned" synced)"
-    [ -n "$p" ] && out="$p"
+    # A companion repository never holds code to evaluate (its commits are notes and handovers), so its own commits are
+    # not judged; the nested source repositories below hold the code and are judged in full. The topology is read from
+    # the settings committed on the trunk only, so an unread or uncommitted declaration judges the workspace as before.
+    # [CySec] Prevents CWE-345: an environment value or a working-tree edit cannot exempt the workspace.
+    case "$topology" in
+        PriComPubSou|PriComPriSou) ;;
+        *) p="$(trunk_reach_repo_problem "$root" "$id" "$abandoned" synced)"
+           [ -n "$p" ] && out="$p" ;;
+    esac
     # The nested source the trunk declares must be there; a source named only by the working tree or the environment is
     # checked too when it exists (one more check can only refuse, never pass).
     if [ -n "$srcdir" ]; then
@@ -349,6 +357,13 @@ _tr_story_problem() {
         p="$(trunk_reach_repo_problem "$src" "$id" "$abandoned")"; [ -n "$p" ] && out="$out${out:+; }$p"
         srcdir="$extra"
     done
+    # A companion's own commits were skipped above on the promise that its nested source is judged instead (or refused
+    # when it is missing). With no source named at all nothing would be judged, so the close is refused, naming what to
+    # declare. [CySec] Prevents CWE-636: an exemption never passes on nothing.
+    case "$topology" in
+        PriComPubSou|PriComPriSou)
+            [ -n "$srcdir" ] || out="$out${out:+; }the workspace $root is a companion ($topology), whose own commits hold no code to evaluate, but it declares no nested source repository (KYKLOS_SOURCE_DIR in the repository-model settings committed on the trunk), so the story's commits are judged nowhere; declare KYKLOS_SOURCE_DIR and retry" ;;
+    esac
     [ -n "$out" ] && printf 'Trunk Reach: %s' "$out"
     return 0
 }

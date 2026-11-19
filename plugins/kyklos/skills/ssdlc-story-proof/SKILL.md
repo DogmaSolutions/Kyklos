@@ -48,25 +48,28 @@ instead of it.
 
 **Offer the owner only options the close can read.** When a close is short of evidence, ask the owner only for
 something the close gate accepts. For a review with findings that are still open, the options are one more review
-round (fix, then a fresh review) or the owner's `proof-override` label with a named cause; never "accept the review as
-it is", "cite the run instead" or another choice no gate reads, because the close refuses it after the owner said yes.
+round (fix, then a fresh review); for a finding that names no spec item, a note that settles it (`Finding F<n> of review
+round <r> moved to #<issue>` naming an open story of the project, or `Finding F<n> of review round <r> accepted` with
+its box `- [ ] accept this finding` ticked by an owner account; the ssdlc-adversarial-review skill gives the shapes); or
+the owner's `proof-override` label with a named cause; never "accept the review as it is", "cite the run instead" or
+another choice no gate reads, because the close refuses it after the owner said yes.
 
 **Matching rule (what the draft counts as evidence; the bridge's scanner, documented here only).** Test files are the
 files the cited deliverables change whose path has a `test` / `tests` folder or a folder ending in `.Tests`, or whose
-name ends in `Test.cs` / `Tests.cs`, a partial `*Tests.<Part>.cs`, or is a `test-*.sh` suite. Several deliverables are
+name ends in `Test.cs` / `Tests.cs`, a partial `*Tests.<Part>.cs`, or is a `test-*.sh` suite or a Pester `*.Tests.ps1`. Several deliverables are
 unioned, and each file takes its state at the newest cited commit that touched it (newest by git ancestry, never by
 date): a file that commit deletes is no evidence, and a file whose cited commits are not on one line of history is
 named unreadable. A file that cannot be read, or lies past the 200-file read cap, is named, and the others still count. In C#, only a running test counts (a `[Test]`, `[TestCase]`, `[Fact]`, `[Theory]`,
 `[TestMethod]`... method that is not skipped): its method name, or a string literal in `[Category]`, `[Trait]` or
-`[Property]` on the method or an enclosing class. In a shell suite, the label of a check it calls. The item must be an
+`[Property]` on the method or an enclosing class. In a shell suite, the label of a check it calls. In Pester, the name of
+an `It` block not marked `-Skip` or `-Pending`, or a `-Tag` value on it or its `Describe` / `Context`. The item must be an
 exact upper-case token with no letter or digit touching it (an underscore is fine): `UC<n>`, `FM<n>`, `AC<n>`,
 `R<n>`, `RA-<n>`, `FAIL-OPEN`, `FAIL-HARD` (so `AC1_band_starts_at_edge` and `[Property("Spec", "FAIL-OPEN")]` count;
 `SampleAC3Strips`, `ac4` and `AC_1` do not). A range in a proof citation or a spec section (`R1 to R4`,
 `UC5-UC8`; a dash, `to` or `through`, same prefix, ascending, at most 50) names every item in it; a test name never does. Doc comments, `//` comments, `[Description]`, `[TestCase]` arguments and
-helper methods never count. The newest adversarial review whose token verifies counts for `AC`, `R` and `FAIL-` items
-only (use cases and failure modes need a test); `RA-` items come from the risk register. A kind with no tests
-(documentation, analysis, ops) is the exception: a review with no finding covers any item its `Checked, no finding`
-section names, `RA-` included, unless the bullet naming it says the item was left unchecked. What to cite as
+helper methods never count. The newest adversarial review whose token verifies covers, item by item (see above), the
+`AC`, `R`, `FAIL-` and `RA-` items its `Checked, no finding` section names; use cases and failure modes need a test,
+except in a kind with no tests (documentation, analysis, ops). What to cite as
 `--branch`: `group/project!<n>` (a merge request), `group/project@<commit>` (several, separated by spaces; a commit
 not yet on the trunk stands for its whole branch, every file changed since it left the branch its own open merge
 request (same project, same head commit) targets, or the default branch before there is one, so the head alone is enough; a commit on the trunk stands for itself), `group/project@<branch>` (a pushed story branch of that project, for a draft before the merge), or the bare project

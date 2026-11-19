@@ -43,7 +43,7 @@ flowchart LR
     BR -->|"builds and tests with a<br/>clean environment"| SRC["The project's source"]
 ```
 
-- **The settings the [Bridge](#kyklos-bridge) runs with are out of the agent's reach.** Before it starts a project's Bridge, the [Launcher](#kyklos-launcher) checks that the project's settings file (`projects/<project>/bridge.appsettings.json` in
+- **The settings the [Bridge](#kyklos-bridge) runs with are out of the agent's reach.** Before it starts a project's Bridge, the [Launcher](#kyklos-launcher) checks that the project's settings file (`projects/<project>/appsettings.Production.json` in
   the Launcher's settings folder or the settings root) lies outside every folder the container can write. Otherwise the launch is refused,
   so an agent can never widen its own Bridge. A project with no file runs on the built-in least-privilege default (role `Project`). The check lives in `launcher/src/KyklosLauncher/Bridge/BridgeSettingsGate.cs`.
 - **The Bridge binary is verified.** The Launcher downloads the Bridge release, hashes it while it streams, and keeps it only when the SHA-256 equals the checksum published with the release; a

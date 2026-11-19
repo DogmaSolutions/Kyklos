@@ -96,6 +96,13 @@ gitlab_pick_token() {
     return 1
 }
 
+# gitlab_access_missing_reason -> the one sentence a guard's refusal carries when it can verify through neither the
+# bridge nor a GitLab token: it names the setting that points at the token and how to set it. A guard that cannot reach
+# GitLab refuses with it; it never passes silently. The value of a token is never named, only the setting.
+gitlab_access_missing_reason() {
+    printf '%s' "No bridge answered this read and no GitLab token is set for the session: set STORY_GITLAB_TOKEN_ENV (in the project's repository-model settings or the launcher's configuration) to the NAME of the environment variable that holds a GitLab API token, never the token itself, then start the session again; or let the bridge serve the project's stories."
+}
+
 # gitlab_request <setting-name-or-empty> <curl args...> -> an authenticated request when a name is given, else an
 # anonymous one (for callers that also work without a token, e.g. reads on a public project).
 gitlab_request() {

@@ -544,16 +544,21 @@ ssdlc_job_collect_seconds() {
     esac
 }
 
+# ssdlc_clock -> the whole seconds since the shell started (bash's SECONDS): the clock the job collection measures its
+# budget with.
+ssdlc_clock() { printf '%s' "$SECONDS"; }
+
 # ssdlc_collect_pending <reply> -- a verb the bridge runs as a job (proof_draft) answers pending with its job id when its
 # work outlasts the bridge's own wait: the reply is then collected with get_job_result, each call bounded by that same
 # wait on the bridge, until it is no longer pending, so the work never has to fit one transport call. Prints the final
 # reply; rc 4 when the job is still pending after SSDLC_JOB_COLLECT_SECONDS of collecting (default 1800, 30 minutes),
-# else bridge_mcp_call's code.
+# else bridge_mcp_call's code. The elapsed time is read from ssdlc_clock, so a test can hold the clock still or move it.
 ssdlc_collect_pending() {
-    local resp="$1" job rc started="$SECONDS" budget left
+    local resp="$1" job rc started budget left
+    started="$(ssdlc_clock)"
     budget="$(ssdlc_job_collect_seconds)"
     while printf '%s' "$resp" | json_test '.result.pending == true and (.result.jobId | type == "string")'; do
-        left=$((budget - (SECONDS - started)))
+        left=$((budget - ($(ssdlc_clock) - started)))
         if [ "$left" -le 0 ]; then printf '%s' "$resp"; return 4; fi
         job="$(printf '%s' "$resp" | jq -r '.result.jobId')"
         # Each collection's own wait counts against the budget: it never waits past what is left of it.

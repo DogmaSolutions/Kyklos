@@ -21,9 +21,10 @@
 #   mr_row_of <json>                     one merge request object -> "state<TAB>armed<TAB>number<TAB>target"
 #   mr_row_for_branch <branch> [repository]
 #                                        the branch's open merge request, else its latest merged one, as a row; rc 1
-#                                        when none can be read
+#                                        when GitLab lists none, rc 2 when the read itself failed (no access)
 #   mr_row_for_number <number> [repository]
-#                                        that merge request as a row; rc 1 when it cannot be read
+#                                        that merge request as a row; rc 2 when the read failed, rc 1 when the
+#                                        answer is not a merge request
 #   ([repository]: the origin address of the repository the branch or request belongs to, from
 #   ci_access_repository_address; the bridge reads that repository's project instead of its default one.)
 #   mr_repo_has_no_ci <repo-dir> [ref]  rc 0 when the repository runs no CI for <ref> (default HEAD): its pipeline file is
@@ -375,7 +376,7 @@ mr_row_for_branch() {
     local br="$1" repository="${2:-}" st out row
     [ -n "$br" ] || return 1
     for st in opened merged; do
-        out="$(ci_access_merge_requests "$br" "$st" "$repository" 2>/dev/null)" || return 1
+        out="$(ci_access_merge_requests "$br" "$st" "$repository" 2>/dev/null)" || return 2
         row="$(mr_row_of "$(printf '%s' "$out" | jq -c '.merge_requests[0] // empty' 2>/dev/null)")"
         [ -n "$row" ] && { printf '%s\n' "$row"; return 0; }
     done
@@ -384,7 +385,7 @@ mr_row_for_branch() {
 
 mr_row_for_number() {
     local out row
-    out="$(ci_access_merge_request "$1" "${2:-}" 2>/dev/null)" || return 1
+    out="$(ci_access_merge_request "$1" "${2:-}" 2>/dev/null)" || return 2
     row="$(mr_row_of "$out")"
     [ -n "$row" ] || return 1
     printf '%s\n' "$row"
@@ -442,6 +443,28 @@ mr_repo_has_no_ci() {
         path="$(mr_project_pipeline_file "$MR_GITLAB_API" "$MR_GITLAB_TOKEN_NAME" "$proj")"; rc=$?
         case "$rc" in 0) ;; 3) return 0 ;; *) return 1 ;; esac
     fi
+    ! git -C "$r" cat-file -e "$ref:$path" 2>/dev/null
+}
+
+# mr_repo_no_ci_verified <repo-dir> [ref] -> rc 0 only when GitLab itself confirms the repository's project runs no CI
+# (CI/CD switched off, or GitLab's pipeline file absent from the repository at <ref>); rc 1 when it has CI or GitLab's
+# answer cannot be read; rc 2 when GitLab cannot be asked about this repository (no token setting, or an origin that
+# is not on this GitLab). The local tree never grants the exception: a pipeline file in another project or a missing
+# local copy look the same there. MR_NO_CI_WHY names why GitLab could not be asked (rc 2).
+# [CySec] Prevents CWE-636 "Not Failing Securely": without a verified answer the "merges itself" rule stands.
+mr_repo_no_ci_verified() {
+    local r="${1:-}" ref="${2:-HEAD}" proj path rc
+    MR_NO_CI_WHY=""
+    [ -n "$r" ] || { MR_NO_CI_WHY="no repository"; return 2; }
+    git -C "$r" rev-parse --verify -q "$ref^{commit}" >/dev/null 2>&1 || ref=HEAD
+    git -C "$r" rev-parse --verify -q "$ref^{commit}" >/dev/null 2>&1 || return 1
+    if ! command -v gitlab_curl >/dev/null 2>&1 || ! mr_gitlab_access; then
+        MR_NO_CI_WHY="$(gitlab_access_missing_reason 2>/dev/null || printf 'no GitLab token setting')"; return 2
+    fi
+    proj="$(mr_origin_project_path "$r" "$MR_GITLAB_API")" \
+        || { MR_NO_CI_WHY="the repository's origin is missing or not on this GitLab ($MR_GITLAB_API), so its project's CI settings cannot be read: add the origin (git -C '$r' remote add origin <address on this GitLab>)"; return 2; }
+    path="$(mr_project_pipeline_file "$MR_GITLAB_API" "$MR_GITLAB_TOKEN_NAME" "$proj")"; rc=$?
+    case "$rc" in 0) ;; 3) return 0 ;; *) return 1 ;; esac
     ! git -C "$r" cat-file -e "$ref:$path" 2>/dev/null
 }
 

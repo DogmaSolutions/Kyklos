@@ -136,9 +136,9 @@ _proof_tool_detect_story() {
 # (_proof_tool_session_project). A token written with no project bound is a
 # project-less token ("<token dir>/<dim-slug>@<story>.token"): the bridge carries it to its home project's key when the
 # tree it records is the home project's tree, and refuses it otherwise. The folder is the record of the project: a
-# reader bound to a project reads only that project's folder. The Test Discipline token is the exception: it stays
-# project-less (its receipts and its bridge emit belong to the content ledger's work, which answers Test Discipline per
-# project from the project's own tree), so a bound project never changes where it is read or written.
+# reader bound to a project reads only that project's folder. The rule holds for every dimension, the Test Discipline
+# token and the coverage receipts it records included: with a project bound it is kept under that project's key, with
+# none bound it stays project-less as before, and the home project still reads (carries) its project-less one.
 # [RiskMitigation RA-02] [CySec] Prevents CWE-639 "Authorization Bypass Through User-Controlled Key": one project's
 # token never answers for another project's story of the same number.
 
@@ -189,7 +189,6 @@ _proof_tool_keyed_projects() {
 _proof_tool_token_file() {
     local p dir slug only sp
     p="$(_proof_tool_project)"; dir="$(_proof_tool_dir)"; slug="$(_proof_tool_slug "$1")"
-    if [ "$slug" = test-discipline ]; then printf '%s/%s@%s.token' "$dir" "$slug" "$2"; return 0; fi
     if [ -n "$p" ]; then printf '%s/%s/%s@%s.token' "$dir" "$p" "$slug" "$2"; return 0; fi
     [ "${3:-}" = write ] || sp="$(_proof_tool_session_project)"
     if [ -n "${sp:-}" ] && [ -f "$dir/$sp/$slug@$2.token" ]; then
@@ -225,7 +224,7 @@ _proof_tool_project_refusal() {
 proof_tool_carry_projectless() {
     local dim="$1" story="$2" tree="$3" p legacy keyed recorded base bf mf
     p="$(_proof_tool_project)"
-    [ -n "$p" ] && [ "$(_proof_tool_slug "$dim")" != test-discipline ] || return 0
+    [ -n "$p" ] || return 0
     keyed="$(_proof_tool_token_file "$dim" "$story")"
     legacy="$(_proof_tool_projectless_token_file "$dim" "$story")"
     [ ! -f "$keyed" ] && [ -f "$legacy" ] || return 0
@@ -1215,19 +1214,27 @@ proof_tool_attach() {
 # records (without the prefix), one per line, after the keyed check that the token's MAC signs them. HOST ONLY (needs the
 # key). On a refusal: rc 1 and one "<verdict>: <what>" line on stdout.
 proof_tool_receipts() {
-    local story="" tokfile stored
+    local story="" tokfile stored carry="" carried
     local _PTG_PROJECT="${_PTG_PROJECT:-}"
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --story) story="${2:-}"; shift 2 || return 1 ;;
             --project) _proof_tool_project_valid "${2:-}" || { echo "unavailable: --project needs a numeric GitLab project id"; return 1; }
                        _PTG_PROJECT="${2:-}"; shift 2 || return 1 ;;
+            --carry-home) carry="${2:-}"; shift 2 || return 1 ;;
             *) echo "unavailable: unknown option '$1'"; return 1 ;;
         esac
     done
     story="$(_proof_tool_story_key "$story")"
     [ -n "$story" ] || { echo "unavailable: the story is unknown (pass --story <N>)"; return 1; }
     [ -n "${KYKLOS_PROOF_HMAC_KEY:-}" ] && _proof_tool_hash_tool || { echo "unavailable: no host signing key here, so the receipts cannot be authenticated"; return 1; }
+    # --carry-home <tree> (the bridge, for its home project): the project-less token measured in that tree, kept before
+    # tokens were kept per project, is carried to the project's key first; one measured elsewhere is refused.
+    if [ -n "$carry" ]; then
+        [ -n "$(_proof_tool_project)" ] || { echo "unavailable: --carry-home needs --project"; return 1; }
+        # The carry is not echoed: the answer's first line is the receipts status the bridge reads.
+        carried="$(proof_tool_carry_projectless "Test Discipline" "$story" "$carry")" || { printf '%s\n' "$carried"; return 1; }
+    fi
     tokfile="$(_proof_tool_token_file "Test Discipline" "$story")"
     [ -f "$tokfile" ] || { echo "receipts: none"; return 0; }
     stored="$(cat "$tokfile" 2>/dev/null)"
@@ -1578,12 +1585,9 @@ proof_tool_emit() {
         story="$(_proof_tool_detect_story "$_fd")"
     fi
     [ -n "$story" ] || { echo "proof_tool_emit($dim): cannot tell which story these files belong to -> pass --story <N> (or set KYKLOS_PROOF_STORY)" >&2; return 1; }
-    # The project that holds the story keys the token (see "Tokens kept per project"; Test Discipline stays
-    # project-less).
-    if [ "$(_proof_tool_slug "$dim")" != test-discipline ]; then
-        if [ -n "$root_opt" ]; then _proof_tool_bind_project_for "$root_opt"; else
-            local _pd; _pd="$(dirname "$1" 2>/dev/null)"; [ -d "$_pd" ] || _pd="."; _proof_tool_bind_project_for "$_pd"; fi
-    fi
+    # The project that holds the story keys the token, for every dimension (see "Tokens kept per project").
+    if [ -n "$root_opt" ]; then _proof_tool_bind_project_for "$root_opt"; else
+        local _pd; _pd="$(dirname "$1" 2>/dev/null)"; [ -d "$_pd" ] || _pd="."; _proof_tool_bind_project_for "$_pd"; fi
     dir="$(_proof_tool_dir)"; mkdir -p "$dir" 2>/dev/null || return 1
     mkdir -p "$(dirname "$(_proof_tool_token_file "$dim" "$story" write)")" 2>/dev/null || return 1
     # A SHELL-side emit is agent-callable with no tool run, so every emission leaves a DURABLE greppable trail —
@@ -3738,7 +3742,7 @@ proof_advreview_carry() {
 #                                                        --attachment records the coverage receipt the run posted; --project keys it by the project,
 #                                                        else a container emit asks the bridge for the files' project)
 #   proof-tool-gate.sh attach --story <N> [--project <id>] --attachment "<record>"  # HOST ONLY: record a shell coverage receipt in the story's token
-#   proof-tool-gate.sh receipt --story <N> [--project <id>]   # HOST ONLY: "receipts: capable|legacy|none", then the records, once the MAC proves them
+#   proof-tool-gate.sh receipt --story <N> [--project <id> [--carry-home <tree>]]   # HOST ONLY: "receipts: capable|legacy|none", then the records, once the MAC proves them
 #   proof-tool-gate.sh verify <dimension> [--story <N>] [--project <id>] [--carry-home <tree>] [--root <dir>] [--host-check] [--at-result] # exit 0 iff a fresh matching token
 #                                                       for the story exists (--host-check: the bridge's keyed check, no container session;
 #                                                        --at-result: the close's check, judged at the story's own merge, not the checkout;
@@ -3828,6 +3832,6 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
                               esac
                           done
                           proof_tool_story_changed_lines "$_cl_dir" "$_cl_story" "${_cl_files[@]}" ;;
-        *) echo "usage: proof-tool-gate.sh {emit [--story <N>] [--project <id>] [--root <dir>] [--attachment <record>] <dimension> [--files-from <list>] <file>...|attach --story <N> [--project <id>] --attachment <record>|receipt --story <N> [--project <id>]|verify <dimension> [--story <N>] [--project <id>] [--carry-home <tree>] [--root <dir>] [--host-check] [--at-result]|advreview-emit [--project <id>] <story> <report>|advreview-verify [--project <id>] <story> <token>|advreview-carry --project <id>|changed-files <dir> [--story <N>]|changed-lines <dir> --story <N> [--files-from <list>] <file>...|change-base <dir> --story <N> [--ranges]}" >&2; exit 2 ;;
+        *) echo "usage: proof-tool-gate.sh {emit [--story <N>] [--project <id>] [--root <dir>] [--attachment <record>] <dimension> [--files-from <list>] <file>...|attach --story <N> [--project <id>] --attachment <record>|receipt --story <N> [--project <id> [--carry-home <tree>]]|verify <dimension> [--story <N>] [--project <id>] [--carry-home <tree>] [--root <dir>] [--host-check] [--at-result]|advreview-emit [--project <id>] <story> <report>|advreview-verify [--project <id>] <story> <token>|advreview-carry --project <id>|changed-files <dir> [--story <N>]|changed-lines <dir> --story <N> [--files-from <list>] <file>...|change-base <dir> --story <N> [--ranges]}" >&2; exit 2 ;;
     esac
 fi

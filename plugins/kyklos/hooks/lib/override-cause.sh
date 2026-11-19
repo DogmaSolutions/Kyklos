@@ -45,6 +45,8 @@ override_cause_named() {
     else
         [ "$text" = "$_OC_WAIVED" ] && return 0
     fi
-    OVERRIDE_CAUSE_WHY="the bridge did not confirm the override (${text:-no answer}); the story must name its cause: a line 'Override cause: <open item>' in a note or the Test Discipline row, or the owner's 'Override cause: accepted <figure>%'"
+    # The bridge's own refusal already says which causes count, who writes the line and the line to post; this sentence
+    # repeats the three parts for an answer that carried none (an older bridge, or no answer at all).
+    OVERRIDE_CAUSE_WHY="the bridge did not confirm the override (${text:-no answer}); the story must name its cause. Accepted causes: an OPEN story (label 'story') or triage item, in the story's project or another project the bridge can read, that is not the story itself and refers back to it (a merge request, a coordination issue or free text is no cause). Who writes the line: the agent, in a note or the Test Discipline row, when another account created the item; the owner, in a new note, when the agent created it. The line to post: 'Override cause: <group/project>#<number of the item>', or, for a genuine gap the owner accepts, the owner's 'Override cause: accepted <figure>%'"
     return 1
 }

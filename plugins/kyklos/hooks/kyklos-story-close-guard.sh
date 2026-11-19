@@ -12,9 +12,9 @@
 # code below). The sanctioned path — `story close <id>` — runs the proof gate + renders the table itself, so it is
 # NEVER blocked here.
 #
-# FAIL-OPEN on uncertainty (can't parse the command, can't identify the issue, no API token, network error, the issue
-# is not readable) — this guard must never wedge a legitimate close. A missing GitLab API base is the exception: it
-# BLOCKS (the close cannot be verified). Disable with KYKLOS_STORY_CLOSE_GUARD=0. The only override is the
+# FAIL-OPEN only where the command is not a close it can identify (can't parse the command, can't identify the issue).
+# A close it cannot VERIFY is refused: no GitLab access (no bridge read and no token setting, which the refusal names:
+# STORY_GITLAB_TOKEN_ENV), a bridge that cannot read the issue, an empty answer or a missing GitLab API base. Disable with KYKLOS_STORY_CLOSE_GUARD=0. The only override is the
 # user-applied proof-override label (lib/owner-labels.sh); there is no agent-touchable escape.
 # Wired: PreToolUse, matcher Bash.
 # [json-answer-required] Every answer this hook reads goes through the JSON reader; without it a check would exit 127
@@ -87,8 +87,14 @@ if _bridge_issue="$(coordination_read coordination_show "$(jq -cn --arg p "$PROJ
   _BRIDGE_READ=1
 else
   _bridge_rc=$?
-  # A bridge that has the verbs but cannot read the issue: fail open as an unreadable issue always did.
-  [ "$_bridge_rc" = 4 ] || exit 0
+  # A bridge that has the verbs but cannot read the issue (unreachable, GitLab failed behind it, or a project it does
+  # not serve): the close cannot be verified, so it is refused naming what the bridge said, never let through unchecked.
+  # [CySec] Prevents CWE-636 "Not Failing Securely": no GitLab access never reads as "nothing to check".
+  if [ "$_bridge_rc" != 4 ]; then
+    _why="$(coordination_read_reason | tr -d '"\\' | tr '\n' ' ')"
+    printf '{"decision":"block","reason":"BLOCKED (story-close-guard): cannot verify the close of issue %s: the bridge could not read it (%s). Retry once the bridge answers, or close the story with story close <id>.%s"}' "$IID" "${_why:-the bridge did not answer}" "$(kyklos_help_json_suffix story-close-blocked)"
+    exit 0
+  fi
   coordination_read_fallback story-close-guard "the bridge has no coordination_show verb"
 fi
 if [ "$_BRIDGE_READ" = 1 ]; then
@@ -108,7 +114,12 @@ API="$(gitlab_api_base STORY_GITLAB_API 2>/dev/null)" || {
 . "$(dirname "${BASH_SOURCE[0]}")/lib/gitlab-curl.sh"   # gitlab_curl / gitlab_pick_token: the token never leaves the helper
 # The NAME of the first setting that holds a token (never the value).
 gitlab_pick_token TOKNAME "${KYKLOS_STORY_TOKEN_ENV:-}" "${STORY_GITLAB_TOKEN_ENV:-}" "${KYKLOS_ISSUES_TOKEN_ENV:-}" GITLAB_TOKEN KYKLOS_ISSUES_TOKEN || true
-[ -n "$TOKNAME" ] || exit 0   # no token to verify -> fail-open (never wedge a close we cannot check)
+# No bridge read and no token: the close cannot be verified, so it is refused naming the setting that would give
+# access (never a silent pass). [CySec] Prevents CWE-636 "Not Failing Securely".
+if [ -z "$TOKNAME" ]; then
+  printf '{"decision":"block","reason":"BLOCKED (story-close-guard): cannot verify the close of issue %s. %s Or close the story with story close <id>.%s"}' "$IID" "$(gitlab_access_missing_reason | tr -d '"\\')" "$(kyklos_help_json_suffix story-close-blocked)"
+  exit 0
+fi
 
 _get() { gitlab_curl "$TOKNAME" -s --max-time 12 "$API/projects/$PROJECT_REF/issues/$IID$1" 2>/dev/null || true; }
 # _scg_page_get <path> -> one page of a list through the direct token; rc 1 unless GitLab answered 200.
@@ -131,7 +142,11 @@ if ! printf '%s' "$ISSUE" | json_test '.iid'; then
     printf '{"decision":"block","reason":"BLOCKED (story-close-guard): cannot verify the close. The issue read returned an empty answer; retry, or close it with story close <id>.%s"}' "$(kyklos_help_json_suffix story-close-blocked)"
     exit 0
   fi
-  exit 0   # an answer that is not an issue (for example a 404 body) -> fail-open, as documented above
+  # An answer that is not an issue (a 404 body: the issue is unknown, or the token cannot see its project) cannot show
+  # what is closed, so the close is refused naming the answer, never passed. [CySec] Prevents CWE-636.
+  _why="$(printf '%s' "$ISSUE" | jq -r '.message // .error // empty' 2>/dev/null | head -c 200 | tr -d '"\\' | tr '\n' ' ')"
+  printf '{"decision":"block","reason":"BLOCKED (story-close-guard): cannot verify the close of issue %s: GitLab did not answer with the issue (%s), so its proof cannot be checked (an unknown issue, or a token that cannot see its project). Check the project and issue number, or close the story with story close <id>.%s"}' "$IID" "${_why:-no issue in the answer}" "$(kyklos_help_json_suffix story-close-blocked)"
+  exit 0
 fi
 # Any dev-work close: gate EVERY agent-initiated issue-close, NOT just story-labelled ones -
 # the hole was a bug/task issue worked + closed OUTSIDE the story lifecycle with no structure/proof.
