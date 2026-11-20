@@ -1425,14 +1425,14 @@ cmd_close() {
   # [SHOWN-by-construction] EMIT the stored Proof on a successful close, so it always lands in the transcript/output
   # (a gitlab proof lives as an issue NOTE the user cannot see in the TUI otherwise). This makes "render the Proof
   # when you close" automatic rather than a rule the agent must remember. The output is a terminal, so it is the
-  # TERMINAL form derived from the stored table (proof_render_terminal), framed by start/end markers the proof-shown
+  # COMPACT terminal form derived from the stored table (proof_render_compact), framed by start/end markers the proof-shown
   # hook reads; the markdown table is printed only if that render fails. Best-effort: never fail the close.
   local _h _proof _text
   if _h="$(backend_resolve "$dir" "$ref" 2>/dev/null)"; then
     _proof="$(backend_proof_read "$dir" "$_h" 2>/dev/null)"
     if printf '%s' "$_proof" | grep -c '| Quality Dimension |' >/dev/null; then
-      if _text="$(proof_render_terminal "$_proof" 2>/dev/null)" && [ -n "$_text" ]; then
-        printf '\n=== Proof (%s) — terminal form, show it in your reply exactly as printed ===\n%s\n=== end of Proof (%s) ===\n' "$ref" "$_text" "$ref"
+      if _text="$(proof_render_compact "$_proof" 2>/dev/null)" && [ -n "$_text" ]; then
+        printf '\n=== Proof (%s) — compact terminal form, show it in your reply exactly as printed (the full form is in GitLab) ===\n%s\n=== end of Proof (%s) ===\n' "$ref" "$_text" "$ref"
       else
         printf '\n=== Proof (%s) — rendered on close so it is visible in the transcript ===\n%s\n' "$ref" "$_proof"
       fi
@@ -1473,12 +1473,15 @@ _proof_advance_phase_on_complete() {
 }
 
 # _proof_print <table> <format> -> the proof as asked: 'markdown' prints the stored table unchanged (the form
-# GitLab renders), 'text' prints the terminal form derived from it by the one bash renderer (proof_render_terminal),
-# which is what an agent shows in its reply. Never a hand-made restructuring of the table.
+# GitLab renders), 'text' (alias 'compact') prints the COMPACT terminal form derived from it by the one bash renderer
+# (proof_render_compact), which is what an agent shows in its reply; 'full' prints the full terminal form
+# (proof_render_terminal). GitLab always holds the full table. Never a hand-made restructuring of the table.
 _proof_print() {
   local table="$1" format="$2"
-  if [ "$format" = text ]; then
+  if [ "$format" = full ]; then
     proof_render_terminal "$table" || die "proof: the stored proof holds no dimension row to render" 1
+  elif [ "$format" = text ] || [ "$format" = compact ]; then
+    proof_render_compact "$table" || die "proof: the stored proof holds no dimension row to render" 1
   else
     printf '%s\n' "$table"
   fi
@@ -1493,7 +1496,7 @@ cmd_proof() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --write) write=1; shift ;;
-      --format) format="${2:-}"; shift 2 || die "missing value after $1" ;;   # markdown (the stored table) | text (the terminal form)
+      --format) format="${2:-}"; shift 2 || die "missing value after $1" ;;   # markdown (the stored table) | text or compact (the compact terminal form) | full (the full terminal form)
       --set)   sets+=("${2:-}"); shift 2 || die "missing value after $1" ;;    # 'Dimension=VERDICT[|evidence]' — repeatable
       --metric) die "proof: --metric 'Item|tool|value[|link]' is rendered by the bridge's proof_set, and this project's story stack does not forward proof writes to the bridge (ssdlc mode is not on); write the row's metrics in the --set value instead" 2 ;;
       --apply) apply="${2:-}"; shift 2 || die "missing value after $1" ;;      # a complete filled table from a file (or '-' for stdin)
@@ -1504,8 +1507,8 @@ cmd_proof() {
   done
   [ -n "$dir" ] || dir="$(default_stories_dir)"
   case "$format" in
-    markdown|text) : ;;
-    *) die "proof: --format must be 'markdown' (the stored table, as GitLab shows it) or 'text' (the terminal form to show in a reply), got: $format" 2 ;;
+    markdown|text|compact|full) : ;;
+    *) die "proof: --format must be 'markdown' (the stored table, as GitLab shows it), 'text' or 'compact' (the compact terminal form to show in a reply) or 'full' (the full terminal form), got: $format" 2 ;;
   esac
   [ "$format" = markdown ] || { [ "$write" -eq 0 ] && [ -z "$apply" ] && [ "${#sets[@]}" -eq 0 ]; } \
     || die "proof: --format applies to viewing a proof only; --set, --apply and --write print the stored table" 2
@@ -1598,7 +1601,7 @@ cmd_proof() {
         return 0
       fi
       # The terminal form shows a STORED proof; with none there is nothing to show (the bridge answers the same).
-      if [ "$format" = text ]; then
+      if [ "$format" != markdown ]; then
         printf '(no stored Proof yet for %s — nothing to show; fill it with `story proof %s --set ...`)\n' "$ref" "$ref"
         return 0
       fi
@@ -2725,10 +2728,12 @@ Usage:
   $PROG close <id|NNN> [--branch "<ref>"] [--summary "<text>"] [--no-sync] [--dir <StoriesDir>]
                                                         (set and close also take --no-proof-gate / --no-quality-gate, for a
                                                          LOCAL story migrated from elsewhere only; refused for a tracker story)
-  $PROG proof <id|NNN> [--format markdown|text] [--write] [--template] [--dir <StoriesDir>]
-                                                        (--format text = the terminal form of the stored table: show THAT
-                                                         in a reply; markdown, the default, is the table GitLab shows;
-                                                         --template = the blank canonical scaffold)
+  $PROG proof <id|NNN> [--format markdown|text|compact|full] [--write] [--template] [--dir <StoriesDir>]
+                                                        (--format text, or compact = the COMPACT terminal form of the stored
+                                                         table (every dimension, verdict and the tally; evidence cut to its
+                                                         first line): show THAT in a reply; --format full = the full terminal
+                                                         form, only when asked for; markdown, the default, is the full table
+                                                         GitLab shows; --template = the blank canonical scaffold)
   $PROG proof <id|NNN> --draft [--branch "<deliverable>"]... [--dir <StoriesDir>]
                                                         (START HERE: the bridge assembles the proof from the evidence it holds
                                                          - receipt, tokens, review, pipeline, tests, spec - and leaves open,

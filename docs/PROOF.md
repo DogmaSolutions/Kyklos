@@ -108,6 +108,11 @@ values in force:
 * [x] **Documentation**
 ```
 
+Under Test Discipline the owner may add the line `  * No-Drop Check: off`: the story is then not judged by the no-drop
+rule (no file it touches may lose coverage it had at the trunk commit the story started from). Without the line the check
+is on. A new story starts with the project's default, the Bridge setting `Agile:Proof:NoDropCheck` (default `true`); with
+the default `false` the section is written with the `off` line. Setting it off is a relaxation, so only the owner can make it.
+
 The section belongs to the owner of the project, and it applies to that one story. Unticking a dimension disables it, ticking one
 requires it, and writing a number changes a threshold, relaxed or tightened. The [Bridge](COMPONENTS.md#kyklos-bridge) alone reads it. An agent can read it and
 ask for a change, and cannot change it: an edit by the agent's own account is no change, and the section is restored.

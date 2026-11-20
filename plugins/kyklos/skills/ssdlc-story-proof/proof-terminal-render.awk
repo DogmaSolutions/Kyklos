@@ -28,6 +28,38 @@ function keep(s,    n, i, L, line) {
   n = split(plain(s), L, "\n")
   for (i = 1; i <= n; i++) { line = trim(L[i]); if (line != "") other = other line "\n" }
 }
+# COMPACT form (awk -v compact=1, run under LC_ALL=C so lengths are bytes): the same numbered entry line per
+# dimension, then ONE line: the first evidence line cut to 100 bytes (never inside a UTF-8 character, marked with an
+# ellipsis), followed by how much was left out (more evidence lines, metrics). Every dimension, every verdict and the
+# tally are kept; the full form is one command away (the pointer line before the tally).
+function cut(s,   k, bytes) {
+  if (length(s) <= 100) return s
+  for (k = 128; k < 192; k++) bytes[sprintf("%c", k)] = 1
+  k = 100
+  while (k > 0 && (substr(s, k + 1, 1) in bytes)) k--
+  s = substr(s, 1, k)
+  sub(/[ \t]+$/, "", s)
+  return s "…"
+}
+function count_lines(s,   n, i, L, total) {
+  n = split(plain(s), L, "\n"); total = 0
+  for (i = 1; i <= n; i++) if (trim(L[i]) != "") total++
+  return total
+}
+function first_line(s,   n, i, L) {
+  n = split(plain(s), L, "\n")
+  for (i = 1; i <= n; i++) if (trim(L[i]) != "") return trim(L[i])
+  return ""
+}
+function compact_entry(ev, mx, extra,   shown, more, metrics, tail) {
+  shown = first_line(ev)
+  more = count_lines(ev) - (shown == "" ? 0 : 1)
+  metrics = (mx == "—" ? 0 : count_lines(mx)) + extra
+  tail = ""
+  if (more > 0 || metrics > 0) tail = " (more evidence: " more "; metrics: " metrics ")"
+  if (shown == "") shown = "(no evidence)"
+  out = out "   " cut(shown) tail "\n"
+}
 function classify(cell,   u) {
   u = toupper(cell); gsub(/[^A-Z_]/, "", u)
   if (u ~ /UNPROVEN/) return "UNPROVEN"
@@ -55,6 +87,13 @@ function classify(cell,   u) {
   rows++
   out = out "\n" rows ". " glyph " **" dim "** — " v "\n"
   ev = trim(c[4])
+  if (compact + 0 == 1) {
+    mx = (n >= 6) ? trim(c[5]) : "—"
+    extra = 0
+    for (i = 6; i < n; i++) extra += count_lines(c[i])
+    compact_entry(ev, mx, extra)
+    next
+  }
   before = length(out)
   emit(ev, "")
   if (length(out) == before) out = out "   (no evidence)\n"
@@ -67,9 +106,11 @@ function classify(cell,   u) {
 { keep($0) }
 END {
   if (rows == 0) exit 1
-  printf "**Proof** — %d Quality Dimensions (terminal form of the stored table)\n", rows
+  if (compact + 0 == 1) printf "**Proof** — %d Quality Dimensions (compact terminal form of the stored table)\n", rows
+  else printf "**Proof** — %d Quality Dimensions (terminal form of the stored table)\n", rows
   printf "%s", out
   if (other != "") printf "\n%s", other
+  if (compact + 0 == 1) printf "\nEvidence and metrics are shortened here; the full form: story proof <id> --format full (bridge: proof_get with format full).\n"
   tally = "**Tally: " (pr + 0) " PROVEN · " (np + 0) " NOT_PERTINENT"
   if (un + 0 > 0) tally = tally " · " un " UNPROVEN"
   printf "\n%s**\n", tally

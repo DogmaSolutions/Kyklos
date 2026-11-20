@@ -72,9 +72,29 @@ The answer is plain text. It starts with a line `NEXT:` naming the item to take,
 - the **order** itself, one numbered line per issue with the reason it stands there;
 - the **blocked** issues and what each waits on;
 - what was **left out**, by name, with why;
+- the **open asks to the owner** (see below);
 - a count of the open communication issues.
 
 If the answer says "nothing to offer", every open issue is blocked, left out or needs attention, and the lists below it say which and why.
+
+## Open asks to the owner
+
+An agent that needs your decision asks it as a comment on the story, with tick boxes. Its story is not always blocked: the
+agent may keep working on the parts that do not depend on your answer. So the answer lists every ask that is still
+waiting for you, on any open issue, blocked or not, each with its issue, a one-line summary and the link to the comment.
+The [Doctor](COMPONENTS.md#kyklos-bridge) shows the same list.
+
+- **What counts as an ask:** a comment that mentions one of the owner accounts (the Bridge setting
+  `Agile:Acceptance:OwnerAccounts`, see [the Bridge settings](WORKFLOW.md#bridge-owner-settings)) and has at least one
+  tick box. Your own comments are never asks. With no owner account set, the list says so instead of showing nothing.
+- **When it stops waiting:** you tick a box; or you reply in words after it, in a comment that names it (its link, or
+  "note" and its number) or that comes right after it; or the agent retires it.
+- **Retiring:** when an ask was answered in words, was the wrong question or was replaced by another one, the agent
+  retires it with the Bridge verb `story_ask_retire`: the comment gets the first line "Retired: <why>" and the rest stays
+  as it was. A retired ask is never listed again.
+- **Stale asks:** an ask with no tick and no reply for longer than the setting `Agile:Asks:StaleAfterDays` (2 days by
+  default) is shown once, apart, as "stale: rewrite or retire", and is not repeated as a reminder. The agent then asks it
+  again in a clearer form or retires it.
 
 ## Where the rule is written
 

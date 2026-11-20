@@ -58,8 +58,11 @@ the bridge is the only way to read GitLab, and a script that still reads it dire
 `[kyklos] direct-token fallback: ...` while a bridge without these verbs is in use.
 **The next work.** `next_work` (with `project`) answers what to work on next in that project, in the order of the
 engineering policy's "Choosing the next work" rule, with a reason per issue, the issues missing a severity and what each
-blocked issue waits on; issues set aside or someone else's are listed by name, never offered. It is read-only and
-served whatever the project's story-stack mode.
+blocked issue waits on; issues set aside or someone else's are listed by name, never offered. It also lists every open
+ask to the owner (a note that mentions an owner account and has tick boxes, on any issue, blocked or not) and, once
+apart, each stale one. It is read-only and served whatever the project's story-stack mode. An ask the owner answered in
+words, a wrong one or a replaced one is retired with `story_ask_retire` (`id`, `note`, `why`); a stale one is asked again
+in a clearer form or retired, never repeated as a reminder.
 **Epics** are changed only through the story tool's epic commands; see [`ssdlc-story`].
 
 The `story` tool follows the same rule by itself: with no GitLab token of its own it reads through `story_read`

@@ -360,7 +360,7 @@ if [ "${STORY_BACKEND:-local}" = gitlab ]; then
           _probs_before="$gl_problems"
           # SHOWN-in-reply: a this-session close must have rendered its OWN table (a note is invisible to a remote user).
           if [ "$_shown" = 0 ] && [ "$_readfail" = 0 ]; then
-              gl_problems="${gl_problems}; issue #$_h is Done but ITS OWN Proof table was NOT shown in the reply — name it '#$_h'${_sid:+ / $_sid} in your reply and show THIS story's proof exactly as \`story proof $_h --format text\` prints it (its terminal form: every dimension + the tally; the stored markdown table is accepted too); a GitLab note alone is invisible to a remote user"
+              gl_problems="${gl_problems}; issue #$_h is Done but ITS OWN Proof table was NOT shown in the reply — name it '#$_h'${_sid:+ / $_sid} in your reply and show THIS story's proof exactly as \`story proof $_h --format text\` prints it (its compact terminal form: every dimension + the tally; the stored markdown table is accepted too); a GitLab note alone is invisible to a remote user"
           fi
           # [RA forcing-function on gitlab] SAME rules as the FS path, via the seam: NOT_PERTINENT needs a recorded
           # Risk-Assessment-Waived line (the agent may never self-waive); PROVEN needs the persisted '## Risk assessment
@@ -727,7 +727,7 @@ for dir in "$STORIES_DIR"/STORY-*/; do
     [ "$_shown" = "yes" ] && touch "$_shmk" 2>/dev/null || true
     { [ -f "$_shmk" ] || [ -f "$_vol_state_dir/${name}-shown-${proof_hash}" ]; } && _shown="yes"
     if [ "$_shown" != "yes" ]; then
-        add "$name is Done but ITS OWN Proof table was not SHOWN in the reply — right after naming the story, show THIS story's proof exactly as \`story proof $name --format text\` prints it (its terminal form: every dimension + the tally; the stored \`## Proof\` table is accepted too); a tally alone, or a different story's proof, does not count (the user may be remote with no FS access)"
+        add "$name is Done but ITS OWN Proof table was not SHOWN in the reply — right after naming the story, show THIS story's proof exactly as \`story proof $name --format text\` prints it (its compact terminal form: every dimension + the tally; the stored \`## Proof\` table is accepted too); a tally alone, or a different story's proof, does not count (the user may be remote with no FS access)"
         session_ok=0
     fi
 

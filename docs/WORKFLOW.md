@@ -477,6 +477,7 @@ The checks and their switches:
 | `KYKLOS_AUTOMERGE_COVERAGE`, `KYKLOS_AUTOMERGE_LEDGER` | the coverage evidence needed to arm a merge request, and its content-ledger path | on |
 | **Momentum** | | |
 | `CONTINUE_GUARD`, `CONTINUE_GUARD_DIRECTIVE`, `CONTINUE_GUARD_WATCH_HOLD` | the Stop rule that keeps the agent working while work is open (see [Forced productivity](HOOKS_AND_SKILLS.md#forced-productivity)) | on |
+| `CONTINUE_GUARD_STALE_NUDGE` | at the end of a turn, names each open story (Blocked ones included) whose newest commit or merge request is newer than its newest note, and what to post; it never blocks (see [Forced productivity](HOOKS_AND_SKILLS.md#forced-productivity)) | on |
 | `KYKLOS_BLOCKER_CHECK` | the re-check of a blocked story's recorded blocker at every Stop | on |
 | `KYKLOS_ASK_USER_GUARD` | the refusal of a needless question to the user | on |
 | `KYKLOS_STORY_ASK_CHECK` | the refusal of a closing question to the owner about a story or issue with no note posted on it | on |
@@ -526,7 +527,8 @@ write; see [Installing and configuring](INSTALL_AND_CONFIG.md)) or are set by th
 | `Agile:Proof:CoverageFloorPercent` | `95` | the line coverage a PROVEN Test Discipline row must meet |
 | `Agile:Proof:TestDisciplineSource` | `ledger` | `token`: C# Test Discipline is answered by the token and receipt instead of the [content ledger](PROOF_DIMENSION_TEST_DISCIPLINE.md#the-content-ledger-what-the-bridge-records-after-every-passing-run) |
 | [`Agile:Proof:AdversarialAgentHardening`](PROOF_AGENT_ASSUMPTIONS.md#an-optional-hardening-agileproofadversarialagenthardening) | `off` | `on` adds checks against an agent acting deliberately against the process (reserved note markers, citations the last proof draft found no evidence for). Off by default because Kyklos guards against mistakes, and these checks add friction for an honest agent |
-| `Agile:Acceptance:OwnerAccounts` | empty | the accounts whose tick accepts a [tool-limit note](#the-owners-tick-on-a-tool-limit-note) and whose note can vouch for an override cause; empty accepts nothing |
+| `Agile:Acceptance:OwnerAccounts` | empty | the accounts whose tick accepts a [tool-limit note](#the-owners-tick-on-a-tool-limit-note) and whose note can vouch for an override cause; empty accepts nothing. The same accounts make a note an [ask to the owner](NEXT_WORK.md#open-asks-to-the-owner); empty lists no ask |
+| `Agile:Asks:StaleAfterDays` | `2` | how many days an [ask to the owner](NEXT_WORK.md#open-asks-to-the-owner) may wait with no tick and no reply before it is shown once as "stale: rewrite or retire" instead of as an open ask |
 
 ### Launcher opt-outs
 

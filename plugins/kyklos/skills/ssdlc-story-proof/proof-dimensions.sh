@@ -864,6 +864,13 @@ proof_render_terminal() {
   printf '%s\n' "$1" | awk -f "$_PROOF_DIM_DIR/proof-terminal-render.awk"
 }
 
+# proof_render_compact <table> -> the COMPACT terminal form: the same entries, each dimension's evidence cut to its first
+# line (at most 100 bytes) with a count of what was left out, then the tally. Same renderer, `compact` on; LC_ALL=C so
+# the cut counts bytes the way the bridge does. rc 1 (nothing printed) when the input holds no proof row.
+proof_render_compact() {
+  printf '%s\n' "$1" | LC_ALL=C awk -v compact=1 -f "$_PROOF_DIM_DIR/proof-terminal-render.awk"
+}
+
 # proof_recompute_tally <table> -> the table with the `**Tally: N PROVEN . M NOT_PERTINENT**` line recomputed
 # from the ACTUAL verdicts (plus ` . K UNPROVEN` whenever K > 0, so a partial proof never reads as complete) (routed through proof_scan_table, the single classifier). If the table is malformed,
 # the Tally line is left unchanged (proof_count_unproven / the guard will block the table anyway).

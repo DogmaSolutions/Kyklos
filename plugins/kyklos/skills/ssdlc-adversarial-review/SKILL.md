@@ -156,6 +156,9 @@ to be kept carries no `Refs:` naming the story, or its branch is deleted after t
      from GitLab's own record: the last editor of an edited note, the author only of a note never edited. An agent's
      tick, an edited note whose last editor GitLab does not name, or no owner account configured accepts nothing.
      Ask the owner for the tick as a tickable note, with the finding's text and why it is theirs.
+   Before moving a finding to an issue, ask the bridge's `fold_advice` verb with the finding's summary and files: when
+   an open story already owns its class, fold it there with `story_fold` (it becomes that story's next requirement)
+   and move the finding to that story, instead of opening a new one.
    A note for another round, for a finding the report does not list, or written before the review settles nothing.
    An optional reason may follow the line after a colon or a dash. Then run `proof_draft` again: an open row says why
    each settle note it did not take settles nothing.

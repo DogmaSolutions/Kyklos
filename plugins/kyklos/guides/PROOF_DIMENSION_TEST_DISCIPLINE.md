@@ -42,7 +42,8 @@ the project's own Stryker tool. The full list is in [Supported languages and too
 ### The content ledger: what the Bridge records after every passing run
 
 The evidence for C# code is the **content ledger**: a host-side file in which the [Bridge](COMPONENTS.md#kyklos-bridge) writes, after each of its own
-passing coverage runs, one fact per source file the run's coverage report names.
+passing coverage runs, one fact per source file the run's coverage report names. It has one second source: a CI pipeline
+whose reports the Bridge has verified (see [Coverage measured in CI](#coverage-measured-in-ci-coverage_receipt_ci)).
 
 - **What a fact holds:** the file's content identity (its git blob hash, computed with the repository's own clean filters, so
   a Windows checkout with CRLF line ends and the committed LF file have one identity), the executable lines of that
@@ -53,6 +54,10 @@ passing coverage runs, one fact per source file the run's coverage report names.
 - **Which runs record facts:** a passing `get_coverage` run (with any test filter, or with `projects`, which measures only the named test projects and is the cheap route: a filter alone still builds and starts every test project; for a large suite it is the default route, and a whole-suite run with the `story` is for small suites or declared test shards, which the Bridge refuses before it starts when the recorded durations of the test projects put it above the run's time limit) and a [`run_tests`](#how-tests-run-on-the-host) run given a `story`,
   which collects coverage in the same pass. A run that is not green records nothing, and so does a run that leaves one of
   the processes it started alive after a short grace (a leftover process could still write into the report).
+- **Facts from CI:** [`coverage_receipt_ci`](#coverage-measured-in-ci-coverage_receipt_ci) writes facts for the story's changed
+  files from a finished, green pipeline of exactly the tested commit whose expected coverage reports are all present. Each
+  is signed like a host fact and its run id names the pipeline and its jobs (`ci-pipeline-<id> (<jobs>)`), so a reader can
+  always tell where a fact came from. The setting `Agile:Proof:ContentLedgerCiFacts=false` turns this source off (default on).
 - **Where it is:** `content-ledger/facts.jsonl` in the Bridge's state folder (setting `KYKLOS_BRIDGE_STATE_DIR`; on
   Windows by default under `%LOCALAPPDATA%\KyklosBridge`). That folder is on the host and is mounted in no agent container,
   so the agent has no write path to it.
@@ -72,7 +77,9 @@ the tests that cover the gap lines, never the whole suite again. The Bridge's GU
 Lines the coverage tool leaves out on purpose (code marked with an exclusion attribute, generated files, migrations,
 files the repository excludes by pattern) are listed with their reason, never silently counted as covered. A C# file that
 holds no executable code at all (only interfaces, enums, constants and the like) is decided by a syntax walk of its
-content: its lines are not executable, not gaps.
+content: its lines are not executable, not gaps. A file whose current version no run has loaded yet (no fact for its
+content) has every changed line counted as a gap; the *Coverage facts* page says "no run has loaded this version of the
+file" on its lines, and marks its loading line busy while it reads.
 
 ### Signatures, the key, and when they are checked
 
@@ -146,8 +153,15 @@ The same token and receipt path exists for C# as an opt-out: with the Bridge set
 ledger facts. The default is `ledger`. The setting `Agile:Proof:CoverageReceiptRequired=false` switches the receipt
 requirement off (default on).
 
-On that token path a story is also compared with the trunk commit it started from (its **base**), which has one of three
-states. A **known green** base is judged by the no-drop rule: no changed line may lose coverage it had there. A **known
+On that token path a story is also compared with the trunk commit it started from (its **base**), unless its
+[Proof Discipline](PROOF.md#the-owners-proof-discipline) sets `No-Drop Check: off`. The base figure comes
+from every trustable source of that commit, line by line: the Bridge's own run of the base and, where the Bridge serves
+the project's CI, the coverage reports of a finished, green trunk pipeline of exactly that commit (read as
+[`coverage_receipt_ci`](#coverage-measured-in-ci-coverage_receipt_ci) reads a pipeline). When the Bridge's base run cannot be made, the
+pipeline alone is the base; the base is unknown only when neither exists. The trunk pipeline is read for the base only
+when the story's own figure includes CI evidence, so a figure measured on the host alone is compared with the same base
+as without CI. (A base judged on every production file,
+because the story changes an existing test, reads the Bridge's own run only.) The base has one of three states. A **known green** base is judged by the no-drop rule: no changed line may lose coverage it had there. A **known
 red** base (tests fail there) and an **unknown** base (it could not be measured: no report, no base commit found, a run
 cut at a limit) give a **branch-only** token, recorded as such on the receipt and in the token's answer (`base red: ...`
 or `base unknown: ...; the token is branch-only`), as long as the story's own run is green and runs every changed line
@@ -155,6 +169,49 @@ and the story changes no test (a deleted test can lose coverage of lines the sto
 comparison with the base shows).
 When the story's run leaves a changed line unrun, an unknown base is refused (`BASE-UNMEASURABLE`, naming the lines) and a
 red base is judged by the no-drop rule on the tests that pass there.
+
+### Coverage measured in CI: `coverage_receipt_ci`
+
+Some tests cannot all run on the developer's machine: they run only on another operating system, only in end-to-end
+jobs, or the whole suite takes longer than the [Bridge](COMPONENTS.md#kyklos-bridge)'s run limits. For those, the Bridge verb `coverage_receipt_ci`
+takes the evidence from the coverage reports a CI pipeline already produced, instead of a host run.
+
+- **Arguments:** `story`; optionally `tree` or `project` (as for `run_tests`: the committed tree whose head the pipeline
+  ran), `pipeline` (its id; by default the newest pipeline of the tree's head) and `owner`. It runs as a bridge job.
+- **Which pipeline counts:** one that has finished, passed, and ran exactly the tree's head commit, read from the CI
+  project the tree's repository belongs to (in a companion layout, the nested source repository), with the Bridge's own
+  read-only CI access. The tree must have no uncommitted change.
+- **Which files are read:** every job's artifact archive is downloaded, and every file named as a Cobertura report
+  (`*cobertura.xml`, `cobertura-coverage.xml`, `coverage.xml`) is read; JUnit result files (`*junit.xml`) name the tests and
+  test assemblies that passed. Files are found by name inside the archive, never by a path the caller types.
+- **What is refused, by name:** a pipeline still running (wait for it), one that did not pass or ran another commit; an
+  archive that cannot be downloaded (expired or removed); a file named as a report that is not readable Cobertura; a job
+  that should have left a report and did not (it declared a Cobertura report to the CI system, reported a coverage
+  figure, belongs to a parallel set whose other jobs left one, or the host's CI coverage settings list it); a pipeline
+  with no report at all; and the host's caps on archive size, file size and report count. A refused pipeline adds nothing.
+- **On a Bridge whose close reads the content ledger (the default):** the reports become ledger facts of the story's
+  changed files, a line counting as run when any report ran it. Each fact is keyed by the file's content at the
+  pipeline's commit, names the source files of the tests the JUnit results show passed (so it expires when one of them
+  changes), is signed with the Bridge's key and marked with the pipeline and its jobs. Nothing is written when a test
+  failed or no passed test can be named. [`test_facts`](#the-answer-for-a-story-test_facts) and the close then count those lines exactly as lines
+  of a host run. CI facts only ever add: when a file content has any fact of the Bridge's own runs, those alone decide
+  which lines are executable and which are expired, so a CI fact can turn a gap into a run line and never a run or
+  not-executable line into a gap. A pipeline that cannot be used adds nothing and refuses nothing. `Agile:Proof:ContentLedgerCiFacts=false` turns this off; the verb then refuses, naming the setting.
+- **On a Bridge set to the token source:** the reports, together with this Bridge's own green run of the same head when
+  there is one, go through the same receipt and token step as a story-bound `get_coverage`: same union per line,
+  story-line judgement, C.R.A.P. score and trunk-base comparison; the .NET receipt is posted on the story and the token
+  records it.
+- **Without asking:** whenever a story's coverage is asked (`test_facts`, the proof draft, the close), the Bridge itself
+  looks for the newest pipeline of the story head and folds it in once, after the same checks. A pipeline still running
+  is named in the answer ("its coverage will count once it finishes: ask again after it ends"), so the agent waits for it
+  instead of starting a long host suite; one that cannot be used is named and ignored. Calling `coverage_receipt_ci` is
+  only needed for a pipeline of another commit, or on a Bridge set to the token source.
+- **Where a person sees it:** every pipeline read is a step in the Bridge GUI's *Recent steps of this agent*, naming the
+  pipeline, its jobs, how many lines it ran and how many of them it added to the host's evidence, or why it was refused.
+  Each result (a pipeline folded in, or refused for good) is also one comment on the story, never twice for the same
+  pipeline; a pipeline still running gets no comment. The *Coverage facts* page names each run's source (*on this bridge*,
+  or *in CI* with the pipeline and its jobs) and can show one source only.
+- Changed shell scripts still need their own shell receipt (`story attach-coverage`).
 
 ### What the close applies to this row
 
@@ -261,7 +318,8 @@ been a figure about different code.
 
 **Why a key the agent never sees.** If the agent could compute the signature, nothing would stop a hand-written fact. Keeping
 the key in the host's credential store and in the [Bridge](COMPONENTS.md#kyklos-bridge) process only means a fact exists only because the Bridge itself
-watched a passing run. The limits of this protection are stated plainly in [The Proof Table](PROOF.md): code that runs as
+watched a passing run, or verified, with its own read-only CI access, that a finished green pipeline of exactly that
+commit produced the reports the fact comes from (unless `Agile:Proof:ContentLedgerCiFacts=false`). The limits of this protection are stated plainly in [The Proof Table](PROOF.md): code that runs as
 the same user on the same machine could, deliberately, read the key; the control against a deliberately hostile test is
 the [adversarial review](ADVERSARIAL_REVIEW.md).
 

@@ -94,8 +94,8 @@ The following sections illustrate how *Kyklos* works and how it helps to keep th
 13. [Adversarial reviews](docs/ADVERSARIAL_REVIEW.md)
 14. [The Infrastructure session: one privileged agent across projects](docs/INFRASTRUCTURE_SESSION.md)
 15. [Similar projects, and how Kyklos compares](docs/SIMILAR_PROJECTS.md)
-16. [Manually install and configure Kyklos on Windows](docs/INSTALL_AND_CONFIG.md)
-17. [Installing Kyklos with an agent: step-by-step instructions an agent can follow](docs/AGENT_INSTALL.md)
+16. [Installing Kyklos with an agent: step-by-step instructions an agent can follow](docs/AGENT_INSTALL.md)
+17. [Manually install and configure Kyklos on Windows](docs/INSTALL_AND_CONFIG.md)
 18. [Troubleshooting: find your problem by the message you see](docs/TROUBLESHOOTING.md)
 19. [Versions and releases: what each release publishes, and which Bridge the Launcher runs](docs/RELEASES.md)
 20. [Knowledge base](docs/KB.md)
@@ -106,11 +106,17 @@ The following sections illustrate how *Kyklos* works and how it helps to keep th
 
 ## 🚀 Get Started
 
-To get started, follow [Installing and configuring Kyklos on Windows](docs/INSTALL_AND_CONFIG.md): a roadmap from zero to a working agent on a "Hello World" .NET project in GitLab.
+### Using an agent (recommended)
+The best way to get started with Kyklos, is to let an agent do the installation for you.  
+Point it (running on the host, not in a container) at [Agent Install](docs/AGENT_INSTALL.md), and ask it to install and configure Kyklos for you.
+It will download the latest version of [Kyklos Launcher](docs/COMPONENTS.md), install it, and guide you through the whole configuration process.
 
-To let an agent do the installation for you, point it (running on the host, not in a container) at [Agent Install](docs/AGENT_INSTALL.md): numbered steps with a check after each one, which stop and ask you wherever only a person can act (tokens, secrets, logins, approvals).
+### Doing it by hand (the old, virtuous way)
+Do you want to discover all nooks and crannies of the [Kyklos Launcher](docs/COMPONENTS.md) and the [Kyklos Bridge](docs/COMPONENTS.md) by yourself ?
+Follow [Installing and configuring Kyklos on Windows](docs/INSTALL_AND_CONFIG.md).
 
-To run without the [Launcher](docs/COMPONENTS.md#kyklos-launcher) (you start the [Bridge](docs/COMPONENTS.md#kyklos-bridge), install the [Plugin](docs/COMPONENTS.md#kyklos-plugin) in Claude Code and connect the two yourself), see [Wiring a project by hand](docs/INSTALL_AND_CONFIG.md#wiring-a-project-by-hand-without-the-launcher); the Plugin itself installs with:
+## Running the Bridge without the Launcher
+To run the [Kyklos Bridge](docs/COMPONENTS.md) without the [Kyklos Launcher](docs/COMPONENTS.md#kyklos-launcher), install the [Plugin](docs/COMPONENTS.md#kyklos-plugin) in Claude Code and connect the two yourself), see [Wiring a project by hand](docs/INSTALL_AND_CONFIG.md#wiring-a-project-by-hand-without-the-launcher); the Plugin itself installs with:
 
 ```bash
 claude plugin marketplace add https://github.com/DogmaSolutions/Kyklos.git

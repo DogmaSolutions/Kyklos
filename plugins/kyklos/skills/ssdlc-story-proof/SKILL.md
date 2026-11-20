@@ -426,18 +426,21 @@ column is purely advisory.
   is a workflow failure, not a close. This generalises: **any artifact that *is* the deliverable** — a result
   table, a diff/summary, a command's decisive output — is surfaced **in the response**, never left only on disk.
 - **One record, two renderings — both from the tool.** The stored `## Proof` markdown table is the canonical record;
-  on GitLab (the proof note, comments) it stays that table, unchanged. A terminal breaks that table (`<br>`, `<kbd>`,
-  long cells), so **in the terminal show its terminal form**: name the story (`#<id>` / `STORY-<NNN>`), then paste the
-  output of `story proof <id> --format text` **exactly as printed** (`story close` prints the same block between its
-  `=== Proof … ===` markers; the bridge's `proof_get` with `format` `text` returns it too). It is derived from the
-  stored table by one renderer: a numbered entry per dimension (verdict symbol, **bold** dimension name, verdict
-  word), the evidence as indented lines, each metric as a bullet, any other line of the stored section (a
-  `Proof-Override:` line, a note) as written, and the tally counted from the rows. Never type,
-  merge, shorten or re-word it by hand — a hand-made form is not the proof.
+  GitLab (the proof note, comments, closes) always holds the full table, unchanged. A terminal breaks that table
+  (`<br>`, `<kbd>`, long cells) and a full proof is too long for a reply, so **the terminal shows the compact form,
+  exactly as the tool prints it; the full form lives in GitLab**: name the story (`#<id>` / `STORY-<NNN>`), then paste
+  the output of `story proof <id> --format text` (the same as `--format compact`; `story close` prints the same block
+  between its `=== Proof … ===` markers; the bridge's `proof_get` with `format` `text` returns it too). It is derived
+  from the stored table by one renderer: a numbered entry per dimension (verdict symbol, **bold** dimension name,
+  verdict word), under it the first evidence line (cut to 100 bytes) with a count of the evidence lines and metrics
+  left out, any other line of the stored section (a `Proof-Override:` line, a note) as written, a line naming the full
+  form, and the tally counted from the rows. Never type, merge, shorten or re-word it by hand — a hand-made form is not
+  the proof. The full terminal form (every evidence line and metric) is printed only when someone asks for it:
+  `story proof <id> --format full`, or `proof_get` with `format` `full`.
   **This is HARD-ENFORCED**: the `kyklos-story-proof-guard` Stop hook blocks closing a story it sees marked Done
   this session unless the recent transcript, after the story's id, actually contains EVERY dimension of its rendered
   proof — either the stored table (each dimension as its own row under the `| Verdict | Evidence |` header) or the
-  terminal form (its heading and each dimension as its own numbered `**Dimension** — VERDICT` entry); a tally alone,
+  terminal form, compact or full (its heading and each dimension as its own numbered `**Dimension** — VERDICT` entry); a tally alone,
   a missing dimension or merged rows do not count.
   It grandfathers stories closed in an earlier session and fails open if it cannot read the transcript, so it can
   never wedge a Stop loop.

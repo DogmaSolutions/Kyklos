@@ -56,7 +56,7 @@ if [ -z "$TEXT" ]; then
 fi
 
 if [ -n "$TEXT" ]; then
-    MSG="$(printf '[kyklos] proof-shown: you just closed STORY-%s. The remote user CANNOT see the GitLab proof note - only your reply. Name it #%s / STORY-%s, then SHOW THIS PROOF in your VERY NEXT reply EXACTLY AS PRINTED (the terminal form the story tool rendered from the stored table: every numbered dimension with its evidence and metrics, and the tally; never re-type, merge or shorten it by hand). Do it now, in this turn - do not wait for the Stop gate to force it:\n\n%s' "$ID" "$ID" "$ID" "$TEXT")"
+    MSG="$(printf '[kyklos] proof-shown: you just closed STORY-%s. The remote user CANNOT see the GitLab proof note - only your reply. Name it #%s / STORY-%s, then SHOW THIS PROOF in your VERY NEXT reply EXACTLY AS PRINTED (the compact terminal form the story tool rendered from the stored table: every numbered dimension with its verdict and its first evidence line, and the tally; the full form lives in GitLab; never re-type, merge or shorten it by hand). Do it now, in this turn - do not wait for the Stop gate to force it:\n\n%s' "$ID" "$ID" "$ID" "$TEXT")"
 elif [ -n "$TABLE" ]; then
     MSG="$(printf '[kyklos] proof-shown: you just closed STORY-%s. The remote user CANNOT see the GitLab proof note - only your reply. RENDER THIS PROOF TABLE VERBATIM (every dimension row + the tally) in your VERY NEXT reply, naming it #%s / STORY-%s. Do it now, in this turn - do not wait for the Stop gate to force it:\n\n%s' "$ID" "$ID" "$ID" "$TABLE")"
 else

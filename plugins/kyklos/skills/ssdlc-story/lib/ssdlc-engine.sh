@@ -377,8 +377,8 @@ ssdlc_verb_for() {
                 return 0
             fi
             [ "$have_branch" -eq 0 ] || return 0
-            # A format other than markdown/text, or one given with a write, stays with bash, which refuses it.
-            case "$format" in markdown|text) : ;; *) return 0 ;; esac
+            # A format other than markdown/text/compact/full, or one given with a write, stays with bash, which refuses it.
+            case "$format" in markdown|text|compact|full) : ;; *) return 0 ;; esac
             [ "$format" = markdown ] || { [ -z "$apply" ] && [ "${#sets[@]}" -eq 0 ] && [ "$write" -eq 0 ]; } || return 0
             if [ -n "$apply" ]; then
                 [ -f "$apply" ] || return 0
@@ -401,8 +401,8 @@ ssdlc_verb_for() {
                     printf 'proof_set\t%s' "$(jq -cn --arg id "$id" '{id:$id,sets:($ARGS.positional|tojson)}' --args "${sets[@]}")"
                 fi
             elif [ "$template" -eq 0 ]; then
-                if [ "$format" = text ]; then
-                    printf 'proof_get\t%s' "$(jq -cn --arg id "$id" '{id:$id,format:"text"}')"
+                if [ "$format" != markdown ]; then
+                    printf 'proof_get\t%s' "$(jq -cn --arg id "$id" --arg f "$format" '{id:$id,format:$f}')"
                 else
                     printf 'proof_get\t%s' "$(jq -cn --arg id "$id" '{id:$id}')"
                 fi

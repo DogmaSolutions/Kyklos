@@ -42,6 +42,8 @@
 # allow the stop when it cannot prove work remains  -  else an outage would wedge the agent forever. Logged, never silent.
 #
 # CONFIG (standards.env / env; all optional): CONTINUE_GUARD=on|off (default on) ; CONTINUE_GUARD_STUCK_TURNS (3) ;
+# CONTINUE_GUARD_WATCH_TTL_MINUTES (30) and CONTINUE_GUARD_AGENT_TTL_MINUTES (480), the live-worker bounds ;
+# CONTINUE_GUARD_STALE_NUDGE=on|off (default on), CONTINUE_GUARD_NUDGE_READ_MAX (20), CONTINUE_GUARD_NUDGE_TIME_BUDGET (15) ;
 # SCOPE - a cross-project agent sets CONTINUE_GUARD_PROJECTS (comma project ids) and/or CONTINUE_GUARD_GROUPS (comma
 # group ids) to span its whole backlog; unset => the single CONTINUE_GUARD_PROJECT (defaults to KYKLOS_ISSUES_PROJECT)
 # - back-compat. CONTINUE_GUARD_DIRECTIVE: directive (keep-rolling) is the DEFAULT for every container; set =off to
@@ -106,9 +108,20 @@ WORK_FILE="$STATE_DIR/continue-guard.work"   # cumulative tool_use count at the 
 
 log() { printf '[kyklos] continue-guard: %s\n' "$1" >&2; }
 # ALLOW resets the stuck-breaker streak (this stop is legitimate, not part of a spin).
-allow() { [ -n "${1:-}" ] && log "$1"; rm -f "$CNT_FILE" "$SIG_FILE" 2>/dev/null || true; exit 0; }
+# STALE-STORY NUDGE (see _cg_stale_nudge): the stories whose newest delivery is newer than their newest note, worded for
+# the agent. It never changes a decision: an allowed stop shows it to the person as a systemMessage, a block appends it.
+_CG_NUDGE_TEXT=""
+_cg_end_allowed() {   # end the hook with the stop allowed; the nudge, when there is one, travels as a systemMessage
+    if [ -n "${_CG_NUDGE_TEXT:-}" ]; then
+        log "$_CG_NUDGE_TEXT"
+        jq -nc --arg m "$_CG_NUDGE_TEXT" '{systemMessage:$m}' 2>/dev/null || true
+    fi
+    exit 0
+}
+allow() { [ -n "${1:-}" ] && log "$1"; rm -f "$CNT_FILE" "$SIG_FILE" 2>/dev/null || true; _cg_end_allowed; }
 emit_block() {
-    local r="$1"; r="${r//\\/\\\\}"; r="${r//\"/\\\"}"; r="$(printf '%s' "$r" | tr '\n' ' ')"
+    local r="$1"; [ -n "${_CG_NUDGE_TEXT:-}" ] && r="$r $_CG_NUDGE_TEXT"
+    r="${r//\\/\\\\}"; r="${r//\"/\\\"}"; r="$(printf '%s' "$r" | tr '\n' ' ')"
     printf '{"decision":"block","reason":"%s"}' "$r"; exit 0
 }
 
@@ -572,7 +585,8 @@ _cg_blocked_checkable() {
 # the hermetic seam's existing fixtures keep their meaning. An issue with an unparseable labels field classifies
 # as nonstory WORK (fail-strict: never silently invisible).
 _cg_partition() {
-    _CG_WORK=""; _CG_NONSTORY=""; _CG_BARE=""; _CG_ACTIVE=""; _CG_UNADOPTED=""; _CG_BLOCKED=""; _CG_ELSEWHERE=""
+    _CG_WORK=""; _CG_NONSTORY=""; _CG_BARE=""; _CG_ACTIVE=""; _CG_UNADOPTED=""; _CG_BLOCKED=""; _CG_ELSEWHERE=""; _CG_USERWAIT=""
+    _CG_NUDGE_SCOPE=""
     local tok id labels cls _sk_route="" _sk_park="" _sk_block="" _sk_disp="" _owner
     for tok in $1; do
         id="${tok%%|*}"
@@ -580,6 +594,11 @@ _cg_partition() {
         if _owner="$(_cg_owner_elsewhere "$id")"; then
             _CG_ELSEWHERE="$_CG_ELSEWHERE $id (owned by $_owner);"
             continue
+        fi
+        # The stale-story nudge reads every open story of this agent, Blocked ones included (never parked, dropped or
+        # routed ones); a bare token carries no labels, so it is never known to be a story.
+        if [ "$tok" != "$id" ]; then
+            case "$(_cg_classify "${tok#*|}")" in story|skip:blocked) _CG_NUDGE_SCOPE="$_CG_NUDGE_SCOPE $id" ;; esac
         fi
         # [adoption coherence] EVIDENCE-GATED + MODE-INDEPENDENT: a story cannot be worked (status::doing) without
         # being adopted — adoption stamps an ssdlc:phase:: label. If the list labels show status::doing WITHOUT any
@@ -614,7 +633,8 @@ _cg_partition() {
             nonstory)         _CG_WORK="$_CG_WORK $id"; _CG_NONSTORY="$_CG_NONSTORY $id" ;;
             skip:routed)      _sk_route="$_sk_route $id" ;;
             skip:parked)      _sk_park="$_sk_park $id" ;;
-            skip:blocked)     _sk_block="$_sk_block $id"; _cg_blocked_checkable "$labels" && _CG_BLOCKED="$_CG_BLOCKED $id" ;;
+            skip:blocked)     _sk_block="$_sk_block $id"; _cg_blocked_checkable "$labels" && _CG_BLOCKED="$_CG_BLOCKED $id"
+                              case ",${labels}," in *,status::blocked-on-user,*) _CG_USERWAIT="$_CG_USERWAIT $id" ;; esac ;;
             skip:disposition) _sk_disp="$_sk_disp $id" ;;
         esac
     done
@@ -628,6 +648,86 @@ _cg_partition() {
     _CG_ACTIVE="$(printf '%s' "$_CG_ACTIVE" | sed 's/^ *//')"
     _CG_UNADOPTED="$(printf '%s' "$_CG_UNADOPTED" | sed 's/^ *//')"
     _CG_BLOCKED="$(printf '%s' "$_CG_BLOCKED" | sed 's/^ *//')"
+    _CG_USERWAIT="$(printf '%s' "$_CG_USERWAIT" | sed 's/^ *//')"
+}
+# _cg_waiting_note -> " Waiting on the person: <ids> (each blocked on a recorded question)." or nothing, so an allowed
+# stop says which asks the agent is waiting on, next to the agents it named.
+_cg_waiting_note() {
+    [ -n "${_CG_USERWAIT:-}" ] && printf ' Waiting on the person: %s (each blocked on a recorded question).' "$_CG_USERWAIT"
+    return 0
+}
+
+# STALE-STORY NUDGE (default-on; CONTINUE_GUARD_STALE_NUDGE=off to disable). A story whose newest delivery (a commit or a
+# merge request that names it, recorded by GitLab as a "mentioned in commit|merge request" system note, or a release
+# that GitLab records the same way) is newer than its newest written note carries no record of what was delivered: the
+# story looks idle or unfinished to the person although work landed. At every stop that reaches the open list, the guard
+# names each such story of this agent (Blocked stories included) and what to post. It NEVER blocks and never allows: it
+# only adds the names to the decision already taken (a block's reason, or a systemMessage on an allowed stop).
+# Reads are bounded: at most CONTINUE_GUARD_NUDGE_READ_MAX (default 20) notes reads and CONTINUE_GUARD_NUDGE_TIME_BUDGET
+# (default 15) seconds per stop; each verdict is cached by the whole issue id and its updated_at (a new note, including
+# GitLab's own "mentioned in" note, changes updated_at), so a later stop reads only new or changed stories. A story whose
+# notes cannot be read is named as unchecked in the audit line, never as stale. The bridge's own signed records (the
+# Proof Discipline record) are not notes a person wrote, so they never count as the story's newest note.
+# Hermetic seam: CONTINUE_GUARD_TEST_NOTES_DIR/<project>-<iid> holds the notes answer (a JSON array, newest first or not).
+_cg_story_notes() {   # <project#iid> -> the notes JSON array on stdout; rc 1 when it cannot be read
+    local proj="${1%%#*}" iid="${1##*#}" out rc
+    if [ -n "${CONTINUE_GUARD_TEST_NOTES_DIR:-}" ]; then
+        [ -f "$CONTINUE_GUARD_TEST_NOTES_DIR/$proj-$iid" ] || return 1
+        cat "$CONTINUE_GUARD_TEST_NOTES_DIR/$proj-$iid"; return 0
+    fi
+    out="$(coordination_read coordination_notes "$(jq -cn --arg p "$proj" --arg i "$iid" '{project:$p, iid:$i, sort:"desc"}')" 2>/dev/null)"; rc=$?
+    [ "$rc" = 0 ] || return 1
+    printf '%s' "$out" | json_test 'type == "array"' || return 1
+    printf '%s' "$out"
+}
+# _cg_stale_verdict (notes JSON on stdin) -> "fresh", or "stale<TAB><what was delivered>" where the delivery is the
+# newest "mentioned in commit <sha>" / "mentioned in merge request <ref>" system note that is newer than every note a
+# person or agent wrote.
+_cg_stale_verdict() {
+    jq -r '
+        def delivery: (.system == true) and ((.body // "") | test("^mentioned in (commit|merge request) "));
+        def record: (.system != true) and (((.body // "") | startswith("<!-- kyklos:proof-discipline")) | not);
+        ([.[] | select(delivery)] | max_by(.created_at)) as $d
+        | ([.[] | select(record)] | max_by(.created_at)) as $n
+        | if $d == null then "fresh"
+          elif $n == null or ($d.created_at > $n.created_at) then
+              "stale\t" + ($d.body | capture("^mentioned in (?<w>commit|merge request) (?<r>[A-Za-z0-9_./!#@-]{1,120})") | "\(.w) \(.r)") + " (" + ($d.created_at | .[0:16]) + ")"
+          else "fresh" end' 2>/dev/null
+}
+_cg_stale_nudge() {
+    _CG_NUDGE_TEXT=""
+    kyklos_control_off "${CONTINUE_GUARD_STALE_NUDGE:-}" && return 0
+    [ -n "${_CG_NUDGE_SCOPE:-}" ] || return 0
+    local max="${CONTINUE_GUARD_NUDGE_READ_MAX:-20}" budget="${CONTINUE_GUARD_NUDGE_TIME_BUDGET:-15}"
+    case "$max" in ''|*[!0-9]*) max=20 ;; esac
+    case "$budget" in ''|*[!0-9]*) budget=15 ;; esac
+    local cache="$STATE_DIR/continue-guard.stale-verdicts" cachetext="" newcache="" reads=0 start=$SECONDS
+    local id upd cached verdict notes stale="" unchecked=""
+    if [ -f "$cache" ] && [ ! -L "$cache" ] && [ "$(wc -c < "$cache" 2>/dev/null || echo 0)" -le "$_CG_VERDICT_CACHE_MAX_BYTES" ]; then
+        cachetext="$(cat -- "$cache" 2>/dev/null)"
+    fi
+    for id in $_CG_NUDGE_SCOPE; do
+        upd="$(awk -F'\t' -v id="$id" '$1 == id { print $2; exit }' "$_CG_UPD_FILE" 2>/dev/null)"
+        cached=""
+        [ -n "$upd" ] && cached="$(printf '%s\n' "$cachetext" | awk -F'\t' -v id="$id" -v u="$upd" '$1 == id && $2 == u { $1 = ""; $2 = ""; sub(/^\t\t/, ""); print; exit }' OFS='\t')"
+        if [ -n "$cached" ]; then
+            verdict="$cached"
+        elif [ "$reads" -ge "$max" ] || [ $((SECONDS - start)) -ge "$budget" ]; then
+            unchecked="$unchecked $id"; continue
+        else
+            reads=$((reads + 1))
+            if ! notes="$(_cg_story_notes "$id")"; then unchecked="$unchecked $id"; continue; fi
+            verdict="$(printf '%s' "$notes" | _cg_stale_verdict)"
+            case "$verdict" in fresh|stale*) : ;; *) unchecked="$unchecked $id"; continue ;; esac
+        fi
+        [ -n "$upd" ] && newcache="$newcache$id"$'\t'"$upd"$'\t'"$verdict"$'\n'
+        case "$verdict" in stale*) stale="$stale ${id} (${verdict#stale$'\t'});" ;; esac
+    done
+    { printf '%s' "$newcache" > "$cache.$$" && mv -fT -- "$cache.$$" "$cache"; } 2>/dev/null || rm -f -- "${cache:?}.$$" 2>/dev/null || true
+    [ -n "$unchecked" ] && log "stale-story nudge: not checked this stop (notes unreadable, or past the read cap of $max / ${budget}s):$unchecked."
+    [ -n "$stale" ] || return 0
+    _CG_NUDGE_TEXT="Stories with delivered work and no note about it:${stale%;}. Post one note on each saying what that commit or merge delivered (the requirements it covers, and whether it is on a branch, merged or released), with the bridge's story_note verb or 'story ask <id> --file <note>'; this is a reminder and does not decide whether you may stop."
+    return 0
 }
 
 # _cg_issue_description <project#iid> -> the issue description on stdout; rc != 0 when it cannot be read. The bridge
@@ -666,18 +766,26 @@ _cg_issue_description() {
 # (default 30), judged by the transcript line's own harness "timestamp". A "still running" notification is often a
 # leftover timer that never notifies again; without the bound such a worker stayed live for hours and the hold let the
 # agent idle. An event whose line carries no readable timestamp is too old by definition (fail-strict).
+# A background AGENT whose last event is its launch or resume has not notified at all yet: it is live until its
+# notification arrives, because a builder agent works for hours without a word and a 30-minute bound let the hold lapse
+# while it still ran (the coordinator was then re-run at every stop, holding the person's messages behind the Stop
+# hook). Its bound is CONTINUE_GUARD_AGENT_TTL_MINUTES (default 480), a ceiling for an agent that died without a
+# notification (a session restarted around it), never the normal end of a running one.
 # CONTINUE_GUARD_TEST_NOW (epoch seconds) pins "now" for tests.
 _cg_live_watch() {
     local t="${1:-}" win="${CONTINUE_GUARD_WATCH_WINDOW:-4000000}" ttl="${CONTINUE_GUARD_WATCH_TTL_MINUTES:-30}" now cutoff
+    local attl="${CONTINUE_GUARD_AGENT_TTL_MINUTES:-480}" acutoff
     [ -n "$t" ] && [ -f "$t" ] || return 0
     case "$win" in ''|*[!0-9]*) win=4000000 ;; esac
     case "$ttl" in ''|*[!0-9]*) ttl=30 ;; esac
+    case "$attl" in ''|*[!0-9]*) attl=480 ;; esac
     now="${CONTINUE_GUARD_TEST_NOW:-$(date -u +%s 2>/dev/null)}"
     case "$now" in ''|*[!0-9]*) return 0 ;; esac
     cutoff="$(date -u -d "@$((now - ttl * 60))" +%Y-%m-%dT%H:%M:%S 2>/dev/null)" || return 0
-    [ -n "$cutoff" ] || return 0
-    tail -c "$win" "$t" 2>/dev/null | awk -v cutoff="$cutoff" '
-        function mark(id, v) { if (!(id in st)) order[++n] = id; st[id] = v; at[id] = ts }
+    acutoff="$(date -u -d "@$((now - attl * 60))" +%Y-%m-%dT%H:%M:%S 2>/dev/null)" || return 0
+    [ -n "$cutoff" ] && [ -n "$acutoff" ] || return 0
+    tail -c "$win" "$t" 2>/dev/null | awk -v cutoff="$cutoff" -v acutoff="$acutoff" '
+        function mark(id, v, k) { if (!(id in st)) order[++n] = id; st[id] = v; at[id] = ts; kind[id] = k }
         {
             ts = ""
             if (match($0, /"timestamp":"[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]/)) ts = substr($0, RSTART + 13, 19)
@@ -687,18 +795,18 @@ _cg_live_watch() {
                 x = seg[i]
                 if (i > 1 && notice && match(x, /<task-id>[a-z0-9]+<\/task-id>/)) {
                     id = substr(x, RSTART + 9, RLENGTH - 19)
-                    if (x ~ /background work of its own still running/) mark(id, 1); else mark(id, 0)
+                    if (x ~ /background work of its own still running/) mark(id, 1, "t"); else mark(id, 0, "t")
                     continue
                 }
                 y = x
-                while (match(y, /"backgroundTaskId":"[a-z0-9]+"/)) { mark(substr(y, RSTART + 20, RLENGTH - 21), 1); y = substr(y, RSTART + RLENGTH) }
+                while (match(y, /"backgroundTaskId":"[a-z0-9]+"/)) { mark(substr(y, RSTART + 20, RLENGTH - 21), 1, "t"); y = substr(y, RSTART + RLENGTH) }
                 y = x
-                while (match(y, /"status":"async_launched","agentId":"[a-z0-9]+"/)) { mark(substr(y, RSTART + 37, RLENGTH - 38), 1); y = substr(y, RSTART + RLENGTH) }
+                while (match(y, /"status":"async_launched","agentId":"[a-z0-9]+"/)) { mark(substr(y, RSTART + 37, RLENGTH - 38), 1, "a"); y = substr(y, RSTART + RLENGTH) }
                 y = x
-                while (match(y, /"resumedAgentId":"[a-z0-9]+"/)) { mark(substr(y, RSTART + 18, RLENGTH - 19), 1); y = substr(y, RSTART + RLENGTH) }
+                while (match(y, /"resumedAgentId":"[a-z0-9]+"/)) { mark(substr(y, RSTART + 18, RLENGTH - 19), 1, "a"); y = substr(y, RSTART + RLENGTH) }
             }
         }
-        END { out = ""; for (k = 1; k <= n; k++) { id = order[k]; if (st[id] == 1 && at[id] != "" && at[id] >= cutoff) out = out (out == "" ? "" : " ") id }; printf "%s", out }
+        END { out = ""; for (k = 1; k <= n; k++) { id = order[k]; if (st[id] == 1 && at[id] != "" && at[id] >= (kind[id] == "a" ? acutoff : cutoff)) out = out (out == "" ? "" : " ") id }; printf "%s", out }
     ' 2>/dev/null
 }
 # classification is armed ONLY for directive mode with no explicit label scope (see _cg_partition).
@@ -856,7 +964,8 @@ if [ -n "$_cg_parked_scope" ] && [ -n "$_open" ]; then
     _open="$_kept"
 fi
 _open="$(printf '%s' "$_open" | tr -s ' ' | sed 's/^ *//; s/ *$//')"
-[ -z "$_open" ] && allow "no open in-scope work  -  work-complete, allowing stop."
+_cg_stale_nudge
+[ -z "$_open" ] && allow "no open in-scope work  -  work-complete, allowing stop.$(_cg_waiting_note)"
 
 _count="$(printf '%s\n' $_open | grep -c .)"
 _sig="$(printf '%s\n' $_open | sort | tr '\n' ' ' | sed 's/ *$//')"
@@ -885,7 +994,7 @@ case "$(kyklos_control_off "${CONTINUE_GUARD_WATCH_HOLD:-}" && echo off)" in
         [ -n "$_owned" ] && log "live worker(s) [$_live] own the status::doing item(s):$_owned - not counted as actionable."
         if [ -z "$_actionable" ]; then
             rm -f "$LAST_TOLD_FILE" 2>/dev/null || true
-            allow "WATCH-ARMED HOLD: all open work [$_sig] is owned by live workers ($_live), parked or blocked - a finishing worker re-invokes the agent; allowing this stop."
+            allow "WATCH-ARMED HOLD: all open work [$_sig] is owned by live workers ($_live), parked or blocked - a finishing worker re-invokes the agent; allowing this stop. Waiting on the agents: $_live.$(_cg_waiting_note)"
         fi
         _told="$(cat "$LAST_TOLD_FILE" 2>/dev/null || true)"
         _new=""
@@ -893,8 +1002,8 @@ case "$(kyklos_control_off "${CONTINUE_GUARD_WATCH_HOLD:-}" && echo off)" in
             case " $_told " in *" $_iss "*) : ;; *) _new="$_new $_iss" ;; esac
         done
         if [ -n "$_told" ] && [ -z "$_new" ]; then
-            log "LIVE-WORKER HOLD: no new actionable work since the last block (actionable [$_actionable]); live workers ($_live) re-invoke the agent - allowing this stop."
-            exit 0
+            log "LIVE-WORKER HOLD: no new actionable work since the last block (actionable [$_actionable]); live workers ($_live) re-invoke the agent - allowing this stop. Waiting on the agents: $_live.$(_cg_waiting_note)"
+            _cg_end_allowed
         fi
         printf '%s' "$_actionable" > "$LAST_TOLD_FILE" 2>/dev/null || true
         _open="$_actionable"
@@ -924,7 +1033,7 @@ printf '%s' "$_cnt" > "$CNT_FILE" 2>/dev/null || true
 if [ "$_cnt" -ge "$K" ]; then
     rm -f "$CNT_FILE" "$SIG_FILE" "$WORK_FILE" 2>/dev/null || true
     log "STUCK-BREAKER  -  the open scope story set [$_sig] is unchanged AND no new tool calls happened across $K stops (a genuine spin, not active work). Allowing this stop and surfacing it. If mid-implementation, keep going next turn; if truly stuck, ASK the user."
-    exit 0
+    _cg_end_allowed
 fi
 
 # Bridge-health override (before forcing "keep rolling"): we only reach here with open work + no motivation, i.e.

@@ -412,7 +412,7 @@ project; it never repeats these steps.
    --branch <deliverable>`, `proof_draft`), fix what it reports, then write it (`story proof <id> --write`,
    `proof_set`) following the skill `ssdlc-story-proof`. If the coverage floor fails only because of old code in the
    touched files, show that the story's own changed lines are over the floor and ask the owner for the override. Show
-   the proof as the tool prints it (`story proof <id> --format text`).
+   the proof as the tool prints it, in its compact terminal form (`story proof <id> --format text`).
 10. **Push and merge, by topology and push setting.** The settings are explained in the installation guide.
     - Without the closed-loop setting (`KYKLOS_CI_MONITOR` is not `1`) a project session pushes nothing: commit, and
       leave the story branch for the person (or the push-authorised session) who pushes it with its merge request;
@@ -474,13 +474,14 @@ workflow failure. (Enforced for story closes by the `ssdlc-story-proof` Closing 
 <!-- kyklos:rule response.proof-as-rendered -->
 **Show the proof as the tool renders it — never restructure the canonical artifact by hand.** The stored Proof table
 (the canonical **4 columns** `| Quality Dimension | Verdict | Evidence | Metrics |`, every dimension row, the exact
-`**Tally: …**` line) is the record; on GitLab (issue notes, comments) it stays that table, unchanged. **In the
-terminal** a table with `<br>` and `<kbd>` cells breaks, so show its **terminal form**: run `story proof <id> --format
-text` (or take it from the `story close` output, or the bridge's `proof_get` with `format` `text`) and paste that
-output **exactly as printed** — every numbered dimension with its verdict, evidence and metrics, and the tally. Either
-form comes from the tool, never from your hands: do NOT drop rows or metrics, merge the NOT_PERTINENT rows, summarise,
-reorder, or re-word. A hand-restructured render is the SAME artifact-vs-display divergence a single-source renderer
-exists to prevent — and passing it off as the proof is a correctness lie, not a formatting choice. Summarise BELOW
+`**Tally: …**` line) is the record; GitLab (issue notes, comments, closes) always holds that full table, unchanged.
+**In the terminal** a table with `<br>` and `<kbd>` cells breaks and a full proof is too long, so the terminal shows
+the **compact form exactly as the tool prints it; the full form lives in GitLab**: run `story proof <id> --format text`
+(or take it from the `story close` output, or the bridge's `proof_get` with `format` `text`) and paste that output
+**exactly as printed** — every numbered dimension with its verdict, its first evidence line, and the tally. The
+compact form comes from the tool, never from your hands: do NOT drop rows, merge the NOT_PERTINENT rows, summarise,
+reorder, or re-word. The full terminal form (`--format full`) is printed only when someone asks for it. A
+hand-restructured render is the SAME artifact-vs-display divergence a single-source renderer exists to prevent — and passing it off as the proof is a correctness lie, not a formatting choice. Summarise BELOW
 the rendered proof if you must, never instead of it.
 
 <!-- kyklos:rule response.full-context-asks -->

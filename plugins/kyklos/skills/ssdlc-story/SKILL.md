@@ -107,7 +107,8 @@ story attach-coverage <id> <bashcov report or folder> [--tree <host tree>]  # SH
 story set <id> status=Todo --reopen --reason "<why>"             # reopen a CLOSED story: explicit + explained (see below)
 story reopen-root-cause <id> --reason "<why>" | --file <f>        # record why an ALREADY reopened story was reopened
 story proof <id> --write                                         # GENERATE the canonical ## Proof table (the kind's dims, N/A pre-filled)
-story proof <id> --format text                                   # the TERMINAL form of the stored table: what you show in a reply
+story proof <id> --format text                                   # the COMPACT terminal form of the stored table (same as --format compact): what you show in a reply
+story proof <id> --format full                                   # the full terminal form (every evidence line and metric), only when asked for
 story sync                                                       # regenerate BACKLOG.md from the folders (idempotent)
 story check                                                      # exit 3 if the index has drifted (the Stop guard runs this)
 story archive <e>                                                # a fully-done epic -> collect lessons + fold to _archive/
@@ -442,8 +443,8 @@ it is for, and the bridge refuses a call for another project, so an issue number
   checks what only the container sees: the table shown in the reply and the CLAUDE.md interview sections. Proof writes are forwarded as typed: every `--set` goes, unparsed, in one `proof_set` call
   (the bridge parses the `Dimension=VERDICT|evidence|metrics` grammar, `\|` for a literal pipe), `--apply` sends the
   whole table, `--write` re-saves the stored one, `--draft` asks `proof_draft` to assemble the proof from the evidence
-  the bridge holds (mode `on` only: start there, then `--set` only the rows it leaves open); a plain read with `--format text` asks `proof_get` for the terminal
-form. The bridge checks every row first and reports all refusals at once
+  the bridge holds (mode `on` only: start there, then `--set` only the rows it leaves open); a plain read with `--format text` (or `compact`, or `full`) asks `proof_get` for the compact (or
+full) terminal form. The bridge checks every row first and reports all refusals at once
   with nothing written; a table with no UNPROVEN row moves the story to Review. `ra --apply` stores the register in
   the same marked note the bash tool uses (`ra_set`, refused when it has neither a numbered RA-## item nor a `Risk-Assessment-Waived:` line), and the close reads
   it from there. Creating, adopting and authoring are the bridge's too: `new` checks the slug (kebab-case, not a
@@ -495,6 +496,13 @@ From here, execution is regulated by the **stories** (the one ACTIVE In-progress
 0. **Choose** — the next item to work on is the one `story next` (the bridge's `next_work` tool) names first.
    It applies the engineering policy's "Choosing the next work" rule and lists every open issue without a severity as a
    defect to fix first; do not pick work by any other order.
+   **Fold before you create (advice).** A newly found problem (a review finding, a triage item, a defect met on the
+   way) usually belongs to a class an open story already owns. Before creating a story or filing the finding, ask the
+   bridge's `fold_advice` verb (`project`, `title`, optional `text` and `files`): it names the open stories that may own
+   the class, with the `story_fold` call that adds the problem there as the next numbered requirement. `story new`
+   answers the same advice after it created a story; when you fold, close the new story as folded. Give a story a
+   `## Class` section (`- **Invariant:** <one sentence>`, `- **Files:** <patterns>`) so the advice finds it. The advice
+   never refuses anything: when the problem is truly another class, create the story as usual.
 1. **Create** — `story new <kebab-slug> --title "<title>" --type <t> --kind <development|analysis|documentation|ops> --severity <critical|high|medium|low> --epic <e>` (creates the folder from templates + regenerates the index). On a tracker `--severity` is required: it becomes the `severity::` label the next-work order ranks by. `--epic` is mandatory (an epic id, or `--no-epic` for a deliberately ungrouped story) so a story is never silently orphaned.
    **Create or adopt the story BEFORE the first edit of the work**, so its phases follow the work as it happens. If the
    work already exists (you wrote code first), create the story, push the work on a branch named `story-<N>` (or with
@@ -515,6 +523,13 @@ From here, execution is regulated by the **stories** (the one ACTIVE In-progress
    pipeline lands. Default-on; `KYKLOS_AWAITING_CI_SLOT_FREE=off` restores the strict single-story rule.
 3. **Work** — tick `tasks.md` (`[ ]`→`[~]`→`[x]`, `[!]` blocked with a reason). Put verified assumptions + call-site
    inventories in `design.md` (verify-before-plan: state what you verified and HOW); log decisions in `notes.md`.
+   **Combine ready branches (advice).** When a story branch becomes ready (green build and tests, a clean independent
+   review), ask the bridge's `train_plan` verb (`project`, optional `target`) before starting its merged-result check:
+   it lists the ready merge requests whose changed files do not overlap, so one combined check proves them together,
+   and the order of the rest. Combine within "one branch, one item": run the combined check on a local scratch merge (a
+   detached worktree, never pushed, no story commits on it); each story still merges through its own merge request in
+   the order given; a fix the combination alone needs goes on the branch of the story it belongs to, or on a branch of
+   the release's triage story. Never push an integration branch that carries several stories' commits.
 4. **Block** — `story block <id> --on <issue, story or merge request> --reason "<what blocks it + what would unblock
    it>"`, then move to the next tractable story (never halt and wait, per CLAUDE.md). The bridge records the blocker
    once (a `Blocked-On:` header bullet), marks each open task `(waits on <reference>)`, sets Blocked and posts one note;
@@ -537,7 +552,11 @@ From here, execution is regulated by the **stories** (the one ACTIVE In-progress
      asking is a normal step with its own command. A turn that ends with the question asked only in the terminal is
      refused at Stop (hook `kyklos-story-ask-guard.sh`, off-switch `KYKLOS_STORY_ASK_CHECK=off`): post it with
      `story ask` first and point to its link. If `story ask` fails in transport, the note may already be on the story:
-     look at its newest notes before you retry. The reason must hold a line starting with
+     look at its newest notes before you retry. Until it is answered, the ask is listed by `story next` and the Doctor
+     under the open asks; once the owner answers in words instead of ticking, or the question turns out wrong or
+     replaced, retire it with the bridge's `story_ask_retire` (`id`, `note`, `why`), which puts `Retired: <why>` as its
+     first line. A stale ask (no tick and no reply for `Agile:Asks:StaleAfterDays`, default 2 days) is listed once:
+     ask again in a clearer form, or retire it. The reason must hold a line starting with
      `searched:` that names what you looked at before asking (the project's tests and scripts that sign in, seed data
      or start the application), for example `--reason $'which pilot project\nsearched: the sign-in fixture of the tests'`;
      without it the bridge refuses the block (opt-out: bridge setting `Agile:Proof:AskSearchedRequired=false`).
@@ -576,8 +595,8 @@ From here, execution is regulated by the **stories** (the one ACTIVE In-progress
    OR whose Proof rows miss (or duplicate) a required dimension of its kind (extra rows are accepted); only the user
    may override. Docs (HISTORY/README)
    still go in the **same commit** as the code (CLAUDE.md rule). **Then SHOW the close in your reply**: the proof
-   exactly as `story proof <id> --format text` prints it (its terminal form, which `story close` also prints; the
-   stored markdown table stays the GitLab form) + its tally, and a one-line summary of the files/commits touched — the
+   exactly as `story proof <id> --format text` prints it (its compact terminal form, which `story close` also prints; the
+   stored markdown table stays the full form in GitLab) + its tally, and a one-line summary of the files/commits touched — the
    user may be remote with no filesystem access, so a proof saved only to `tasks.md` is not one they can see (see
    [`ssdlc-story-proof`] Closing rule).
 
