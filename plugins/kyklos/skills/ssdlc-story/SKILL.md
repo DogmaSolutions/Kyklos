@@ -385,6 +385,14 @@ story template (the metadata header, of which its Story-Type and Epic lines are 
 `## Original request (verbatim)`); (3) the type, kind, severity, phase labels are applied, and the status label while it is
 open; (4) it is attached to an epic (its milestone, open or closed, has an epic id title). A story-labelled issue missing any of
 them — for example one the owner created by hand in GitLab, or one whose status label was removed — is **adoptable**.
+An adopted story (it has a phase) whose status label a person removed on the tracker is repaired by the bridge's
+state-changing story verbs before they judge it (`story_block` included: a removed label is never read as the answer to a
+block): it gets back the last status label it carried, read from the issue's label history (in progress when the history
+holds no status label), with one `[status-restored]` note, posted once per label edit even when a verb is run again. A read
+(`story_get`, `proof_get`, the structure check) writes nothing and shows the label as missing. A status that cannot be
+decided (a history that cannot be read, one that ends a story while the issue is open, a block without a known kind, a
+status that disagrees with the block the story still records) is refused with the reason; `story set <id>
+status=<todo|doing|parked>` then decides it (and clears a recorded block), and a block is set afterwards with `story block`.
 The rule exists once per side: `hooks/lib/story-adoption.sh` (the story tool and the branch guard) and the bridge's
 `StoryAdoption` (its verbs, `next_work` and the Doctor). The labels are read with the bridge's label codec vocabulary, the
 reference: the bare legacy `bug` is the type fix, a free-form type such as `type::security` is no type, and a bare `parked`

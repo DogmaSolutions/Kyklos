@@ -85,7 +85,10 @@ projects that reach the changed lines and gives the call), then `get_coverage` W
 `gap 0, expired 0`. Runs add up, so each run measures only what is still open. A whole-suite run with `story` (the
 token route) is for small suites, or for a suite whose committed run settings declare test shards; the bridge refuses
 it before anything runs when the recorded durations of the test projects say it cannot fit the run's time limit, and
-says so. Do not size the time limit by hand to make it fit.
+says so. A long suite always runs as short shard runs, one call per shard, and a time limit is never raised to fit a
+long run. In a tree that declares test shards, each `run_tests` call with `story` and no filter runs ONE shard (the
+next one not yet kept at the story's head) and answers `SHARDS-REMAINING` with the shards left: repeat the same call
+once per shard; the call that runs the last shard issues the token. Never pass a larger `timeoutMinutes` instead.
 
 A run ends what it started: when the run's own process has ended, the bridge ends any process it recorded for the run
 that is still alive and names it in the run's output, so no `kill_process` is needed after a run. A process it could

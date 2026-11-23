@@ -389,7 +389,11 @@ one shared seam so the two can never diverge:
   source repo (e.g. `[docs/topic.md](…/-/blob/<sha>/docs/topic.md)`), so "docs updated" is demonstrated by a clickable
   link the reader can open, not merely asserted.
 - **Proof↔story correlation** (`PROOF_METRICS_CORRELATION`) — every identifier declared in a story section
-  (`UC#`, `FM#`, `AC#`) must appear in the Metrics cell of its correlated PROVEN dimension.
+  (`UC#`, `FM#`, `AC#`) must appear in the Metrics cell of its correlated PROVEN dimension. An identifier is declared
+  only by a line that opens with it, or with a range or list of ids (`R3, R4`, `R3/R4`, `R3 and R4`), after optional
+  quote marks, a heading, a bullet, list number or table pipe, a checklist box, emphasis or code marks and a label word
+  such as `Requirement`; an id inside a line's text, such as a reference to another story's item, is not declared and
+  need not be cited. If the reader that finds these items cannot run, the close is refused, never passed.
 
 `NOT_PERTINENT`/`UNPROVEN` verdicts and non-mandatory dimensions are never gated. With the gate opted out the Metrics
 column is purely advisory.

@@ -397,15 +397,16 @@ project; it never repeats these steps.
    `run_tests` (skill `running-tests`; `get_failures` and `get_logs` on a red run). Never run a bare `dotnet` build or
    test where the bridge is the declared build channel (`BUILD_EXECUTION=bridge`); if the bridge is unreachable, stop
    and tell the owner. Paths you give the bridge are host paths. One run at a time; a long run goes to the background
-   and is polled about once a minute (`get_status`, `get_job_result`); a suite longer than the bridge's run limit is
-   split into shards so nothing is dropped. A missing prerequisite (a package feed, a service) is reported, never
+   and is polled about once a minute (`get_status`, `get_job_result`). A long suite always runs as short shard runs, one
+   call per shard, and a time limit is never raised to fit a long run. A missing prerequisite (a package feed, a service) is reported, never
    retried in a loop. Tests use throwaway data, never production data; a user-interface change gets a browser test that
    asserts what the page shows. Commit only after a green run. Report each leftover process by name and process id
    (`list_processes`), saying whether it is alive; a process of another project is reported, not waited for, and its
    command line is never read out.
 8. **Measure coverage.** `get_coverage`, or `run_tests` with the story, following the skill `measuring-test-coverage`.
-   Where the suite is sharded, run every declared shard at one commit; the last green one issues the proof token. A
-   failed shard is run again, never overridden.
+   A long suite always runs as short shard runs, one call per shard, and a time limit is never raised to fit a long run:
+   where the suite is sharded, each call of the story's run runs the next declared shard at one commit, and the call
+   that runs the last one issues the proof token. A failed shard is run again, never overridden.
 9. **Review and prove.** Merge the integration branch into your branch and run the story's suites on the combined
    result. Run the adversarial review once (skill `ssdlc-adversarial-review`), fix what blocks, and merge on the first
    clean round; further rounds only if the owner asks. Draft the proof on the pushed branch (`story proof <id> --draft
@@ -495,6 +496,16 @@ something you can do yourself; (4) **impact + blast radius of each option** — 
 reversible it is, and who/what it affects. Applies in chat, in `AskUserQuestion`, in a stop-for-OK and in any GitLab
 note or description. A bare or purely referential ask ("what do you prefer?", "see the issue", "tick note N", a
 list of note numbers) is a defect, and so is listing an item as waiting on the user when nothing was asked yet.
+
+<!-- kyklos:rule response.reread-before-asking -->
+**Re-read the item before every ask or reminder — never ask from memory.** Before you write any ask, reminder or
+`Blocked on you:` line that concerns an issue, story, note or merge request (tick a box, apply a label, answer a
+question, approve, relaunch), read that item again in the same step: its current labels, the ticks in the note that
+asked (a tick edits the note and sends no notification), and its newest notes. If the user already answered, ticked,
+applied the label or did the step, act on that instead of asking again; if the ask was retired or superseded, drop it.
+An ask or a reminder written from memory or from an earlier summary is a defect, because the user may have answered in
+the meantime and asking again wastes their time. Say in the reminder when you read the item (for example "re-read at
+10:40 UTC: still no box ticked").
 
 <!-- kyklos:rule response.search-before-asking -->
 **Search before you ask; a missing credential is forwarded through the Launcher.** Before you ask the person for a

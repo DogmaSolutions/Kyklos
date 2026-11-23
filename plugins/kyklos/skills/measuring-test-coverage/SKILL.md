@@ -109,6 +109,11 @@ Discipline / Risk Assessment Proof rows when a high-CRAP method is accepted rath
     the run's time limit); it is still accepted
     (`hooks/kyklos-automerge-coverage-guard.sh` refuses the arm when neither settles it; off switch for the ledger
     path only: `KYKLOS_AUTOMERGE_LEDGER=off`). A plain push to let CI run is still fine.
+  - **Short runs only.** A long suite always runs as short shard runs, one call per shard, and a time limit is never
+    raised to fit a long run. Where the committed run settings declare test shards, each `get_coverage` call with
+    `story` and no filter runs ONE shard, the next one not yet kept at the story's head, and answers
+    `SHARDS-REMAINING` naming the shards left: repeat the same call once per shard; the call that runs the last shard
+    combines them and issues the token. A run that reached its limit is split, never given a larger `timeoutMinutes`.
   - **Bind the proof token to your story (small suites and declared shards; a large suite uses the ledger route above):**
     pass `story` (e.g. `42`). Without it the Test Discipline token takes
     its story from the branch name or last commit, which finds none on a trunk such as `develop`. The result's

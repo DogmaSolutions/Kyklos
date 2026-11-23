@@ -34,7 +34,8 @@
 #                                 named file or a malformed entry
 #   al_org_scan FILE ENTRIES [OWN]
 #                              -> one "<line>TAB<category>TAB<matched text>" line per organisation hit in FILE; a hit
-#                                 that is, as a whole name, one of OWN (the output of al_org_own_names) is left out
+#                                 that is, as a whole name, one of OWN (the output of al_org_own_names), or that lies
+#                                 inside one of them, is left out
 #   al_org_own_names           -> the project's own names from KYKLOS_OWN_NAMES, lower case, one per line
 #   al_org_patterns_notice     -> the ONE notice a caller prints (to stderr) when no organisation pattern is configured
 # shell options: inherited from the caller (a sourced-only library; it never runs on its own).
@@ -215,19 +216,23 @@ _al_org_unchecked() {
 }
 
 # al_org_own_names -> the project's own names, lower case, one per line, from KYKLOS_OWN_NAMES (';'-separated): the
-# launcher setting, never a file of the repository. Only the shape a sealed word can have counts, so nothing that is
-# not a plain whole name (a pattern, a blank, a non-ASCII letter) can widen the exemption.
+# launcher setting, never a file of the repository. Only the shape a sealed word can have counts, or such words joined by
+# dots (a dotted name such as a namespace), so nothing that is not a plain whole name (a pattern, a blank, a non-ASCII
+# letter) can widen the exemption.
 # [CySec] Prevents CWE-636 (not failing securely): an unset, empty or malformed list exempts nothing.
 al_org_own_names() {
     [ -n "${KYKLOS_OWN_NAMES:-}" ] || return 0
     printf '%s\n' "$KYKLOS_OWN_NAMES" | tr ';' '\n' | LC_ALL=C awk '
         { gsub(/^[ \t\r]+|[ \t\r]+$/, "") }
-        /^[A-Za-z0-9_]+(-[A-Za-z0-9_]+)*$/ { print tolower($0) }' | LC_ALL=C sort -u
+        /^[A-Za-z0-9_]+(-[A-Za-z0-9_]+)*(\.[A-Za-z0-9_]+(-[A-Za-z0-9_]+)*)*$/ { print tolower($0) }' | LC_ALL=C sort -u
 }
 
-# _al_org_drop_own FILE OWN WHOLE -> the hits on stdin without those that name one of OWN. WHOLE=1: the entry kind only
-# ever matches whole words. WHOLE=0: a hit may sit inside a longer word, so it is kept when its line holds the name
-# inside one: the name is exempt, a longer word that merely contains it is not.
+# _al_org_drop_own FILE OWN WHOLE -> the hits on stdin without those that name one of OWN, and without those whose every
+# occurrence on their line lies inside an own name (an organisation word that is part of a dotted or hyphenated own name,
+# such as its first part, is the own name there). That second check is the same for every entry kind, clear text and
+# sealed alike. WHOLE=1: the entry kind only ever matches whole words. WHOLE=0: a hit may sit inside a longer word, so
+# a hit that is an own name is kept when its line holds the name inside one: the name is exempt, a longer word that
+# merely contains it is not.
 _al_org_drop_own() {
     local file="$1" own="$2" whole="$3"
     if [ -z "$own" ]; then cat; return 0; fi
@@ -245,7 +250,7 @@ _al_org_drop_own() {
         }
         BEGIN {
             n = split(names, list, " "); for (i = 1; i <= n; i++) own[list[i]] = 1
-            if (!whole) { lines = 0; while ((getline row < file) > 0) text[++lines] = tolower(row); close(file) }
+            lines = 0; while ((getline row < file) > 0) text[++lines] = tolower(row); close(file)
         }
         # inside_own(text, hit) -> 1 when every occurrence of hit in text lies inside an occurrence of an own name (a
         # shorter organisation entry contained in the project'"'"'s own name, such as its first part, is the own name there).
@@ -273,10 +278,12 @@ _al_org_drop_own() {
             return 1
         }
         {
-            name = tolower($3)
+            # A pattern may take the character before or after the name as its boundary (".Name" in a dotted
+            # identifier): that punctuation is not part of the name, so the own-name check reads the name without it.
+            name = tolower($3); gsub(/^[^a-z0-9_]+|[^a-z0-9_]+$/, "", name)
             if (!(name in own)) {
                 # Line 0 is "not checked" (the patterns could not run on the file): never exempted.
-                if (!whole && n > 0 && $1 + 0 > 0 && inside_own(text[$1 + 0], name)) next
+                if (n > 0 && $1 + 0 > 0 && inside_own(text[$1 + 0], name)) next
                 print; next
             }
             if (!whole && embedded(text[$1 + 0], name)) print
@@ -284,8 +291,9 @@ _al_org_drop_own() {
 }
 
 # al_org_scan FILE ENTRIES [OWN] -> "<line>TAB<category>TAB<matched text>" for every organisation hit in FILE, without
-# the hits that are one of OWN as a whole name. A sealed entry with a suffix is never exempted: a name followed by an
-# issue number is a reference into a tracker, not the name.
+# the hits that are one of OWN as a whole name or lie inside one (every entry kind goes through the one filter,
+# _al_org_drop_own). A sealed entry with a suffix is never exempted: a name followed by an issue number is a reference
+# into a tracker, not the name.
 al_org_scan() {
     local file="$1" entries="$2" own="${3:-}" kind category mode a b c flag
     while IFS=$'\t' read -r kind category mode a b c; do

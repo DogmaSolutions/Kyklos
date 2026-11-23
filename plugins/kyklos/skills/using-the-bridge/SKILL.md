@@ -25,7 +25,7 @@ skill says only which tool to reach for:
 
 | Tool | When to use it |
 |------|----------------|
-| `run_tests` | Whenever you run tests (the `running-tests` protocol). Pass `story` to collect coverage and the Test Discipline token in the same run. |
+| `run_tests` | Whenever you run tests (the `running-tests` protocol). Pass `story` to collect coverage and the Test Discipline token in the same run. A long suite always runs as short shard runs, one call per shard, and a time limit is never raised to fit a long run: in a tree that declares test shards, each call with `story` runs the next shard and answers the shards left (`SHARDS-REMAINING`). |
 | `get_coverage` | Measuring coverage (the `measuring-test-coverage` protocol). |
 | `get_mutation` | Reading a mutation score off-CI, when `mutation-due.sh check` says a run is due. |
 | `get_job_result` | Collecting a run that answered `pending=true`. |

@@ -54,7 +54,13 @@ flowchart TD
 3. **The close.** For a PROVEN row, the Bridge's correlation gate (`ProofCorrelationGate`) reads the `<kbd>` labels of this row's
    metrics, and each `R` item of `## Requirements` must appear there as a whole token (`R1` never stands for `R10`), or inside
    a range written in a label (`R1 to R4`, `R1-R4` or `R1–R4`: the same prefix, ascending, at most 50 items, names every item
-   inside it; a range in the spec section, such as `**R2-R4**`, declares every item inside it too). An item
+   inside it; a range in the spec section, such as `**R2-R4**`, declares every item inside it too). The spec declares an
+   item only by a line that opens with its id, a range or a list of ids (`R3, R4`, `R3/R4`, `R3 and R4`), after optional
+   quote marks, a heading, a bullet, list number or table pipe, a checklist box, emphasis or code marks and a label word
+   such as `Requirement` (`- R1 ...`, `- **R2-R4** ...`, `1. R5 ...`, `| R6 | ...`, `- [ ] R7 ...`,
+   `### R8 ...`, `- **Requirement R9**: ...`); an id later in a line, such as a reference to another story's item
+   (`(was R54 of an earlier story)`), declares nothing. Only the spec sections count: an item named in another section,
+   such as a design note, is not declared. An item
    named in the evidence prose, or in another row, does not count. Every missing item is one finding, and all findings come in
    one answer.
 4. **The judgement.** Whether a cited test really drives the public interface (and not a mock) is not something a program can

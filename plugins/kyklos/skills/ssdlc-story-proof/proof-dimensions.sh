@@ -663,21 +663,39 @@ proof_section_ids() {
   local body="$1" prefix="$2"; shift 2
   local pat; pat="$(printf '%s|' "$@" | sed 's/|$//')"
   [ -n "$pat" ] || return 0
+  # [CySec] Prevents CWE-636 "Not Failing Securely": a reader that cannot run (a missing or unreadable awk file, an awk
+  # that exits non-zero) is an error naming the file, never an empty list, which would ask the proof to cite nothing.
+  local reader
+  for reader in proof-section-text.awk proof-declaring-lines.awk proof-item-tokens.awk; do
+    if [ ! -r "$_PROOF_DIM_DIR/$reader" ]; then
+      printf 'proof_section_ids: cannot read the proof reader %s, so the items of section "%s" are unknown\n' "$_PROOF_DIM_DIR/$reader" "$prefix" >&2
+      return 2
+    fi
+  done
+  local section
+  section="$(proof_section_text "$body" "$prefix")" \
+    || { printf 'proof_section_ids: proof-section-text.awk failed on section "%s"\n' "$prefix" >&2; return 2; }
   # A fail-open or fail-hard item is the upper-case marker anywhere, or, in any letter case, the label that opens a line
   # after an optional bullet and bold; lower-case prose declares nothing. The bridge's readers share the same rule.
   if [ "$prefix" = "## Fail-open" ]; then
-    local failtext; failtext="$(proof_section_text "$body" "$prefix")"
     {
       # Each marker on its own line first, so two markers that share one separating character are both seen.
-      printf '%s\n' "$failtext" | sed -E 's/FAIL-(OPEN|HARD)/\n&\n/g' | { grep -E '^FAIL-(OPEN|HARD)$' || true; }
-      printf '%s\n' "$failtext" \
+      printf '%s\n' "$section" | sed -E 's/FAIL-(OPEN|HARD)/\n&\n/g' | { grep -E '^FAIL-(OPEN|HARD)$' || true; }
+      printf '%s\n' "$section" \
         | { grep -iE '^[[:space:]]*([-*+][[:space:]]+)?(\*\*|__)?[[:space:]]*fail-(open|hard)([^A-Za-z0-9_-]|$)' || true; } \
         | sed -E 's/^[[:space:]]*([-*+][[:space:]]+)?(\*\*|__)?[[:space:]]*//' | cut -c1-9 | tr '[:lower:]' '[:upper:]'
     } | sort -u
     return 0
   fi
-  # The tokens of the section by the one rule (a range declares every item in it), then those of this section's kind.
-  proof_section_text "$body" "$prefix" | proof_cited_item_tokens | { grep -xE "($pat)" || true; } | sort -u
+  # Only the id, range or list of ids that opens a line declares (proof-declaring-lines.awk, the bridge's
+  # StoryBodyItems.DeclaredIn rule), so a cross-reference later in a line is never an item; then its tokens by the one
+  # rule (a range declares every item in it), then those of this section's kind.
+  local declared tokens
+  declared="$(printf '%s\n' "$section" | awk -f "$_PROOF_DIM_DIR/proof-declaring-lines.awk")" \
+    || { printf 'proof_section_ids: proof-declaring-lines.awk failed on section "%s"\n' "$prefix" >&2; return 2; }
+  tokens="$(printf '%s\n' "$declared" | proof_cited_item_tokens)" \
+    || { printf 'proof_section_ids: proof-item-tokens.awk failed on section "%s"\n' "$prefix" >&2; return 2; }
+  printf '%s\n' "$tokens" | { grep -xE "($pat)" || true; } | sort -u
 }
 
 # proof_dimension_metrics_cell <proof-text> <dimension> -> the Metrics cell (4th content cell / awk $5 on a 4-column
@@ -696,7 +714,12 @@ proof_correlation_problems() {
   proof_correlation_map | while IFS='|' read -r dim prefix pat1 pat2; do
     local verdict; verdict="$(printf '%s' "$proof" | awk -F'|' -v d="$dim" 'NF>=3 {x=$2; gsub(/[`*_]/,"",x); gsub(/^[ \t]+|[ \t]+$/,"",x); if(x==d){print $3; exit}}')"
     proof_verdict_is_proven "$verdict" || continue   # only a PROVEN row is correlated
-    local ids cell id kbdlabels; ids="$(proof_section_ids "$body" "$prefix" "$pat1" ${pat2:+"$pat2"})"
+    local ids cell id kbdlabels
+    # A section whose items cannot be read refuses the row (one problem line), never passes it as declaring nothing.
+    if ! ids="$(proof_section_ids "$body" "$prefix" "$pat1" ${pat2:+"$pat2"})"; then
+      printf 'dimension "%s" is PROVEN but the items its section "%s" declares could not be read (the proof reader failed); the close is refused until they can be read\n' "$dim" "$prefix"
+      continue
+    fi
     [ -n "$ids" ] || continue
     cell="$(proof_dimension_metrics_cell "$proof" "$dim")"
     # the item must be cited inside a FORMAL <kbd>{Metric} ({Tool}):</kbd> group — a bare token in loose

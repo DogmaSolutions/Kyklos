@@ -113,7 +113,7 @@ case "$MODE" in
     STOPPED="$( { printf '%s' "$INPUT" | grep -oE '(^|[^A-Za-z_])stopped=(timed-out|idle-timeout|cancelled)' | sed 's/.*stopped=//' || true; } | head -1)"
     if [ "$FAILED" -gt 0 ] || [ "$EXITCODE" != "0" ] || [ "$UNREAD" = 1 ] || [ -n "$STOPPED" ]; then
       if [ -n "$STOPPED" ]; then
-        reason="TEST RUN WAS STOPPED BY THE BRIDGE (${STOPPED}) before it finished - its failures are UNKNOWN, not zero. The answer names the test assemblies the stop cut off. Narrow the run (a filter or a framework), or, after a time-limit stop, ask for a longer limit with timeoutMinutes (up to the bridge's maximum) if the suite legitimately needs longer, then re-run until the suite reports a green summary."
+        reason="TEST RUN WAS STOPPED BY THE BRIDGE (${STOPPED}) before it finished - its failures are UNKNOWN, not zero. The answer names the test assemblies the stop cut off. A long suite always runs as short shard runs, one call per shard, and a time limit is never raised to fit a long run: a story's run over a tree that declares test shards runs the next shard on each call of the same run; any other run is split with projects or a filter, one call each. Re-run shard by shard until each reports a green summary; after an idle stop, find the test that waits without a bound."
       elif [ "$FAILED" -gt 0 ]; then
         reason="TEST RUN REPORTED ${FAILED} FAILURE(S). Use the runner's get_failures/get_logs to investigate every failure, root-cause it, and re-run until green; never dismiss, skip or silently suppress one. A failure in code you do not own is root-caused and surfaced to its owner (the 'No unexplained failures' rule of the managed policy; procedure: the running-tests skill)."
       elif [ "$EXITCODE" = "0" ]; then

@@ -209,6 +209,7 @@ own tests. A section's identifier names the whole section, its rules included.
 | `response.surface-deliverable` | rule | Surface the deliverable — never "it's in the file". |  |
 | `response.proof-as-rendered` | rule | Show the proof as the tool renders it — never restructure the canonical artifact by hand. |  |
 | `response.full-context-asks` | rule | Asking the user anything — give full context and the reason, always. |  |
+| `response.reread-before-asking` | rule | Re-read the item before every ask or reminder — never ask from memory. |  |
 | `response.search-before-asking` | rule | Search before you ask; a missing credential is forwarded through the Launcher. |  |
 | `response.ask-on-the-story` | rule | A story's question is asked on the story, and the terminal points to it. |  |
 | `response.tickable-asks` | rule | Asking in GitLab text — a tickable option per item, always. |  |

@@ -38,6 +38,14 @@ escape a review are usually outside the lines it read, so the review also covers
 - **Conditions** — the target environment the spec names, a busy machine, stale or concurrent data, a restart in the
   middle.
 
+**Every finding names its class, not only its instance.** A defect found once is usually one case of a mistake made
+more than once. For each finding, name the class in general words (the kind of mistake, e.g. "a refused connect is
+read as 'not open' after the caller cancelled", "a test depends on which drives the machine has"), then search the
+story's diff AND the code around it for every other occurrence of that class, and list them in the finding: each
+place found (`file:line`), or the places searched and that no other was found. The fix the finding asks for is the fix
+of the class (one chokepoint where possible), never only the line that was reported. A review that reports one
+instance and leaves its siblings for the next round is incomplete: it is why reviews take many rounds.
+
 **Who reviews.** Wherever the Workflow below says "you", the review is run by a fresh reviewer (a new agent, preferably
 on a different model than the author) given the spec and the system, not the author's notes. The fresh reviewer writes
 the report and runs `advreview` itself (step 2), so the token and the comment come from the reviewer's run; the author
@@ -63,7 +71,8 @@ to be kept carries no `Refs:` naming the story, or its branch is deleted after t
    <n> findings (<b> blocker, <m> major, <k> minor), <h> hygiene items, <t> new adversarial tests. <free text>
 
    ### Findings
-   - **F1** · blocker · `path/to/file.cs:42` — what is wrong, why it matters, the fix
+   - **F1** · blocker · `path/to/file.cs:42` — what is wrong, why it matters; class: <the kind of mistake>; other
+     occurrences: `path/a.cs:10`, `path/b.cs:7` (or: none, searched <where>); the fix for the whole class
    - **F2** · major · `path/to/file.sh:7` — ...
      (an indented line continues the bullet above)
 
@@ -138,8 +147,12 @@ to be kept carries no `Refs:` naming the story, or its branch is deleted after t
 3. **If the report has findings** (anything relevant to fix):
    - the story goes back to Implementation (`story phase <id> Implementation --reason "<the findings>"`) — you may
      NOT skip phases.
-   - **fix ALL the findings.** Only after they are fixed does the workflow resume — then go back to step 1 (a fresh
-     review over the new diff). Each iteration posts its OWN comment.
+   - **fix ALL the findings, each as a whole class.** For every finding, search the code yourself for every
+     occurrence of the class it names (the review's list is a start, not the limit), fix them all, preferably at one
+     chokepoint, and add a test that would catch the class, not only the reported line. In the note that announces
+     the fix, list per finding the occurrences found and fixed and where you searched. Only after they are fixed does
+     the workflow resume — then go back to step 1 (a fresh review over the new diff). Each iteration posts its OWN
+     comment.
 4. **The loop stops** only when a review finds **nothing relevant to fix**, OR after **3** iterations in this story.
    If the third iteration still has residual findings, STOP and surface the residual to the user — never silently
    close. Offer the user only options the close gate can read: one more review round (fix, then a fresh review); for

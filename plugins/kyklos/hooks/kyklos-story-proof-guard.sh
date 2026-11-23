@@ -74,6 +74,18 @@ elif [ -n "${HOME:-}" ] && [ -d "$HOME/.claude" ] && [ -w "$HOME/.claude" ]; the
 else _SHOWN_DIR="$_VOLATILE_STATE/proof-shown"; fi
 mkdir -p "$_SHOWN_DIR" 2>/dev/null || true
 _SHOWN_WIN="${KYKLOS_SESSION_WINDOW_SECONDS:-64800}"   # 18h default; overridable
+# _psg_epoch <time-text> -> the time as seconds since the epoch, or 0 when the text is empty or cannot be read. The one
+# reader of every time this guard compares. GNU `date -d ""` answers midnight of the current day instead of failing,
+# so an absent time (a transcript with no timestamp, a file with no commit) read as "today, 00:00": the verdict then
+# depended on the hour the check ran, and a close made before midnight was graded as an earlier session's after it.
+# [CySec] Prevents CWE-636 "Not Failing Securely": an unknown time is 0 (unknown), never a guessed one that grandfathers.
+_psg_epoch() {
+    local _v
+    [ -n "$1" ] || { printf '0'; return 0; }
+    _v="$(date -d "$1" +%s 2>/dev/null)" || _v=0
+    case "$_v" in ''|*[!0-9]*) _v=0 ;; esac
+    printf '%s' "$_v"
+}
 # Canonical-dimension SoT, sourced EARLY (before the gitlab branch's shown-check calls it — the FS branch re-sources
 # it later at its own set-check, which is idempotent). The shown-check requires the FULL canonical row set, so it
 # needs this list; if it cannot be resolved the helper degrades to the legacy verdict-cell count (fail-open).
@@ -196,7 +208,7 @@ if [ "${STORY_BACKEND:-local}" = gitlab ]; then
           # GNU `date -d ""` yields midnight-today (a recent epoch, not an error), which would otherwise misread an
           # empty closed_at as a this-session close and BLOCK a historical close whose detail could not be fetched.
           [ -n "$_c" ] || return 1
-          _e="$(date -d "$_c" +%s 2>/dev/null || echo 0)"; _n="$(date +%s 2>/dev/null || echo 0)"
+          _e="$(_psg_epoch "$_c")"; _n="$(date +%s 2>/dev/null || echo 0)"
           [ "${_e:-0}" -gt 0 ] && [ "${_n:-0}" -gt 0 ] || return 1
           [ $((_n - _e)) -lt "$_SHOWN_WIN" ] || return 1
           # "This session" must mean AT/AFTER this session started, not merely within the
@@ -223,7 +235,7 @@ if [ "${STORY_BACKEND:-local}" = gitlab ]; then
           [ "${_ss:-0}" -gt $((_n + _skew)) ] && _ss=0
           if [ "${_ss:-0}" -le 0 ] && [ -n "${_TPATH:-}" ] && [ -f "$_TPATH" ]; then
               _sts="$(head -n 50 "$_TPATH" 2>/dev/null | jq -r 'select(.timestamp) | .timestamp' 2>/dev/null | head -1 || true)"
-              _ss="$(date -d "$_sts" +%s 2>/dev/null || echo 0)"
+              _ss="$(_psg_epoch "$_sts")"   # no timestamp in the transcript: unknown (0), the window above stands alone
               [ "${_ss:-0}" -gt $((_n + _skew)) ] && _ss=0
           fi
           [ "${_ss:-0}" -gt 0 ] && [ "$_e" -lt "$_ss" ] && return 1
@@ -530,8 +542,8 @@ _close_is_recent() {
     [ -n "$_tp" ] && [ -f "$_tp" ] || return 1
     _sess="$(head -n 1 "$_tp" 2>/dev/null | jq -r '.timestamp // empty' 2>/dev/null || true)"
     _ci="$(git -C "$PROJECT_DIR" log -1 --format=%cI -- "$_t" 2>/dev/null || true)"
-    _ss="$(date -d "$_sess" +%s 2>/dev/null || echo 0)"
-    _cd="$(date -d "$_ci" +%s 2>/dev/null || echo 0)"
+    _ss="$(_psg_epoch "$_sess")"
+    _cd="$(_psg_epoch "$_ci")"
     _now="$(date +%s 2>/dev/null || echo 0)"
     _win="${KYKLOS_SESSION_WINDOW_SECONDS:-64800}"
     [ "$_ss" -gt 0 ] && [ "$_cd" -gt "$_ss" ] && [ "$_now" -gt 0 ] && [ $((_now - _cd)) -lt "$_win" ] && return 0
