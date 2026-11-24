@@ -192,6 +192,8 @@ sanitised their content is.
 <!-- kyklos:rule topologies.pricomprisou -->
 - **Private companion, private source — `PriComPriSou`**: the same companion layout, but the nested source (one or
   more repositories) is **private**; the companion still holds all the AI/agent tooling.
+  In both companion topologies a story lives in the companion while its deliverables live in the source project, so
+  they are cited with the source project's path (`group/project!<n>`, `group/project@<branch>`), never as a bare `!<n>`.
 <!-- kyklos:rule topologies.prisoupubart -->
 - **Private-source, public-artifact — `PriSouPubArt`**: the source stays **private** (there is NO nested public
   source clone to keep AI-artifact-free); instead the pipeline **publishes a public artifact** (e.g. a package) as

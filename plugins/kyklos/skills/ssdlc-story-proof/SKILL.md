@@ -76,7 +76,8 @@ request (same project, same head commit) targets, or the default branch before t
 path `group/project` alone, which drafts every commit on that project's trunk whose last paragraph carries the story's
 `Refs: #<id>` trailer. That trailer names no project, so in that project it also matches a commit for that project's
 own issue with the same number: cite the commits instead when numbers collide. A citation without a project names the
-story's own project. Several deliverables: repeat `--branch` (`--branch A --branch B`) or separate them in one value;
+story's own project; in a companion topology the deliverables live in the source project, so cite them with the source
+project's path (`group/project!<n>`, `group/project@<branch>`). Several deliverables: repeat `--branch` (`--branch A --branch B`) or separate them in one value;
 the values are joined into one citation list, never only the last kept. A citation that resolves to nothing (a commit
 prefix that matches no commit, a branch or merge request that does not exist) is named in the draft's Completeness row,
 which stays open until it is corrected; the other citations are still read. `story close` and `story set` take ONE
@@ -416,11 +417,26 @@ column is purely advisory.
     it) and refers back to it in text another account wrote (the item's description, a note or a link). When one of the
     configured owner accounts writes that line in a note of its own, the owner's line vouches for the item: it then
     counts even when the closing agent created it and nothing else refers back (still OPEN, a story or triage item, not
-    the story itself). Or a note `Override cause: accepted <figure>%` by one of the configured owner accounts, at a
-    figure no higher than the story measured. An owner's note edited after it was written, or whose change time is
-    missing or unreadable, counts for neither (GitLab does not say who edited it): the owner writes a new note. The same
+    the story itself). Or a line `Override cause: accepted <figure>%` (in a note or the Test Discipline row, by any
+    author, edited or not: it is read as it stands at the close) for a genuine gap, at a figure no higher than the story measured. An owner's note edited after it was
+    written, or whose change time is missing or unreadable, does not vouch for an item (GitLab does not say who edited
+    it): the owner writes a new note. The same
     rule holds for an arm's one-shot `automerge-coverage-ok` override. The bridge decides it (`proof_validate`); with no
     bridge answer no override counts.
+  - **Who does what.** The authority of the override is the label, which only an account other than the agent's can
+    add. The bridge does not check who wrote an `Override cause:` line: it judges the item a plain line names, and it
+    bounds an accepted figure by the figure the story measured. So **the agent writes the cause line itself**, in a
+    note on the story, in either form:
+    - `Override cause: <reference>`, naming the open story or triage item that owns the gap and saying in plain words
+      why that item removes it. Pick an item that qualifies on its own: open, a story or triage item, not this story,
+      created by another account, and referring back to this story in text another account wrote; or
+    - `Override cause: accepted <figure>%`, for a genuine gap no open item will remove, at a figure no higher than
+      the story measured, saying in plain words what the remaining lines are and why they stay uncovered.
+
+    Then **ask the owner only to apply the `proof-override` label** (in the ask, give the cause line's note and the
+    gap it covers). One case stays the owner's: an item the closing agent created itself, with nothing by another
+    account referring back, counts only when an owner account writes the cause line in a new note of its own. Run
+    `proof_validate` after writing the line: its answer names what is still missing.
 - The clean path is not to override but to turn each `UNPROVEN` into `PROVEN` (write the missing named test)
   or a justified `NOT_PERTINENT`.
 - **SHOW the proof — do not merely save it.** When you close a story (or the user asks to prove / close / gate

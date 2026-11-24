@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # override-cause.sh -- the Named Cause question every override path asks the bridge. An override of a story's gates (the
 # owner's proof-override label at a close, or the one-shot automerge-coverage-ok override of an arm) admits nothing
-# unless the story names the open item that removes the cause of its gap, or the owner accepted the gap with its figure.
+# unless the story names the open item that removes the cause of its gap, or records the accepted gap with its figure.
 # The bridge alone decides it (proof_validate, OwnerOverride.IsGranted / OverrideCause); this library only asks and
 # reads the answer, so the close, the Stop hook, the close guard and the arm guard cannot judge an override apart.
 # Source it; it defines functions only.
@@ -47,6 +47,6 @@ override_cause_named() {
     fi
     # The bridge's own refusal already says which causes count, who writes the line and the line to post; this sentence
     # repeats the three parts for an answer that carried none (an older bridge, or no answer at all).
-    OVERRIDE_CAUSE_WHY="the bridge did not confirm the override (${text:-no answer}); the story must name its cause. Accepted causes: an OPEN story (label 'story') or triage item, in the story's project or another project the bridge can read, that is not the story itself and refers back to it (a merge request, a coordination issue or free text is no cause). Who writes the line: the agent, in a note or the Test Discipline row, when another account created the item; the owner, in a new note, when the agent created it. The line to post: 'Override cause: <group/project>#<number of the item>', or, for a genuine gap the owner accepts, the owner's 'Override cause: accepted <figure>%'"
+    OVERRIDE_CAUSE_WHY="the bridge did not confirm the override (${text:-no answer}); the story must name its cause. Accepted causes: an OPEN story (label 'story') or triage item, in the story's project or another project the bridge can read, that is not the story itself and refers back to it (a merge request, a coordination issue or free text is no cause). Who writes the line: the agent, in a note or the Test Discipline row, when another account created the item; the owner, in a new note, when the agent created it. The line to post: 'Override cause: <group/project>#<number of the item>', or, for a genuine gap, 'Override cause: accepted <figure>%' at a figure no higher than the story measured"
     return 1
 }

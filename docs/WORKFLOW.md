@@ -267,10 +267,10 @@ agent account (for example a privileged [Infrastructure session](INFRASTRUCTURE_
 
 **How.** Two steps, both on the story's issue:
 
-1. apply the `proof-override` label;
-2. **name the cause** of the gap (the Named Cause rule), in a note or in the [Test Discipline](PROOF_DIMENSION_TEST_DISCIPLINE.md) row, with a line that starts with `Override cause:`. Either:
-   - `Override cause: <reference>`, naming the **open** story or triage item that removes the cause of the gap. It must not be the story itself, it must be a story or a triage item, it must have been created by an account other than the closing one, and it must refer back to the story in text another account wrote; or the owner writes the line in an unedited note of their own, which vouches for the item; or
-   - `Override cause: accepted <figure>%`, written by one of the owner accounts ([`Agile:Acceptance:OwnerAccounts`](#bridge-owner-settings)) in a note nobody edited afterwards, when the owner accepts a genuine gap at a figure no higher than the story measured.
+1. **the agent names the cause** of the gap (the Named Cause rule), in a note or in the [Test Discipline](PROOF_DIMENSION_TEST_DISCIPLINE.md) row, with a line that starts with `Override cause:`. Either:
+   - `Override cause: <reference>`, naming the **open** story or triage item that removes the cause of the gap. It must not be the story itself, it must be a story or a triage item, it must have been created by an account other than the closing one, and it must refer back to the story in text another account wrote. The Bridge does not check who wrote this line; it judges the item the line names, so the agent writes it. Only when the agent created the item itself and nothing by another account refers back does the line count solely from the owner, in an unedited note of their own, which vouches for the item; or
+   - `Override cause: accepted <figure>%`, for a genuine gap that no open item will remove, at a figure no higher than the story measured. The agent writes it too, in a note or in the Test Discipline row: the Bridge checks neither its author nor whether its note was edited, because the label is the authority and the figure is read as it stands at the close and can never exceed what the story measured.
+2. **the owner applies the `proof-override` label.** The label is the authority of the override, so this is the one step the agent asks the owner for, pointing to the cause line and the gap it covers. The owner's only other part is the case above: a cause line for an item the agent created itself.
 
 A label with no valid cause waives nothing, and the refusal says why ("the owner's proof-override label is on the story, but it waives nothing yet: ..."). The rule lives in
 `bridge/src/DogmaSolutions.ProjectManagement.Agile.Ssdlc/OverrideCause.cs`.
@@ -284,7 +284,7 @@ no cause `NO-CAUSE`.
 **Use case.** A story changed a method on a code path that only runs on an operating system the project's CI has no runner for. The Test Discipline evidence cannot reach those lines, the
 team has an open story to add that runner, and the owner decides the story should not wait for it.
 
-**Example.** The owner writes this note on the story, then applies the label:
+**Example.** The agent writes this note on the story, then asks the owner to apply the label:
 
 ```markdown
 Override cause: https://gitlab.example.com/acme/shop/-/issues/212 (adds the macOS runner that measures the platform-only lines)

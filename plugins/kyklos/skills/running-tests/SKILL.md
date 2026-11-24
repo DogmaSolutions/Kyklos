@@ -76,6 +76,10 @@ change touches:
 - a namespace: `--filter FullyQualifiedName~Classification`
 - everything: (no filter)
 
+In a companion topology the story lives in the companion and its deliverables in the source project: a run's `story`
+evidence belongs to the companion's story project, and the proof cites the deliverables with the source project's path
+(`group/project!<n>`, `group/project@<branch>`).
+
 ## Large suites: earn the Test Discipline evidence through the ledger
 
 For a large suite (dozens of test projects) the default way to earn the story's Test Discipline evidence is the

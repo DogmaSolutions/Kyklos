@@ -232,8 +232,11 @@ reason with `story reopen-root-cause <id> --reason "<why>"` (or `--file <f>`). T
 refuse `--no-proof-gate` and `--no-quality-gate`, and no environment variable turns the proof, phase-walk or Remote
 Truth checks off. The only exception is the owner applying the `proof-override` label (a fixed name) to the issue: the tool honours it only when the label's latest event is an add by a
 GitLab user other than this agent, read from the server-side label history, and only when the story names the cause
-of its gap (Named Cause: an `Override cause: <reference>` line naming an OPEN story or triage item, or the owner's
-`Override cause: accepted <figure>%` note; the bridge decides it through `proof_validate`). The two flags remain for local stories
+of its gap (Named Cause: an `Override cause: <reference>` line naming an OPEN story or triage item, or an
+`Override cause: accepted <figure>%` line no higher than the story measured; the bridge decides it through
+`proof_validate`). The agent writes the cause line itself, in either form (for a reference, an open item that another
+account created and that refers back to the story), and asks the owner only to apply the label; only a cause line for
+an item the agent created itself, with nothing by another account referring back, stays the owner's to write. The two flags remain for local stories
 only (the local backend has no tracker and no owner), for example when migrating a backlog.
 
 **The gates read whole lists.** GitLab answers a list one page at a time (20 items unless asked for more). Every list a
@@ -388,10 +391,14 @@ them — for example one the owner created by hand in GitLab, or one whose statu
 An adopted story (it has a phase) whose status label a person removed on the tracker is repaired by the bridge's
 state-changing story verbs before they judge it (`story_block` included: a removed label is never read as the answer to a
 block): it gets back the last status label it carried, read from the issue's label history (in progress when the history
-holds no status label), with one `[status-restored]` note, posted once per label edit even when a verb is run again. A read
+holds no status label), with one `[status-restored]` note, posted once per label edit even when a verb is run again. A
+block label removed by a person (any account other than the bridge's own) is that person's unblock, the usual way to say
+"work on it again" after answering or authorising another round: the story goes back in progress, its recorded block is
+cleared and the note names who lifted it. Only a block label the bridge's own account lost comes back as a block. A read
 (`story_get`, `proof_get`, the structure check) writes nothing and shows the label as missing. A status that cannot be
 decided (a history that cannot be read, one that ends a story while the issue is open, a block without a known kind, a
-status that disagrees with the block the story still records) is refused with the reason; `story set <id>
+status that disagrees with the block the story still records, a removed block whose remover the history does not name or
+whose comparison with the bridge's own account cannot be made) is refused with the reason; `story set <id>
 status=<todo|doing|parked>` then decides it (and clears a recorded block), and a block is set afterwards with `story block`.
 The rule exists once per side: `hooks/lib/story-adoption.sh` (the story tool and the branch guard) and the bridge's
 `StoryAdoption` (its verbs, `next_work` and the Doctor). The labels are read with the bridge's label codec vocabulary, the

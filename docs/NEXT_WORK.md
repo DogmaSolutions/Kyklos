@@ -46,7 +46,7 @@ Messages between agents (communication issues) are not work. They are answered f
 
 ## Why every issue needs a severity
 
-Step 2 sorts by severity, so an issue without one cannot be ranked. The Bridge does not rank it on a guess: it lists it apart as a defect, "needs a severity", and asks for a label before the order can include it. Give every issue exactly one severity the day it is opened:
+Step 2 sorts by severity, so an issue that is not started and has no severity cannot be ranked. The Bridge does not rank it on a guess: it lists it apart as a defect, "needs a severity", and asks for a label before the order can include it. It is offered only in place of an issue it blocks, like any other blocker. A started issue without a severity is still offered, because step 1 does not depend on severity, and it is listed as "needs a severity" too, so the missing label gets fixed. Give every issue exactly one severity the day it is opened:
 
 | Severity | Meaning |
 |---|---|

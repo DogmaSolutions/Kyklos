@@ -327,7 +327,7 @@ refuse_coverage() {
     local repo="$1" story="$2" msg="$3" content="${4:-}"
     [ "$_AC_PROBE" = 1 ] && block_state "$msg"
     # Named Cause: the one-shot override is spent only on a story that names the cause of its gap (an open item that
-    # removes it, or the owner's accepted figure); the bridge decides it, and without its answer the marker stays unspent.
+    # removes it, or an accepted figure); the bridge decides it, and without its answer the marker stays unspent.
     # 784-P6-interim (delete with this guard when story 741 ports it): the bridge is asked about the story in ITS project,
     # as the one repository resolver names it for the armed repository, never the session's STORY_GITLAB_PROJECT (empty
     # in a session of another project, so the override was never spent there).
