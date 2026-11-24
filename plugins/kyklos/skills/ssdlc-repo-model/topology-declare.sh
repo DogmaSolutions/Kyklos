@@ -28,14 +28,16 @@ topology_valid "$TOPO" || { printf 'topology-declare: invalid topology %s (want:
 
 # Derive the legacy shape/srcwf the guards read (repo-role.sh maps topology->shape too; writing the derived knobs
 # keeps the not-yet-topology-aware guards - branch-cleanup, story-proof - working, consistently by construction).
+# The shape and workflow come from the one rulebook (hooks/lib/rulebook.sh via topology.sh); only the prose is ours.
+read -r SHAPE SRCWF _ <<<"$(kyklos_topology_row "$TOPO")"
 case "$TOPO" in
-  PriComPubSou) SHAPE=companion; SRCWF=gitflow; PROSE="companion + nested public source at \`$SRCDIR/\` (trunk companion / gitflow source)" ;;
-  PriComPriSou) SHAPE=companion; SRCWF=gitflow; PROSE="companion + nested PRIVATE source(s) at \`$SRCDIR/\` (trunk companion / gitflow source; the source is private and may be many repos, remotes off our GitLab)" ;;
-  PriSta)       SHAPE=internal;  SRCWF=gitflow; PROSE="single private repo, gitflow" ;;
-  PriSouPubArt) SHAPE=internal;  SRCWF=gitflow; PROSE="private source; its public artifact is a non-cloned facade published by the pipeline" ;;
+  PriComPubSou) PROSE="companion + nested public source at \`$SRCDIR/\` (trunk companion / gitflow source)" ;;
+  PriComPriSou) PROSE="companion + nested PRIVATE source(s) at \`$SRCDIR/\` (trunk companion / gitflow source; the source is private and may be many repos, remotes off our GitLab)" ;;
+  PriSta)       PROSE="single private repo, gitflow" ;;
+  PriSouPubArt) PROSE="private source; its public artifact is a non-cloned facade published by the pipeline" ;;
 esac
-# Both companion topologies carry a nested source dir; the standalone/artifact ones do not.
-case "$TOPO" in PriComPubSou|PriComPriSou) HAS_SRCDIR=1 ;; *) HAS_SRCDIR=0 ;; esac
+# The companion topologies carry a nested source dir; the standalone/artifact ones do not.
+if kyklos_rule_word_in "$KYKLOS_RULE_COMPANION_TOPOLOGIES" "$TOPO"; then HAS_SRCDIR=1; else HAS_SRCDIR=0; fi
 
 # --agent-readonly: the agent treats the nested source as READ-ONLY (the owner commits/pushes there; the agent only
 # reads/builds/tests it). It is a STRENGTHENING overlay on the derived gitflow source workflow, so it is accepted ONLY

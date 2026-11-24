@@ -50,7 +50,7 @@ _rr_declaring_companion_parent() {
     psrcdir="$(_rr_getkey "$pf" KYKLOS_SOURCE_DIR || true)"
     [ "$psrcdir" = "$base" ] || return 1                                     # the parent names THIS dir as its source
     ptopo="$(_rr_getkey "$pf" KYKLOS_PROJECT_TOPOLOGY || true)"
-    case "$ptopo" in PriComPubSou|PriComPriSou) return 0 ;; esac
+    [ -n "$ptopo" ] && kyklos_rule_word_in "$KYKLOS_RULE_COMPANION_TOPOLOGIES" "$ptopo" && return 0
     [ "$(_rr_getkey "$pf" KYKLOS_REPO_SHAPE || true)" = "companion" ] && return 0
     return 1
 }
@@ -137,13 +137,12 @@ _rr_model() {
         # it still works the companion. On a standalone/artifact topology (no separate source) a stray agent-readonly
         # would lock the agent out of its OWN work, so it is ignored there (fall back to the derived gitflow).
         local _ovl=""
-        case "$eff" in PriComPubSou|PriComPriSou) [ "$srcwf" = "agent-readonly" ] && _ovl="agent-readonly" ;; esac
-        case "$eff" in
-            PriComPubSou) shape=companion; srcwf=gitflow ;;
-            PriComPriSou) shape=companion; srcwf=gitflow ;;   # private source(s); same companion shape as PriComPubSou
-            PriSta)       shape=internal;  srcwf=gitflow ;;
-            PriSouPubArt) shape=internal;  srcwf=gitflow ;;   # private source behaves as internal-gitflow locally
-        esac
+        kyklos_rule_word_in "$KYKLOS_RULE_COMPANION_TOPOLOGIES" "$eff" && [ "$srcwf" = "agent-readonly" ] && _ovl="agent-readonly"
+        # The shape and workflow of the topology come from the one rulebook (lib/rulebook.sh), never a table of our own.
+        local _rr_row
+        if _rr_row="$(kyklos_topology_row "$eff")"; then
+            read -r shape srcwf _ <<<"$_rr_row"
+        fi
         [ -n "$_ovl" ] && srcwf="$_ovl"   # restore the strengthening read-only overlay over the derived branch model
         printf '%s|%s|%s|1' "$shape" "$srcdir" "$srcwf"; return
     fi

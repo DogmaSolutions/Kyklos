@@ -216,10 +216,11 @@ printf '%s' "$_involved" | grep -c 'hotfix/' >/dev/null  && _has_hotfix=1
 # a LOCAL merge into develop/main is WRONG - it bypasses the pipeline gate. Detect that
 # posture so the advisory REJECTS local/push/unset rather than instructing a local merge.
 _cg_ci_driven() {
-  case "${KYKLOS_SOURCE_WORKFLOW:-}" in gitflow) ;; *) return 1 ;; esac
-  [ "${KYKLOS_CI_SELF_DRIVE:-}" = true ] && return 0
-  { [ "${KYKLOS_CI_MONITOR:-}" = 1 ] && [ -n "${KYKLOS_PUSH_REPO_URL:-}" ]; } && return 0
-  return 1
+  # The one rule (lib/rulebook.sh kyklos_ci_driven_source = SessionRules.CiDrivenSource, which the launcher's Check
+  # applies). Missing rulebook data fails closed: the stricter answer (closes through the pipeline).
+  # shellcheck source=/dev/null
+  . "$(dirname "${BASH_SOURCE[0]}")/lib/rulebook.sh" || return 0
+  kyklos_ci_driven_source
 }
 
 _mode_hint() { # $1=TYPE-label $2=mode $3=parent-trunk $4=var-name $5=extra(mr-automerge only)
@@ -231,8 +232,9 @@ _mode_hint() { # $1=TYPE-label $2=mode $3=parent-trunk $4=var-name $5=extra(mr-a
   # seen in practice). An EXPLICIT local/push is still a deliberate contradiction and stays REJECTED.
   local _m="$2"
   if _cg_ci_driven; then
+    kyklos_rule_word_in "$KYKLOS_RULE_MR_CLOSE_MODES" "$_m" && _m="__merge_request__"
     case "$_m" in
-      mr|mr-automerge) ;;
+      __merge_request__) _m="$2" ;;
       "") _m="mr-automerge"
           printf '%s close-mode was UNSET on a CI-self-driven gitflow source -- defaulting to mr-automerge per the SSDLC push-close policy (always push the feature branch + MR that auto-merges into %s on green; never a local merge). Make it explicit with %s=mr-automerge in .claude/standards.env. ' "$1" "$3" "$4" ;;
       *)  printf '%s close-mode "%s" is INVALID for a CI-self-driven gitflow source -- a feature/hotfix branch MUST be closed through a Merge Request that CI merges on green, NEVER a local merge into %s. Set %s=mr-automerge in .claude/standards.env, then: git push -o merge_request.create -o merge_request.target=%s -o merge_request.merge_when_pipeline_succeeds -o merge_request.remove_source_branch origin <name> and delete the local branch. ' "$1" "$_m" "$3" "$4" "$3"; return ;;

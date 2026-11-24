@@ -146,9 +146,15 @@ if [ -n "$_mr_row" ]; then
         exit 0
     fi
     case "$_src" in hotfix/*) _cmode="${HOTFIX_BRANCH_CLOSE_MODE:-}" ;; *) _cmode="${FEATURE_BRANCH_CLOSE_MODE:-}" ;; esac
-    if [ "$_mst" = opened ]; then
+    # The merge-request close modes come from the one rulebook (lib/rulebook.sh).
+    # shellcheck source=/dev/null
+    . "$(dirname "${BASH_SOURCE[0]}")/lib/rulebook.sh" || {
+        printf '{"decision":"block","reason":"BLOCKED (%s): the rulebook hooks/lib/rulebook.generated.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(kyklos_help_json_suffix broken-install 2>/dev/null)"
+        exit 0
+    }
+    if [ "$_mst" = opened ] && kyklos_rule_word_in "$KYKLOS_RULE_MR_CLOSE_MODES" "$_cmode"; then
         case "$_cmode" in
-            mr|mr-automerge)
+            *)
                 jq -nc --arg r "Local merge REFUSED: branch '$_src' closes through merge request !$_mn (close mode $_cmode), which is open but NOT armed. Arm it instead of merging into '$_dest' by hand: push the branch again with -o merge_request.merge_when_pipeline_succeeds (with a new commit), or arm it with the bridge tool mr_auto_merge (action arm) on merge request $_mn. GitLab then merges it once its pipeline succeeds; then delete the local branch, pull the trunk and close the story." --arg h "$(kyklos_help_line local-merge-blocked-pipeline-not-green)" '{decision:"block",reason:($r + "\n" + $h)}'
                 exit 0 ;;
         esac

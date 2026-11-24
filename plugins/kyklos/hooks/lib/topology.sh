@@ -15,8 +15,11 @@
 # AI-artifact-free). Both companion topologies derive shape=companion, so the legacy companion->PriComPubSou back-map
 # is ambiguous: topology_effective treats shape=companion as compatible with EITHER companion topology (below).
 
-# The valid topologies (a CLOSED enum - the whole point of poka-yoke here: no free-string workflow).
-TOPOLOGY_VALUES="PriComPubSou PriSta PriSouPubArt PriComPriSou"
+# The valid topologies (a CLOSED enum - the whole point of poka-yoke here: no free-string workflow), read from the one
+# rulebook (lib/rulebook.sh, written from the shared settings library), never a copy of its own.
+# shellcheck source=/dev/null
+. "$(dirname "${BASH_SOURCE[0]}")/rulebook.sh"
+TOPOLOGY_VALUES="$KYKLOS_RULE_TOPOLOGIES"
 
 # topology_valid <t> -> 0 iff <t> is one of TOPOLOGY_VALUES.
 topology_valid() { case " $TOPOLOGY_VALUES " in *" ${1:-} "*) return 0 ;; *) return 1 ;; esac; }

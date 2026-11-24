@@ -899,7 +899,12 @@ for dir in "$STORIES_DIR"/STORY-*/; do
         # the closed loop is NOT authoritative here. In that mode the agent bridge-verifies + merges LOCALLY and
         # SIGNALS a human for the real push; so "no pipeline" and an empty/0-job pipeline are EXPECTED, not a
         # close-blocker. Unset/true => self-drive (today's behaviour). Fail-open by default.
-        _self_drive="${KYKLOS_CI_SELF_DRIVE:-true}"
+        # shellcheck source=/dev/null
+        # Missing rulebook data keeps the stricter answer (self-driven: the close needs its pipeline).
+        _self_drive=true
+        if . "$(dirname "${BASH_SOURCE[0]}")/lib/rulebook.sh"; then
+            kyklos_self_driving || _self_drive=false
+        fi
         _br="$(grep -iE '^[-*[:space:]]*(\*\*)?Branch:' "$dir/requirements.md" 2>/dev/null | head -1 | sed -E 's/.*Branch:(\*\*)?[[:space:]]*//; s/[[:space:]].*$//; s/`//g' || true)"
         if [ -n "$_tokok" ] && [ -n "$_br" ] && [ "$_br" != "—" ] \
            && command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then

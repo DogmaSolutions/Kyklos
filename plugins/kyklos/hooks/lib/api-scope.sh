@@ -11,13 +11,15 @@
 #   api_scope_names                 -> candidate names, one per line (bridge-served names + *TOKEN* variables)
 #   api_scope_probe <name> <api>    -> one line: "<name> api-capable <scopes>" | "<name> ok <scopes>" |
 #                                      "<name> not-readable" | "<name> not-checked <reason>"
-#   api_scope_state                 -> the project's declared state: serve (default) | transition | host-only;
-#                                      rc 2 and a message for any other value
+#   api_scope_state                 -> the state the launcher told the container (KYKLOS_CONTAINER_API_TOKEN_STATE:
+#                                      none | host-only | allowed; unset = allowed); rc 2 and a message for any other
 #   api_scope_report <api>          -> one probe line per candidate name
 #   api_scope_verdict <state> <report> -> rc 0 fine | 1 warning (api-capable token readable, serve/transition) |
 #                                      2 error (api-capable token readable while host-only)
 
 . "$(dirname "${BASH_SOURCE[0]}")/gitlab-curl.sh"
+# shellcheck source=/dev/null
+. "$(dirname "${BASH_SOURCE[0]}")/rulebook.sh"
 
 # Variables that hold the container's own plumbing, never a GitLab token the agent should be judged on.
 # Also skipped: settings that hold the NAME of a token (*_TOKEN_ENV, *_TOKEN_NAME), not a token.
@@ -49,19 +51,26 @@ api_scope_probe() {
     esac
     scopes="$(printf '%s' "$body" | jq -r '(.scopes // []) | join(",")' 2>/dev/null)" || {
         printf '%s not-checked unreadable answer\n' "$name"; return 0; }
-    case ",$scopes," in
-        *,api,*|*,write_api,*) printf '%s api-capable %s\n' "$name" "$scopes" ;;
-        *) printf '%s ok %s\n' "$name" "${scopes:-none}" ;;
-    esac
+    local scope
+    for scope in ${scopes//,/ }; do
+        if kyklos_rule_word_in "$KYKLOS_RULE_API_CAPABLE_SCOPES" "$scope"; then
+            printf '%s api-capable %s\n' "$name" "$scopes"; return 0
+        fi
+    done
+    printf '%s ok %s\n' "$name" "${scopes:-none}"
 }
 
+# The token state the launcher told this container (the rulebook names the variable and its values: none, host-only,
+# allowed). Unset means an older launcher that tells nothing: judged as allowed (a warning, never an error).
 api_scope_state() {
-    local s="${KYKLOS_API_TOKEN_STATE:-serve}"
-    case "$s" in
-        serve|transition|host-only) printf '%s' "$s" ;;
-        *) printf 'kyklos: KYKLOS_API_TOKEN_STATE must be serve, transition or host-only, not "%s".\n' "$s" >&2
-           return 2 ;;
-    esac
+    local var="$KYKLOS_RULE_TOKEN_STATE_VAR" s
+    s="${!var:-allowed}"
+    if kyklos_rule_word_in "$KYKLOS_RULE_TOKEN_STATES" "$s"; then
+        printf '%s' "$s"
+    else
+        printf 'kyklos: %s must be one of %s, not "%s".\n' "$var" "$KYKLOS_RULE_TOKEN_STATES" "$s" >&2
+        return 2
+    fi
 }
 
 api_scope_report() {

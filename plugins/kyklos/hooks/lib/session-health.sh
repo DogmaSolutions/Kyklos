@@ -21,7 +21,7 @@ kyklos_api_scope_message() {
     case "$rc" in
         0) return 0 ;;
         1) head="[kyklos] API TOKEN NOTICE at session start: the agent can read a GitLab token that can call the API." ;;
-        2) head="[kyklos] API TOKEN ERROR at session start: either this project is declared host-only (KYKLOS_API_TOKEN_STATE) yet the agent can read a GitLab token that can call the API, or KYKLOS_API_TOKEN_STATE holds an invalid value (the details follow). Tell the owner of this project's launcher configuration; do not use the token." ;;
+        2) head="[kyklos] API TOKEN ERROR at session start: either the launcher keeps this project's API tokens on the host (KYKLOS_CONTAINER_API_TOKEN_STATE=host-only) yet the agent can read a GitLab token that can call the API, or KYKLOS_CONTAINER_API_TOKEN_STATE holds an invalid value (the details follow). Tell the owner of this project's launcher configuration; do not use the token." ;;
         3) head="[kyklos] API TOKEN CHECK could not run at session start." ;;
         *) head="[kyklos] API TOKEN CHECK failed at session start (exit $rc)." ;;
     esac

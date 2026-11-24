@@ -39,6 +39,10 @@
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../hooks/lib/control-switch.sh" 2>/dev/null || true   # kyklos_control_off: the one control-switch reader
 # shellcheck source=../../../hooks/lib/refs-footer.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../hooks/lib/refs-footer.sh" 2>/dev/null || true   # REFS_FOOTER_AWK: the one footer definition
+# The companion topologies come from the one rulebook. Without its data no topology counts as a companion, so the
+# workspace is judged in full (the stricter answer).
+# shellcheck source=../../../hooks/lib/rulebook.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../hooks/lib/rulebook.sh" 2>/dev/null || KYKLOS_RULE_COMPANION_TOPOLOGIES=""
 TRUNK_REACH_PROBE_LIMIT=40
 
 # _tr_has_origin <repo> -> 0 when the repository has an origin remote.
@@ -333,11 +337,10 @@ _tr_story_problem() {
     # not judged; the nested source repositories below hold the code and are judged in full. The topology is read from
     # the settings committed on the trunk only, so an unread or uncommitted declaration judges the workspace as before.
     # [CySec] Prevents CWE-345: an environment value or a working-tree edit cannot exempt the workspace.
-    case "$topology" in
-        PriComPubSou|PriComPriSou) ;;
-        *) p="$(trunk_reach_repo_problem "$root" "$id" "$abandoned" synced)"
-           [ -n "$p" ] && out="$p" ;;
-    esac
+    if ! kyklos_rule_word_in "$KYKLOS_RULE_COMPANION_TOPOLOGIES" "$topology"; then
+        p="$(trunk_reach_repo_problem "$root" "$id" "$abandoned" synced)"
+        [ -n "$p" ] && out="$p"
+    fi
     # The nested source the trunk declares must be there; a source named only by the working tree or the environment is
     # checked too when it exists (one more check can only refuse, never pass).
     if [ -n "$srcdir" ]; then
@@ -360,10 +363,9 @@ _tr_story_problem() {
     # A companion's own commits were skipped above on the promise that its nested source is judged instead (or refused
     # when it is missing). With no source named at all nothing would be judged, so the close is refused, naming what to
     # declare. [CySec] Prevents CWE-636: an exemption never passes on nothing.
-    case "$topology" in
-        PriComPubSou|PriComPriSou)
-            [ -n "$srcdir" ] || out="$out${out:+; }the workspace $root is a companion ($topology), whose own commits hold no code to evaluate, but it declares no nested source repository (KYKLOS_SOURCE_DIR in the repository-model settings committed on the trunk), so the story's commits are judged nowhere; declare KYKLOS_SOURCE_DIR and retry" ;;
-    esac
+    if kyklos_rule_word_in "$KYKLOS_RULE_COMPANION_TOPOLOGIES" "$topology"; then
+        [ -n "$srcdir" ] || out="$out${out:+; }the workspace $root is a companion ($topology), whose own commits hold no code to evaluate, but it declares no nested source repository (KYKLOS_SOURCE_DIR in the repository-model settings committed on the trunk), so the story's commits are judged nowhere; declare KYKLOS_SOURCE_DIR and retry"
+    fi
     [ -n "$out" ] && printf 'Trunk Reach: %s' "$out"
     return 0
 }

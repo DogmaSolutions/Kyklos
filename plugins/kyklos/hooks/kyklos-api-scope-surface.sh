@@ -11,7 +11,7 @@
 # its own time limit, and reports it in its one block, so this hook does nothing then; KYKLOS_DOCTOR_SURFACE=off is the path
 # on which this hook speaks for itself.
 # SessionStart can add context but cannot block. CONFIG: KYKLOS_API_SCOPE_SURFACE=on|off (default on);
-# KYKLOS_API_TOKEN_STATE=serve|transition|host-only (default serve). FAIL-OPEN: no API base or an unreachable
+# The state is the one the launcher tells the container (KYKLOS_CONTAINER_API_TOKEN_STATE, from the rulebook). FAIL-OPEN: no API base or an unreachable
 # GitLab yields a "cannot check" line, never "no API-capable token".
 set +e -uo pipefail
 # shellcheck source=lib/control-switch.sh

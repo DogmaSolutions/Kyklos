@@ -1,7 +1,7 @@
 {
   "name": "kyklos",
   "description": "Kyklos makes an AI coding agent follow a secure software development workflow: every change is a story with a specification, a branch, tests, a review and a written proof that each quality check passed, before it counts as done. Guards stop unsafe pushes, merges and closes; skills guide the agent; the Kyklos Bridge runs builds, tests and coverage on the host. Start with the guide inside the plugin (skill: Kyklos reference and troubleshooting).",
-  "version": "0.16.26627",
+  "version": "0.16.26651",
   "author": {
     "name": "Dogma Solutions",
     "email": "info@dogmasolutions.com"

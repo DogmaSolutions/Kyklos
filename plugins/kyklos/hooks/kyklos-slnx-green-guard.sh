@@ -71,7 +71,14 @@ git_cmd_invokes "$CMD_REAL" push || exit 0
 # either way this guard must not add a second, redundant block for a container that isn't the one pushing. So we
 # only engage when the container is push-authorized (KYKLOS_ALLOW_PUSH=1) OR is the CI-loop monitor
 # (KYKLOS_CI_MONITOR=1, which is the exact context that DOES push its own feature/hotfix branch).
-[ "${KYKLOS_ALLOW_PUSH:-0}" = "1" ] || [ "${KYKLOS_CI_MONITOR:-0}" = "1" ] || exit 0
+# The rulebook decides (lib/rulebook.sh), the same rule the launcher's Check and the launch apply.
+# Missing rulebook data fails closed, like the JSON reader above.
+# shellcheck source=/dev/null
+if ! . "$(dirname "${BASH_SOURCE[0]}")/lib/rulebook.sh"; then
+    printf '{"decision":"block","reason":"BLOCKED (%s): the rulebook hooks/lib/rulebook.generated.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(kyklos_help_json_suffix broken-install 2>/dev/null)"
+    exit 0
+fi
+kyklos_push_possible || exit 0
 
 # FAIL-OPEN: no git tooling => cannot reason. Never block.
 command -v git >/dev/null 2>&1 || { echo "[kyklos] WARNING: slnx-green guard INERT — git is missing; the full-solution-green push gate is OFF. Install git." >&2; exit 0; }
