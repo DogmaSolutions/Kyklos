@@ -91,7 +91,10 @@ flowchart TD
    where the issue is an open story of the story's own project and not the story itself, or `Finding F<n> of review
    round <r> accepted` with its box `- [ ] accept this finding` ticked by one of the owner accounts (the Bridge setting
    `Agile:Acceptance:OwnerAccounts`; GitLab's record names who ticked: the last editor of an edited note, the author only
-   of a note never edited). An open row says why each settle note it did not take settles nothing. A report whose
+   of a note never edited), or `Finding F<n> of review round <r> fixed in <commit>` when a merge request of the story's
+   own branch carries that commit, the commit came after that review (outside the head the review names, or received by
+   the remote after the review note) and it changes the file of the finding's location (the close still needs the next review round
+   for code changed after the review). An open row says why each settle note it did not take settles nothing. A report whose
    findings section cannot be read covers nothing.
 4. **The signed draft record.** Next to the proof, the Bridge stores a record of the rows it proved and of the items no evidence
    covers. It signs that record with the proof signing key: HMAC-SHA256 over `proof-draft:` + story + project + a generation

@@ -46,11 +46,25 @@ record or a screenshot never stands in for that test: none of them says which te
 case is also shown in its real environment, that run is welcome extra evidence on top of the tagged test, never
 instead of it.
 
+**A check only a person can make is an owner check.** Mark such an item in the spec with `(real environment: person)`
+(for example "no firewall prompt appears", or a screen reader reading the page). It is then covered only by a note
+whose first line reads `Owner check <item>: <what was observed>`, followed by the box `- [ ] I saw this`, ticked by an
+owner account as GitLab records it. An agent's own tick, a test or a review never covers it, and an owner check of an
+item not so marked adds nothing. The draft says, for each marked item still open, which note to post.
+
+**Every verified review round counts.** The draft reads all the story's verified review rounds, not only the newest:
+an item an earlier round checked keeps that cover unless a later round's finding names it (or an unsettled finding of a
+later round names no item). A narrow follow-up review that checks only a fix, and lists the rest as not checked, never
+takes away the cover a fuller earlier round gave.
+
 **Offer the owner only options the close can read.** When a close is short of evidence, ask the owner only for
 something the close gate accepts. For a review with findings that are still open, the options are one more review
 round (fix, then a fresh review); for a finding that names no spec item, a note that settles it (`Finding F<n> of review
-round <r> moved to #<issue>` naming an open story of the project, or `Finding F<n> of review round <r> accepted` with
-its box `- [ ] accept this finding` ticked by an owner account; the ssdlc-adversarial-review skill gives the shapes); or
+round <r> moved to #<issue>` naming an open story of the project, `Finding F<n> of review round <r> accepted` with
+its box `- [ ] accept this finding` ticked by an owner account, or `Finding F<n> of review round <r> fixed in <commit>`
+for a commit of the story's own merge request, made after that review, that changes the file of the finding's location;
+the ssdlc-adversarial-review skill
+gives the shapes); or
 the owner's `proof-override` label with a named cause; never "accept the review as it is", "cite the run instead" or
 another choice no gate reads, because the close refuses it after the owner said yes.
 

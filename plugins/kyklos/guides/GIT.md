@@ -19,8 +19,8 @@ or the organisation's push-authorised session (see [The Infrastructure session](
 Trunks, release and support branches, tags and force pushes are never pushed by the agent.  
 **Unless configured otherwise, a feature branch is merged into `develop` through a merge request that [CI](CI.md)
 merges itself once the pipeline is green**: the agent creates it already *armed*, never merges it by hand, and deletes its local branch once the merge has happened.  
-Arming is refused unless the branch already contains the trunk's current head, or the trunk's new commits touch none of the branch's files and no build-wide file changed: a merge request pipeline
-tests the branch, so this keeps what was tested equal to what lands.  
+Arming is refused unless the branch already contains the trunk's current head, or the trunk's new commits touch none of the branch's files and no build-wide file: a merge request pipeline
+tests the branch, so this keeps what was tested equal to what lands. A trunk file the branch already holds with the same content does not count, and a build-wide file the branch changed itself was tested by its own pipeline.  
 In a repository **without a CI pipeline** an armed request would never merge, so it is created unarmed and merged through the [Bridge](COMPONENTS.md#kyklos-bridge) as soon as the server reports it mergeable.
 
 Each repository declares how a finished branch closes (its *close mode*):

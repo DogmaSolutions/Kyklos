@@ -107,7 +107,7 @@ flowchart TD
     V -- no --> X3["Refused: the token does not verify<br/>re-run the review"]
     V -- yes --> K{"Story kind measured by coverage?<br/>(development)"}
     K -- no --> OK["Row holds"]
-    K -- yes --> F{"Review note newer than<br/>every story commit<br/>changing covered code, as<br/>the remote received it?"}
+    K -- yes --> F{"Review note newer than<br/>every story commit<br/>changing covered code, as<br/>the remote received it,<br/>or that commit contained in<br/>the reviewed head?"}
     F -- no --> X4["Refused: fresh-review<br/>review the finished work again"]
     F -- yes --> OK
 ```
@@ -121,7 +121,12 @@ flowchart TD
   by the first note that carries the presented token, and each commit of the story by when the remote received it, read
   from the merge request that carried it. Both are times the server records; neither is a commit date the author writes.
   A fix pushed after the review needs a new review before the close. A code commit that reached the trunk without a merge
-  request has no such time, and the close refuses it.
+  request has no such time, and the close refuses it. One exception covers work reviewed before it was pushed: when the
+  review report names the commit it reviewed (`Reviewed head: ` followed by the full 40-character commit id in
+  backticks, written once; the token signs the report), that commit is a commit
+  of a merge request of the story's own branch, and the remote answers that it contains a commit pushed after the review,
+  that commit counts as reviewed. A commit on top of the reviewed head is still late, and an answer the remote cannot
+  give refuses. A review without the line keeps the time rule.
 - **Where the check runs.** In the Bridge, at [`proof_set`](PROOF_DIMENSION_COMPLETENESS.md#how-it-is-checked), when the agent ends its turn after a close, and at
   [`story_close`](WORKFLOW.md#how-the-close-checks-the-rules). The check acts on the story's own repository and project; a story in a project the Bridge does not serve
   is refused (`PROJECT-NOT-SERVED`).

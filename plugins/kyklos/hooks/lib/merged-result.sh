@@ -6,11 +6,13 @@
 #
 # GitLab CE has no merged-results pipelines: a merge request pipeline tests the branch head, not the merge into the
 # current target. A branch that contains the target's current head lands exactly what its pipeline tested. A branch
-# behind its target is still admitted when the target's new work and the branch's work touch DIFFERENT files: neither
-# side then changes a file the other side's tested state relies on directly. Build-wide files (the CI definition and its
-# includes, the MSBuild and NuGet configuration, project and solution files, the SDK and tool pins, analyzer and test-run
-# settings) affect every file, so a build-wide change
-# on either side counts as overlapping with everything.
+# behind its target is still admitted when the target's new work (its net diff since the fork point) and the branch's
+# work touch DIFFERENT files: neither side then changes a file the other side's tested state relies on directly.
+# Build-wide files (the CI definition and its includes, the MSBuild and NuGet configuration, project and solution files,
+# the SDK and tool pins, analyzer and test-run settings) affect every file, so a build-wide change on the TARGET side
+# counts as overlapping with everything; one the branch made itself ran in the branch's own pipeline and does not. A
+# target-side file whose content is identical on the branch head (a merge that brings what the branch already holds)
+# never counts.
 #
 #   merged_result_build_wide <path>       rc 0 when <path> is a build-wide file
 #   merged_result_overlap <target-files> <branch-files>
@@ -19,7 +21,8 @@
 #                                         newline-separated list of paths relative to the repository root.
 #   merged_result_git_verdict <repo> <target-commit> [head]
 #                                         rc 0 when <head> (default HEAD) contains <target-commit>, or the files the
-#                                         target changed since the fork point are disjoint from the branch's;
+#                                         target changed since the fork point that still differ on <head> are disjoint
+#                                         from the branch's;
 #                                         rc 1 on overlap (prints the overlapping paths); rc 2 when it cannot be
 #                                         decided (prints the reason). Renames count under both names.
 #   merged_result_target_choice <repo> <branch> <known-targets> <ambiguous> <creating> <default-branch>
@@ -55,7 +58,7 @@ MERGED_RESULT_MAX_FILES=1000
 merged_result_build_wide() { printf '%s\n' "$1" | LC_ALL=C awk "$_MERGED_RESULT_AWK_LIB"' { exit !bw($0) }'; }
 
 # [RiskMitigation RA-01] One decision for every enforcement point: a path both sides changed, or any build-wide path
-# either side changed while the other side changed anything, is an overlap.
+# the target changed while the branch changed anything, is an overlap.
 # [CySec] Integrity of the shared trunk (CWE-841, improper enforcement of a behavioural workflow): only changes on
 # disjoint, non-build-wide files may land without a pipeline over their merge result.
 merged_result_overlap() {
@@ -63,10 +66,10 @@ merged_result_overlap() {
     target="$(printf '%s\n' "$target" | sed '/^$/d' | sort -u)"
     branch="$(printf '%s\n' "$branch" | sed '/^$/d' | sort -u)"
     { [ -n "$target" ] && [ -n "$branch" ]; } || return 0
-    # First file: the branch (its build-wide paths printed, its keys kept); second: the target (a path whose key the
-    # branch shares, or a build-wide path, printed).
+    # First file: the branch (its keys kept); second: the target (a path whose key the branch shares, or a build-wide
+    # path, printed).
     out="$(LC_ALL=C awk "$_MERGED_RESULT_AWK_LIB"'
-        NR == FNR { seen[key($0)] = 1; if (bw($0)) print; next }
+        NR == FNR { seen[key($0)] = 1; next }
         (key($0) in seen) || bw($0) { print }' <(printf '%s\n' "$branch") <(printf '%s\n' "$target") | sed '/^$/d' | LC_ALL=C sort -u)"
     [ -z "$out" ] && return 0
     printf '%s\n' "$out"
@@ -76,7 +79,7 @@ merged_result_overlap() {
 # merged_result_git_verdict <repo> <target-commit> [head] -> rc 0 admit, 1 overlap (prints paths), 2 undecidable.
 # [RiskMitigation RA-02] Every read that fails is undecidable, never admitted (fail closed).
 merged_result_git_verdict() {
-    local r="$1" target="$2" head="${3:-HEAD}" mb tfiles bfiles
+    local r="$1" target="$2" head="${3:-HEAD}" mb tfiles bfiles dfiles
     git -C "$r" cat-file -e "$target^{commit}" 2>/dev/null \
         || { printf 'the target head %s is not in this clone (fetch it: git fetch origin)\n' "${target:0:8}"; return 2; }
     git -C "$r" rev-parse --verify -q "$head^{commit}" >/dev/null 2>&1 || { printf 'the branch head %s cannot be read\n' "$head"; return 2; }
@@ -89,9 +92,17 @@ merged_result_git_verdict() {
     [ -n "$tfiles" ] || { printf 'the target is ahead of the branch but no file it changed was listed\n'; return 2; }
     # A branch behind its target that changes nothing has nothing tested to land; an empty list is not a pass either.
     [ -n "$bfiles" ] || { printf 'no file the branch changed was listed\n'; return 2; }
-    if [ "$(printf '%s\n' "$tfiles" | wc -l)" -ge "$MERGED_RESULT_MAX_FILES" ] || [ "$(printf '%s\n' "$bfiles" | wc -l)" -ge "$MERGED_RESULT_MAX_FILES" ]; then
+    # The files whose content differs between the branch head and the target head (a straight diff, no fork point).
+    dfiles="$(_merged_result_names "$r" "$head" "$target")" || { printf 'the files that differ between the branch and its target cannot be listed%s\n' "$dfiles"; return 2; }
+    if [ "$(printf '%s\n' "$tfiles" | wc -l)" -ge "$MERGED_RESULT_MAX_FILES" ] || [ "$(printf '%s\n' "$bfiles" | wc -l)" -ge "$MERGED_RESULT_MAX_FILES" ] \
+       || [ "$(printf '%s\n' "$dfiles" | wc -l)" -ge "$MERGED_RESULT_MAX_FILES" ]; then
         printf 'a file list reached %s entries, too many to compare here\n' "$MERGED_RESULT_MAX_FILES"; return 2
     fi
+    # A target-side file the branch head already holds identically changes nothing on the merge: it never counts.
+    tfiles="$(LC_ALL=C awk "$_MERGED_RESULT_AWK_LIB"'
+        NR == FNR { if ($0 != "") differs[key($0)] = 1; next }
+        $0 != "" && (key($0) in differs) { print }' <(printf '%s\n' "$dfiles") <(printf '%s\n' "$tfiles"))"
+    [ -n "$tfiles" ] || return 0
     merged_result_overlap "$tfiles" "$bfiles"
 }
 

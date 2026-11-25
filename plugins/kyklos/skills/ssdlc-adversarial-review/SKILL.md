@@ -169,10 +169,23 @@ to be kept carries no `Refs:` naming the story, or its branch is deleted after t
      from GitLab's own record: the last editor of an edited note, the author only of a note never edited. An agent's
      tick, an edited note whose last editor GitLab does not name, or no owner account configured accepts nothing.
      Ask the owner for the tick as a tickable note, with the finding's text and why it is theirs.
+   - `Finding F<n> of review round <r> fixed in <commit>` (7 to 40 hexadecimal characters) — the finding was fixed by
+     that commit. It settles only when a merge request of the story's own branch carries the commit, the commit came
+     after that review (not contained in the head the review names, or, with no head named, received by the remote
+     after the review note) and it changes the file of the finding's location (its `path:line`); the draft reads all of
+     it from the tracker. It settles the finding's
+     hold on the review's cover in the draft only: the close still needs the next review round for code changed after
+     the review, which confirms the fix.
    Before moving a finding to an issue, ask the bridge's `fold_advice` verb with the finding's summary and files: when
    an open story already owns its class, fold it there with `story_fold` (it becomes that story's next requirement)
    and move the finding to that story, instead of opening a new one.
    A note for another round, for a finding the report does not list, or written before the review settles nothing.
+   **Name the head you reviewed.** Put one line ``Reviewed head: `<full 40-character commit id>` `` in the report (for
+   example under the summary). The token signs the report, so the line proves the commit existed when the review was
+   minted. At the close, a story commit the remote received after the review still counts as reviewed when that head is a
+   commit of a merge request of the story's own branch and contains it; a commit on top of the head is still late. Write
+   the full id once: a short id or two head lines name no head, and the time-only rule applies, as for a report without
+   the line.
    An optional reason may follow the line after a colon or a dash. Then run `proof_draft` again: an open row says why
    each settle note it did not take settles nothing.
 5. **Fill the Proof row** from the FINAL (clean) run's helper output:

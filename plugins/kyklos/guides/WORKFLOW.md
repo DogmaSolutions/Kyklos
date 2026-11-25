@@ -116,7 +116,7 @@ last change to that code**. That moment is taken from the merge request that car
 
 Two consequences:
 
-- a fix pushed after the review needs a new review before the close;
+- a fix pushed after the review needs a new review before the close, unless the review report names the commit it reviewed (`Reviewed head:` with the full commit id), that commit belongs to the story's own merge request, and it contains the later commit: work reviewed before it was pushed then counts as reviewed;
 - such code must reach the trunk **through a merge request**: a code commit that arrived on the trunk without one has no recorded arrival time, and the close refuses it.
 
 ### Rule 5: A merge request merges itself, and only on the merged result
@@ -125,8 +125,8 @@ Where the repository has a pipeline, the agent never merges by hand:
 
 - the merge request is created **armed** ("merge when the pipeline succeeds"), and the server merges it once the pipeline is green; a hand merge of an armed, merged or closed request is refused;
 - arming is refused unless the branch already contains the trunk's current head, or the trunk's new commits touch none of the branch's files and no build-wide file (the CI definition, build and
-  package configuration, project and solution files, tool versions) changed on either side. A merge request pipeline tests the branch, not the branch merged into today's trunk, so this rule makes
-  sure that what the pipeline tested is what lands;
+  package configuration, project and solution files, tool versions). A trunk file the branch already holds with the same content does not count, and a build-wide file the branch changed itself
+  was tested by its own pipeline. A merge request pipeline tests the branch, not the branch merged into today's trunk, so this rule makes sure that what the pipeline tested is what lands;
 - arming is also refused when the change touches production C# code that no fresh [Test Discipline](PROOF_DIMENSION_TEST_DISCIPLINE.md) token covers. When arming is refused for one of these reasons, the merge request is created
   unarmed, and the agent arms it once the reason is fixed.
 

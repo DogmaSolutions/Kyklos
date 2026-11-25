@@ -48,7 +48,7 @@ Contents: [Push refused](#push-refused) · [Push blocked: no recorded green full
 
 **You see:** `Merge BLOCKED: merge request !N is X commit(s) behind <target>. Its pipeline tested the branch without them ...`, or `Merge BLOCKED: this branch does not contain the current head of <target>, and the target's new commits change files this branch also changes ...`
 
-**Cause:** the pipeline tests the branch, not what would result after the merge. When the target moved on, the result that would land was never tested. A branch behind the target is allowed only when none of the missing commits touches a file the branch changes, nor a build-wide file (the pipeline definition, shared build properties).
+**Cause:** the pipeline tests the branch, not what would result after the merge. When the target moved on, the result that would land was never tested. A branch behind the target is allowed only when none of the missing commits touches a file the branch changes, nor a build-wide file (the pipeline definition, shared build properties). A file the branch already holds with the same content does not count.
 
 **Confirm:** `git fetch origin && git log --oneline HEAD..origin/<target>` lists the commits the branch lacks.
 
