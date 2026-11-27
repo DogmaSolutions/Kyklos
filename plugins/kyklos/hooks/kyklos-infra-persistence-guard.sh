@@ -8,6 +8,7 @@
 #       ALSO persist it versioned (memory holds a one-line pointer at most), and prefer a HOOK where the rule
 #       is mechanically checkable (poka-yoke). Trigger (b) fires once per container (a state marker) so it nudges, not nags.
 # Reads only; never blocks (both actions are legitimate).
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 set -euo pipefail
 
 # Load optional per-project config so the marker dir co-locates with the configured state (same as the other
@@ -40,6 +41,6 @@ if [ -z "$MSG" ] && [ -n "$FILE" ] && printf '%s' "$FILE" | grep -cE '/memory/[^
 fi
 
 [ -z "$MSG" ] && exit 0
-esc="$(printf '%s' "$MSG" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+esc="$(kyklos_json_escape "$MSG")"
 printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}' "$esc"
 exit 0

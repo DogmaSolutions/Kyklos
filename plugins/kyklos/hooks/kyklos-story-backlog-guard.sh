@@ -9,6 +9,7 @@
 # No-op when Stories/ does not exist (legacy PLAN.md repos). Safety valve prevents a wedged Stop loop.
 # [json-answer-required] Every answer this hook reads goes through the JSON reader; without it a check would exit 127
 # and fall into a fail-open path, so the hook refuses by name instead (a broken install). [CySec] CWE-636
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
     printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
@@ -62,7 +63,7 @@ if [ "$BACKLOG" = "__BACKLOG_UNREACHABLE__" ]; then
     . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/override-marker.sh"   # override_take: the scoped, expiring one-shot override
     override_take backlog-ok "$(override_hook_scope "$INPUT")" "$INPUT" && { echo "[kyklos] backlog gate: OVERRIDDEN once (backlog-ok spent) — the In-progress invariant was NOT verified (GitLab unreachable)." >&2; exit 0; }
     _r="BLOCKED: the GitLab story backend is CONFIGURED, but neither this container nor the bridge could read it, so the In-progress invariant (a story-named branch per parallel story, at most KYKLOS_MAX_IN_PROGRESS, see lib/backlog-lib.sh) cannot be verified — a session must not end in an unverifiable workflow state. $(backlog_unreachable_fix)"
-    _r="${_r//\\/\\\\}"; _r="${_r//\"/\\\"}"; _r="$(printf '%s' "$_r" | tr '\n' ' ')"
+    _r="$(kyklos_json_escape "$_r")"
     printf '{"decision":"block","reason":"%s"}' "$_r"
     exit 0
 fi
@@ -179,7 +180,7 @@ if [ -n "$problems" ]; then
     reason="BLOCKED: Stories backlog is inconsistent — fix before finishing:${problems}. (See the 'ssdlc-story' skill.)"
     # Full 3-step JSON escape (backslash, quote, flatten newlines) — a '\' or newline in an agent-edited field
     # would otherwise emit invalid JSON and the block would be dropped.
-    reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
+    reason="$(kyklos_json_escape "$reason")"
     printf '{"decision":"block","reason":"%s"}' "$reason"
     exit 0
 fi

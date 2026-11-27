@@ -48,6 +48,7 @@
 #            abandons the build path can never record a build as green.
 #   unset  = refuse: exit non-zero telling the caller to set BUILD_EXECUTION first (no default).
 # shellcheck source=lib/json-answer.sh
+. "$(dirname "${BASH_SOURCE[0]}")/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 . "$(dirname "${BASH_SOURCE[0]}")/json-answer.sh"   # json_test / json_read: an empty or cut answer is never valid
 set +e -uo pipefail
 
@@ -91,7 +92,7 @@ read_build_execution() { build_execution_mode; }
 
 # _poll_next_step <job> — what the caller does when the build's result could not be collected.
 _poll_next_step() {
-    printf 'The build may still be green on the host: check it with get_job_result {"jobId":"%s"}, then re-run this recorder.' "$1"
+    printf 'The build may still be green on the host: check it with get_job_result {"jobId":"%s"}, then re-run this recorder.' "$(kyklos_json_escape "$1")"
 }
 
 # _poll_error_text <reply> — a short reason from an error answer: the JSON-RPC message, the result's text, or "unreadable reply".

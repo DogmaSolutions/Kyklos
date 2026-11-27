@@ -54,6 +54,10 @@ require_lib "$HERE/../../hooks/lib/item-project.sh" item_project_of item_story_p
 # shellcheck source=lib/story-trunk-reach.sh
 require_lib "$HERE/lib/story-trunk-reach.sh" story_trunk_reach_problem trunk_reach_trunks \
   || { printf 'story: refusing to run: cannot load %s completely (see above)\n' "$HERE/lib/story-trunk-reach.sh" >&2; exit 1; }
+# The record of the closes this session makes with `story close`: the only closes the Stop-time proof check judges.
+# shellcheck source=../../hooks/lib/session-closes.sh
+require_lib "$HERE/../../hooks/lib/session-closes.sh" session_close_record session_close_scope_gitlab session_close_scope_fs \
+  || { printf 'story: refusing to run: cannot load %s completely (see above)\n' "$HERE/../../hooks/lib/session-closes.sh" >&2; exit 1; }
 
 # _story_workspace_root -> the directory that holds Stories/ for the repo the caller stands in (empty if none): the
 # shared resolver (repo-role.sh repo_workspace_root), so the story tool and the other Kyklos CLIs agree on it.
@@ -2797,6 +2801,30 @@ Exit codes: 0 ok · 1 refused, or findings (audit, structure) · $EXIT_USAGE usa
 EOF
 }
 
+# _story_record_session_close <close arguments> -> record a close `story close` just made, so the Stop-time proof check
+# judges it (once per proof) and no other close: the gitlab project and issue number, or the local Stories folder and the
+# story's folder name. Never fails the close.
+_story_record_session_close() {
+  local ref="${1:-}" dir="" num handle
+  [ "$#" -gt 0 ] && shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --dir) dir="${2:-}"; [ "$#" -ge 2 ] && shift 2 || shift ;;
+      *) shift ;;
+    esac
+  done
+  if [ "${STORY_BACKEND:-local}" = gitlab ]; then
+    num="$(printf '%s' "$ref" | grep -oE '[0-9]+' | head -1)"
+    [ -n "$num" ] || return 0
+    session_close_record "$(session_close_scope_gitlab "${_GL_PID:-${STORY_GITLAB_PROJECT:-}}")" "$((10#$num))"
+  else
+    [ -n "$dir" ] || dir="$(default_stories_dir 2>/dev/null)" || return 0
+    handle="$(backend_resolve "$dir" "$ref" 2>/dev/null)" || return 0
+    session_close_record "$(session_close_scope_fs "$dir")" "$(basename "$handle")"
+  fi
+  return 0
+}
+
 # Extract a --dir <path> from an arg list (for the dir-only subcommands); default otherwise.
 dir_from_args() {
   local dir=""
@@ -2822,7 +2850,10 @@ main() {
     block)    ssdlc_block "$@" ;;
     resume)   ssdlc_route resume "$@" ;;   # un-park: phase present -> In-progress, else Todo
     reopen-root-cause) ssdlc_route reopen_root_cause "$@" ;;   # record why an already reopened story was reopened
-    close)    ssdlc_route close "$@" ;;
+    close)    local _close_rc=0
+              ssdlc_route close "$@" || _close_rc=$?
+              [ "$_close_rc" -eq 0 ] && _story_record_session_close "$@"
+              return "$_close_rc" ;;
     proof)    ssdlc_route proof "$@" ;;
     ra)       ssdlc_route ra "$@" ;;
     phase)    ssdlc_route phase "$@" ;;

@@ -20,6 +20,7 @@
 # degrade to the raw skill name), or no MCP binding just yields a shorter catalog — SessionStart is NEVER crashed
 # or stalled. CONFIG: KYKLOS_TOOL_CATALOG=on|off (default on). A concise ROUTING TABLE, not a tool dump.
 # Wired: SessionStart.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 set +e -uo pipefail
 
 # shellcheck source=lib/control-switch.sh
@@ -81,7 +82,7 @@ READ-ONLY bridge verbs from the shell or a script -> the \`bridge\` command: \`b
 if command -v jq >/dev/null 2>&1; then
     jq -nc --arg m "$msg" '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$m}}'
 else
-    esc="${msg//\\/\\\\}"; esc="${esc//\"/\\\"}"; esc="$(printf '%s' "$esc" | tr '\n' ' ')"
+    esc="$(kyklos_json_escape "$msg")"
     printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}' "$esc"
 fi
 exit 0

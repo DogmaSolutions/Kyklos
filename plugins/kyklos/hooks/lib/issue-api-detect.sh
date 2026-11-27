@@ -22,6 +22,7 @@
 # (urllib/requests), node (fetch/https). Word-boundaried so `mycurl` / `pythonic` / `nodes` do not match.
 # The text before a client name: a start, a separator, or a program directory (/usr/bin/curl, /snap/bin/glab), so a
 # client called by its absolute path is the same client. A name that only ends a longer path (docs/curl.md) is not.
+. "$(dirname "${BASH_SOURCE[0]}")/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 IAD_CLIENT_PREFIX='(^|[^[:alnum:]_/]|/s?bin/)'
 # Script runtimes that ship an HTTP client: PowerShell (Invoke-RestMethod / Invoke-WebRequest), ruby (Net::HTTP), perl
 # (HTTP::Tiny, LWP), deno and bun (fetch). httpie (http, https) and xh are clients only as a command word followed by a
@@ -83,7 +84,7 @@ iad_normalize_cmd() {
 # iad_refuse_broken_normaliser <guard label> -- the block decision a guard prints when iad_normalize_cmd answered
 # IAD_NORMALISER_BROKEN, so a broken install refuses instead of letting a spelled command through unread.
 iad_refuse_broken_normaliser() {
-    printf '{"decision":"block","reason":"BLOCKED (%s): the command normaliser could not run (awk, sed or unquote-words.awk is missing or broken), so this command with quotes, backslashes or glab cannot be inspected. Repair or reinstall the kyklos plugin, then retry."}' "$1"
+    printf '{"decision":"block","reason":"BLOCKED (%s): the command normaliser could not run (awk, sed or unquote-words.awk is missing or broken), so this command with quotes, backslashes or glab cannot be inspected. Repair or reinstall the kyklos plugin, then retry."}' "$(kyklos_json_escape "$1")"
 }
 
 # --- HTTP write-verb detection (curl / wget) -------------------------------------------------------------------

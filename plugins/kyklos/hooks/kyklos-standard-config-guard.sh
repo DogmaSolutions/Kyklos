@@ -24,6 +24,7 @@
 #
 # Wired PreToolUse, matcher Edit|Write|MultiEdit. Limit: a file written by a shell command (a heredoc, tee, cp, sed -i) is
 # not seen here; no shared reader of the files a Bash command writes exists yet.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 set -euo pipefail
 _CG_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
@@ -59,7 +60,7 @@ CONTENT="$(printf '%s' "$INPUT" | jq -r '
     ((.tool_input.edits // []) | map(.new_string // empty) | join("\n")) ]
   | join("\n")' 2>/dev/null || true)"
 
-block() { printf '{"decision":"block","reason":"%s"}' "$1"; exit 0; }
+block() { printf '{"decision":"block","reason":"%s"}' "$(kyklos_json_escape "$1")"; exit 0; }
 
 if [ "$GATE_MODE" = "cs" ]; then
   # ADO.NET connection-string keys are CASE-INSENSITIVE ("server="/"SERVER=" open the same connection), so

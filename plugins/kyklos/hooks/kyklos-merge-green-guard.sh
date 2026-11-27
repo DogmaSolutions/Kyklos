@@ -25,6 +25,7 @@
 # Wired: PreToolUse, matcher Bash.
 # [json-answer-required] Every answer this hook reads goes through the JSON reader; without it a check would exit 127
 # and fall into a fail-open path, so the hook refuses by name instead (a broken install). [CySec] CWE-636
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
     printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
@@ -230,6 +231,6 @@ else
     fi
     reason="Merge BLOCKED. Branch '$_src' is being merged into trunk '$_dest' but its latest pipeline is '$_disp', not success.${_air_note} A merge into the trunk needs a green pipeline first; merging first would make the irreversible act (merge + branch delete) beat the CI gate. How to close the branch in this project's close mode: the PUSH POLICY section of the managed policy. ${_override_hint}."
 fi
-reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
+reason="$(kyklos_json_escape "$reason")"
 printf '{"decision":"block","reason":"%s%s"}' "$reason" "$(kyklos_help_json_suffix local-merge-blocked-pipeline-not-green)"
 exit 0

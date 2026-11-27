@@ -5,7 +5,9 @@
 #     item's own branch.
 #   - On a branch whose name names no story, a commit's `Refs:` trailers name only the item the branch's earlier commits
 #     already name (its first commit sets it).
-# Shared by the commit-message guard (before a commit) and the push guard (every commit of the pushed branch).
+# Refused only at commit time, on the agent's own new commit (the commit-message guard). The push guard reads every commit
+# of the pushed branch for information only: a commit already in the history never refuses a push, an arm, a settle or a
+# close.
 # What a `Refs:` footer cites is defined once, in refs-footer.sh (also read by the proof gate, Trunk Reach and the bridge):
 # a list of items, a remark after it never read for numbers, `group/project#N` own or foreign by its project path.
 # Sourced; needs git-cmd-detect.sh (story_num_from_branch).
@@ -129,9 +131,12 @@ refs_rule_message_refusal() {
     return 0
 }
 
-# refs_rule_branch_refusal REPO -> the refusal (one line) for the first commit of the checked-out branch (since its fork
-# point from a trunk, merges and commits a trunk already holds skipped) that breaks the rule, each judged against the commits before it; nothing otherwise.
-refs_rule_branch_refusal() {
+# refs_rule_branch_finding REPO -> the finding (one line) for the first commit of the checked-out branch (since its fork
+# point from a trunk, merges and commits a trunk already holds skipped) that breaks the rule, each judged against the
+# commits before it; nothing otherwise. Information only: a commit already in a branch's history (a fix the person made
+# by hand for another item) never refuses a push, an arm, a settle or a close; the rule refuses only the agent's own new
+# commit, at commit time (refs_rule_message_refusal).
+refs_rule_branch_finding() {
     local repo="$1" branch base story c msg nums n first="" foreign="" own
     own="$(refs_footer_own_project "$repo")"
     branch="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)" || return 0
@@ -149,7 +154,7 @@ refs_rule_branch_refusal() {
         foreign=""
         while read -r n; do [ -n "$n" ] && ! printf '%s\n' "$first" | grep -cxF -- "$n" >/dev/null && foreign="$foreign $(_refs_rule_label "$n")"; done <<< "$nums"
         if [ -n "$foreign" ]; then
-            printf "one branch, one item: commit %s of '%s' cites%s, but the branch's item is %s. Move that commit to its own item's branch before pushing (a branch carrying two items' work makes each item's merge request hold the other's change).\n" "${c:0:8}" "$branch" "$foreign" "$(_refs_rule_labels "$first")"
+            printf "one branch, one item: commit %s of '%s' cites%s, while the branch's item is %s; its change is part of this branch's merge request and is judged with the branch head.\n" "${c:0:8}" "$branch" "$foreign" "$(_refs_rule_labels "$first")"
             return 0
         fi
         # on a branch naming no story, the item it carries must not be a story (judged once, at its first commit)

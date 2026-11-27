@@ -20,6 +20,7 @@
 # (default block). Wired: PreToolUse (Bash).
 # [json-answer-required] Every answer this hook reads goes through the JSON reader; without it a check would exit 127
 # and fall into a fail-open path, so the hook refuses by name instead (a broken install). [CySec] CWE-636
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
     printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
@@ -65,7 +66,7 @@ OK_SCOPE_HINT="<repo-dir>"
 _ss_scope="$(override_scope_of "$(git_target_repo_dir "$cmd" "$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null || true)" "$PROJECT_DIR")")"
 
 # JSON-string-escape a plain message (one implementation, reused by every emit path below — no per-site copy to drift).
-_ss_json_escape() { local m="$1"; m="${m//\\/\\\\}"; m="${m//\"/\\\"}"; printf '%s' "$m" | tr '\n' ' '; }
+_ss_json_escape() { local m="$1"; m="$(kyklos_json_escape "$m")"; printf '%s' "$m" | tr '\n' ' '; }
 
 # Resolve the AUTHORITATIVE backlog via the SHARED lib — the SAME resolver kyklos-story-backlog-guard uses,
 # so the two guards can NEVER diverge. For the gitlab backend this queries LIVE GitLab; the local Stories/BACKLOG.md

@@ -21,6 +21,7 @@
 # Wired: PreToolUse, matcher Bash.
 # [json-answer-required] Every answer this hook reads goes through the JSON reader; without it a check would exit 127
 # and fall into a fail-open path, so the hook refuses by name instead (a broken install). [CySec] CWE-636
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
     printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
@@ -71,7 +72,7 @@ git_cmd_invokes "$CMD_REAL" push || exit 0
 # (b) the PUBLIC ARTIFACT FACADE (KYKLOS_ARTIFACT_FACADE=1 / a PriSouPubArt artifact) is published by its source
 # repo's pipeline, NEVER hand-pushed. This wires the artifact-facade check the guard's comments already claimed.
 # _np_block REASON [ANCHOR] -> print the block decision, its last line naming the guide's section (push-refused by default).
-_np_block() { local r="${1//\\/\\\\}"; r="${r//\"/\\\"}"; r="$(printf '%s' "$r" | tr '\n' ' ')"; printf '{"decision":"block","reason":"%s%s"}' "$r" "$(kyklos_help_json_suffix "${2:-push-refused}")"; exit 0; }
+_np_block() { local r; r="$(kyklos_json_escape "$1")"; printf '{"decision":"block","reason":"%s%s"}' "$r" "$(kyklos_help_json_suffix "${2:-push-refused}")"; exit 0; }
 _np_tgt="$(target_repo_dir "$CMD")"
 
 # _np_parse_refspec <checked-out branch>: what the command pushes, read from the words after the last `git ... push`
@@ -146,22 +147,58 @@ _np_allow() { _np_queue_if_remote_down; exit 0; }
 # judge a bogus literal path (and never resolve it to a repo that happened to match). [RiskMitigation RA-02]
 [ "$_np_tgt" = "__UNDECIDABLE__" ] && _np_block "Push refused: the push target is UNDECIDABLE — it is fed by a command substitution, so the guard cannot determine which repo it lands in and fails safe. Re-run with an explicit, literal target, e.g. git -C <repo-dir> push origin <branch>."
 _np_top="$(git -C "$_np_tgt" rev-parse --show-toplevel 2>/dev/null || echo "")"
-# ONE BRANCH, ONE ITEM (lib/refs-rule.sh), binding every session: the checked-out branch's commits cite one item (its
-# story on a story branch), so the merge request this push feeds carries only that item's change. Switched off together
-# with the commit footer rule.
+# ONE BRANCH, ONE ITEM (lib/refs-rule.sh): the rule is enforced at commit time, on the agent's own new commit
+# (kyklos-commit-message-guard). A commit already in the branch's history that cites another item (a fix the person made by
+# hand for another item) never refuses a push: the finding is shown as information only. Switched off together with the
+# commit footer rule.
 # shellcheck source=lib/refs-rule.sh
 . "$_GD_HERE/lib/refs-rule.sh"
 . "$_GD_HERE/lib/control-switch.sh" 2>/dev/null || true
 if [ -n "$_np_top" ] && ! kyklos_control_off "${KYKLOS_REQUIRE_REFS:-}"; then
     # [refs-footer-required] the rule reads footers through the one definition (lib/refs-footer.sh): without it the
     # check would silently find nothing, so the push is refused by name instead (a broken install). [CySec] CWE-636
-    command -v refs_footer_cited >/dev/null 2>&1 && command -v refs_rule_branch_refusal >/dev/null 2>&1 \
+    command -v refs_footer_cited >/dev/null 2>&1 && command -v refs_rule_branch_finding >/dev/null 2>&1 \
         || _np_block "Push refused: the footer reader hooks/lib/refs-footer.sh or hooks/lib/refs-rule.sh did not load (broken install), so the one-branch-one-item check cannot run. Reinstall or repin the kyklos plugin." broken-install
-    _np_rr="$(refs_rule_branch_refusal "$_np_top")"
-    [ -z "$_np_rr" ] || _np_block "Push refused: $_np_rr"
+    _np_rr="$(refs_rule_branch_finding "$_np_top")"
+    [ -z "$_np_rr" ] || echo "[kyklos] information (never a refusal): $_np_rr" >&2
 fi
 [ -n "$_np_top" ] && repo_model_invalid "$_np_top" && _np_block "Push refused: the target repo declares an INVALID topology (unknown value or a topology<->shape conflict). Fix it: run the ssdlc-repo-model interview (topology-declare.sh)."
 [ "$(repo_role "$_np_tgt")" = "artifact" ] && _np_block "Push refused: this is a PUBLIC ARTIFACT FACADE - published by its source repo's pipeline, NEVER hand-pushed. Push the private SOURCE repo instead."
+
+# _np_push_text: the text of the push commands alone ("git push <options> <positionals>" of every push in the command),
+# so a word of another command chained before or after a push (`git fetch origin main && git push origin feature/x`,
+# `rm -f x && git push ...`, `git branch -d old && git push ...`) never makes the push read as a trunk push, a force or a
+# delete. Read by the shared push parser; when the parser cannot read the push cleanly (no push found, a positional or
+# option the shell computes or quotes), the whole command is judged as before, so a doubt never loosens a check.
+. "$_GD_HERE/lib/push-refspec.sh" 2>/dev/null || true   # push_positionals_all / push_options_unknown: the shared push parser
+# _np_push_plain <command>: rc 0 only when every push in the command is a plain one whose own words are all the guard
+# needs: `git push ...` (or `git -C <dir> push ...`) is itself the command word of its part of the line, nothing feeds it
+# (no pipe, xargs, env, eval, shell -c, command substitution) and no git configuration option (-c, --config,
+# --config-env) can add a refspec or a force the words do not show. Any other shape is judged on the whole line.
+# [CySec] Enforces least-privilege push (CWE-284): a push assembled outside its own words never reads as an allowed one.
+_np_push_plain() {
+    local c="$1" part
+    printf '%s' "$c" | grep -cE '(^|[^|])\|([^|]|$)|\bxargs\b|\benv\b|\beval\b|\b(ba|z|da)?sh[[:space:]]+-c\b|`|\$\(|(^|[[:space:]])(-c|--config|--config-env)([[:space:]=]|$)' >/dev/null && return 1
+    while IFS= read -r part; do
+        printf '%s' "$part" | grep -cwE 'push' >/dev/null || continue
+        printf '%s' "$part" | grep -cE '^[[:space:]]*git([[:space:]]+-C[[:space:]]+[^[:space:]]+)*[[:space:]]+push([[:space:]]|$)' >/dev/null || return 1
+    done < <(printf '%s\n' "$c" | sed -E 's/&&|\|\||;/\n/g')
+    return 0
+}
+# _np_push_text <command> <fallback>: the command is the real shell command the call runs; the fallback (the text the
+# checks read before) is answered whenever the push is not plain or the parser cannot read it.
+_np_push_text() {
+    local c="$1" fallback="$2" opts pos
+    if [ -z "$c" ] || ! _np_push_plain "$c" || ! command -v push_reader_sees_push >/dev/null 2>&1 || ! push_reader_sees_push "$c" \
+        || push_positional_unknown_all "$c" || push_options_unknown "$c" >/dev/null; then
+        printf '%s' "$fallback"; return 0
+    fi
+    opts="$(_pr_command_text "$c" | awk -v vopts="$_PR_VALUE_OPTS_RE" -v printers="$_PR_PRINTERS" -v want=options -v allpushes=1 \
+        -f "$_PR_DIR/push-positionals.awk" | grep -v '^@@push$' | tr '\n' ' ')"
+    pos="$(push_positionals_all "$c" | grep -v '^@@push$' | tr '\n' ' ')"
+    printf 'git push %s%s' "$opts" "$pos"
+}
+_NP_PUSH="$(_np_push_text "${CMD_REAL:-}" "$CMD")"
 
 # The push classes that rewrite or remove history, detected ONCE for both paths below.
 # _np_is_force: any force form - --force, --force-with-lease[=..], --force-if-includes, -f (also bundled, e.g. -fu)
@@ -205,7 +242,7 @@ _np_shared_ref() {
 # feature/hotfix branches stay force-pushable (a rebase of unmerged work). [CySec] Enforces least-privilege push
 # (CWE-284) and integrity of shared history (CWE-494 class: what every consumer builds from).
 if [ "${KYKLOS_ALLOW_PUSH:-0}" = "1" ]; then
-    if { _np_is_force "$CMD" || _np_is_delete "$CMD"; } && _np_shared_ref "$CMD"; then
+    if { _np_is_force "$_NP_PUSH" || _np_is_delete "$_NP_PUSH"; } && _np_shared_ref "$_NP_PUSH"; then
         _np_block "Push refused: this would force-update or delete a SHARED ref (a trunk main/master/develop, release/*, support/* or a tag). Even a push-authorized session never rewrites or deletes shared history. Push a new commit instead, or ask the owner to do it by hand."
     fi
     _np_allow
@@ -241,8 +278,8 @@ if [ "${KYKLOS_CI_MONITOR:-0}" = "1" ]; then
     push_branch="$(git -C "$_tgt" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
     # Force/tag pushes are NEVER bookkeeping and stay denied regardless of workflow.
     _forcetag=0
-    printf '%s' "$CMD" | grep -ciE '(^|[[:space:]])--tags([[:space:]"]|$)|refs/tags/' >/dev/null && _forcetag=1
-    _np_is_force "$CMD" && _forcetag=1
+    printf '%s' "$_NP_PUSH" | grep -ciE '(^|[[:space:]])--tags([[:space:]"]|$)|refs/tags/' >/dev/null && _forcetag=1
+    _np_is_force "$_NP_PUSH" && _forcetag=1
 
     # TRUNK-DECLARED repo (e.g. the private companion): a non-force/non-tag push to its OWN trunk (main/master)
     # is the declared bookkeeping workflow. The GitFlow source is NOT trunk (repo_workflow => gitflow), so this
@@ -255,9 +292,13 @@ if [ "${KYKLOS_CI_MONITOR:-0}" = "1" ]; then
 
     # GitFlow repo: the existing feature/hotfix-only allowance; trunks/release/support/tags/force stay blocked.
     deny="$_forcetag"
-    printf '%s' "$CMD" | grep -ciE '[[:space:]"](master|main|develop)([[:space:]"]|$)' >/dev/null && deny=1
-    printf '%s' "$CMD" | grep -ciE ':(refs/heads/)?(master|main|develop)([[:space:]"]|$)' >/dev/null && deny=1
-    printf '%s' "$CMD" | grep -ciE '(release|support)/[^[:space:]"]*(:|[[:space:]"]|$)' >/dev/null && deny=1
+    printf '%s' "$_NP_PUSH" | grep -ciE '[[:space:]"](master|main|develop)([[:space:]"]|$)' >/dev/null && deny=1
+    printf '%s' "$_NP_PUSH" | grep -ciE ':(refs/heads/)?(master|main|develop)([[:space:]"]|$)' >/dev/null && deny=1
+    printf '%s' "$_NP_PUSH" | grep -ciE '(release|support)/[^[:space:]"]*(:|[[:space:]"]|$)' >/dev/null && deny=1
+    # A push the closed loop cannot tie to the checked-out feature branch: a trunk named by its full ref, or every
+    # branch at once (--all, --branches, --mirror), on the whole line as on the push alone.
+    printf '%s\n%s' "$_NP_PUSH" "$CMD" | grep -ciE '(^|[[:space:]"+:])refs/heads/(master|main|develop)([[:space:]"]|$)' >/dev/null && deny=1
+    printf '%s\n%s' "$_NP_PUSH" "$CMD" | grep -ciE '(^|[[:space:]])--(all|branches|mirror)([[:space:]"=]|$)' >/dev/null && deny=1
     if [ "$deny" = 0 ]; then
         case "$push_branch" in
             feature/*|hotfix/*) _np_allow ;;   # ALLOW: observable feature/hotfix push under the closed loop
@@ -283,10 +324,10 @@ _np_tag_names() {
 # _np_kind_of: the kind of push, from the command first (force, tag, a named trunk, a named release/support branch),
 # else from the checked-out branch a bare push sends.
 _np_kind_of() {
-    if _np_is_force "$CMD"; then printf 'force'
-    elif _np_tag_names "$CMD"; then printf 'tag'
-    elif _np_trunk_names "$CMD"; then printf 'trunk'
-    elif _np_release_names "$CMD"; then printf 'release'
+    if _np_is_force "$_NP_PUSH"; then printf 'force'
+    elif _np_tag_names "$_NP_PUSH"; then printf 'tag'
+    elif _np_trunk_names "$_NP_PUSH"; then printf 'trunk'
+    elif _np_release_names "$_NP_PUSH"; then printf 'release'
     else
         case "$_np_cur" in
             main|master|develop) printf 'trunk' ;;
@@ -304,7 +345,7 @@ _np_only_authorised="Only the push-authorised session your organisation names (K
 # what really decided instead. Text only: the decision above is unchanged.
 _np_kind_named_elsewhere() {
     [ "${KYKLOS_CI_MONITOR:-0}" = "1" ] && [ -n "$_np_cur" ] || return 1
-    if _np_is_force "$CMD" || _np_tag_names "$CMD" || _np_trunk_names "$CMD" || _np_release_names "$CMD"; then
+    if _np_is_force "$_NP_PUSH" || _np_tag_names "$_NP_PUSH" || _np_trunk_names "$_NP_PUSH" || _np_release_names "$_NP_PUSH"; then
         return 1
     fi
     _np_parse_refspec "$_np_cur"
@@ -347,6 +388,6 @@ case "$(_np_kind_of_refusal)" in
         _np_fix="No setting lets a project session push it: move the work to a feature/* or hotfix/* branch and push that." ;;
 esac
 reason="Push refused: $_np_kind. Read for this push: topology $_np_topo, KYKLOS_CI_MONITOR=${KYKLOS_CI_MONITOR:-not set}, KYKLOS_ALLOW_PUSH=${KYKLOS_ALLOW_PUSH:-not set}. What would allow it: $_np_fix The rules: the PUSH POLICY section of the managed policy. For a single authorized exception: bash $OVERRIDE_MARKER_CLI set $OK_NAME $OK_SCOPE_HINT"
-reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
+reason="$(kyklos_json_escape "$reason")"
 printf '{"decision":"block","reason":"%s%s"}' "$reason" "$(kyklos_help_json_suffix push-refused)"
 exit 0

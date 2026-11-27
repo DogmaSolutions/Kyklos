@@ -31,6 +31,7 @@
 #
 # Off-switch (greppable): KYKLOS_STORY_ASK_CHECK=off (environment or .claude/standards.env). Wired in hooks.json
 # under "Stop".
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 set +e -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -213,6 +214,6 @@ fi
 printf '%s %s\n' "$SIG" "$count" > "$COUNT_FILE" 2>/dev/null
 
 reason="BLOCKED (story-ask guard): your closing message asks the owner about story or issue ${UNPOSTED}, but no note asking it was posted on that item in this session. A question for the owner about a story is asked ON the story, so it is recorded next to the work and the owner is notified. Write the question (context, references, why it is theirs, each option with its effect, one tickable box per option) into a file with your editor tool, run: story ask <id> --file <that file>, and in the closing message point to the note link it prints (for a coordination issue: agent-msg reply <iid> \"<body>\"). Then block the story on the answer: story block <id> --kind user --on <the link> --reason $'<what blocks it>\nsearched: <what you looked at>'. If the closing message only reports and asks nothing, rephrase it without the question. Off-switch: KYKLOS_STORY_ASK_CHECK=off."
-reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
+reason="$(kyklos_json_escape "$reason")"
 printf '{"decision":"block","reason":"%s"}' "$reason"
 exit 0

@@ -50,7 +50,7 @@ printf '%s' "$cmd" | grep -Ec "$IAD_CLIENT_RE" >/dev/null || guard_done
 printf '%s' "$cmd" | grep -cE '(^|[[:space:];&|(])PROOF_RAW_OK=1([[:space:]]|;|&|\||$)' >/dev/null && guard_done
 printf '%s' "$cmd" | grep -cE '#[[:space:]]*proof-raw-ok([[:space:]]|$)' >/dev/null && guard_done
 
-block(){ local r="$1"; r="${r//\\/\\\\}"; r="${r//\"/\\\"}"; r="$(printf '%s' "$r" | tr '\n' ' ')"; printf '{"decision":"block","reason":"%s"}' "$r"; guard_done; }
+block(){ local r="$1"; r="$(kyklos_json_escape "$r")"; printf '{"decision":"block","reason":"%s"}' "$r"; guard_done; }
 
 # Detection is GLOBAL over the command (not per-segment), because a rendered Proof Table contains `|` pipes that a
 # shell-segment splitter mistakes for pipelines — splitting the client away from the table content and defeating a

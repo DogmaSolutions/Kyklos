@@ -24,9 +24,15 @@
 # Escape (USER-authorized only): a line `Proof-Override:` under the story's `## Proof` heading. The agent
 # must never add it without explicit user authorization (that is the whole point of the gate).
 #
+# ONLY THIS SESSION'S OWN CLOSES ARE JUDGED, once per proof (both backends, bridge and bash mode alike): a close this
+# session made with `story close` (recorded by the story tool, lib/session-closes.sh). A story closed by anyone else, by
+# hand, through another tool or in an earlier session is never re-judged here; its close was gated where it happened
+# (`story close`, the close guard, the bridge's story_close).
+#
 # No-op when Stories/ does not exist. Honors stop_hook_active so it can never wedge a Stop loop.
 # [json-answer-required] Every answer this hook reads goes through the JSON reader; without it a check would exit 127
 # and fall into a fail-open path, so the hook refuses by name instead (a broken install). [CySec] CWE-636
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
     printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
@@ -35,6 +41,9 @@ fi
 set -e +u -o pipefail
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+# The records of this session's `story close` calls are read from the state folder the session itself uses, pinned before
+# the project's settings load (lib/session-closes.sh), so a setting can never move them out of sight.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/session-closes.sh" 2>/dev/null && session_closes_pin
 # A project directory inside a companion's nested source (CLAUDE_PROJECT_DIR or the session working directory) is
 # resolved to the companion root, where Stories/ and .claude/ live.
 . "$(dirname "${BASH_SOURCE[0]}")/lib/repo-role.sh" 2>/dev/null && PROJECT_DIR="$(repo_companion_root "$PROJECT_DIR")"
@@ -57,7 +66,7 @@ fi
 # otherwise emit invalid JSON and the block would be dropped.
 _psg_block() {
     local reason="BLOCKED: story proof gate not satisfied${1}. (See the 'ssdlc-story-proof' skill.)"
-    reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
+    reason="$(kyklos_json_escape "$reason")"
     printf '{"decision":"block","reason":"%s"}' "$reason"
 }
 
@@ -65,7 +74,7 @@ _psg_block() {
 # The transcript path + the durable proof-shown marker dir + the session window. A closed story's Proof table must
 # be RENDERED in the reply (the user may be remote with no FS/GitLab-note access) — enforced PER-STORY, only for
 # THIS-session closes, marker-suppressed, FAIL-OPEN.
-_TPATH="$(printf '%s' "$INPUT" | sed -nE 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -1)"
+_TPATH="$(printf '%s' "$INPUT" | sed -nE 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -1)" || _TPATH=""
 # The volatile state folder (the last-resort marker folder and the legacy one read during the transition). A test names
 # its own with KYKLOS_VOLATILE_STATE_DIR, so it never writes the machine's shared temp folder.
 _VOLATILE_STATE="${KYKLOS_VOLATILE_STATE_DIR:-/tmp/kyklos-state}"
@@ -107,6 +116,11 @@ _ptg0="$(dirname "${BASH_SOURCE[0]}")/lib/proof-tool-gate.sh"; [ -f "$_ptg0" ] &
 # grandfather label (shared authorship check; the agent cannot self-exempt). Sourced early so the gitlab subshell sees it.
 _ual0="$(dirname "${BASH_SOURCE[0]}")/lib/user-applied-label.sh"; [ -f "$_ual0" ] && . "$_ual0" || true
 . "$(dirname "${BASH_SOURCE[0]}")/lib/owner-labels.sh"   # fixed owner-label names (never redirected by a variable)
+# The closes this session made with `story close`: the only closes judged below, each once per proof.
+if ! . "$(dirname "${BASH_SOURCE[0]}")/lib/session-closes.sh" 2>/dev/null || ! command -v session_close_ids >/dev/null 2>&1; then
+    _psg_block "; the story-proof close gate cannot read this session's closes: hooks/lib/session-closes.sh did not load (a broken kyklos install). Reinstall kyklos to restore the gate"
+    exit 0
+fi
 _GF_LABEL="$OWNER_GRANDFATHER_LABEL"
 # The gitlab equivalent of the FS `Proof-Override:` short-circuit. A gitlab proof
 # lives as an AGENT-WRITABLE note, so the authorization can't be a note line the agent could self-author — it is a
@@ -153,7 +167,7 @@ _proof_shown_in_transcript() {
     local id="$1" tf="$2" kind="${3:-}" recent canon
     [ -n "$id" ] || return 2
     [ -n "$tf" ] && [ -f "$tf" ] || return 2
-    recent="$(tail -c 400000 "$tf" 2>/dev/null | tr -d '\r')"
+    recent="$(tail -c 400000 "$tf" 2>/dev/null | tr -d '\r')" || recent=""
     # the demanded row set is the STORY'S KIND'S canonical set — an analysis/documentation story's
     # (correctly) reduced table must satisfy the shown-check, and a development table is still demanded in full.
     canon="$(proof_canonical_dimensions "$kind" 2>/dev/null || true)"
@@ -178,7 +192,7 @@ if [ "${STORY_BACKEND:-local}" = gitlab ]; then
     ( _seam_problem=""
       if ! . "$_rl" 2>/dev/null || ! command -v require_story_seam >/dev/null 2>&1; then
           _seam_problem="cannot load $_rl completely"
-      elif ! require_story_seam "$_seam" backend_done_handles backend_proof_read 2>/dev/null; then
+      elif ! require_story_seam "$_seam" backend_is_done backend_proof_read 2>/dev/null; then
           _seam_problem="$STORY_SEAM_PROBLEM"
       fi
       if [ -n "$_seam_problem" ]; then
@@ -203,7 +217,7 @@ if [ "${STORY_BACKEND:-local}" = gitlab ]; then
           if [ -n "$_GF_LABEL" ] && command -v label_user_applied >/dev/null 2>&1 \
              && label_user_applied "${_GL_PID:-}" "$1" "$_GF_LABEL"; then return 1; fi
           local _c _e _n
-          _c="$(_gl_issue "$1" 2>/dev/null | jq -r '.closed_at // empty' 2>/dev/null)"
+          _c="$(_gl_issue "$1" 2>/dev/null | jq -r '.closed_at // empty' 2>/dev/null)" || _c=""
           # An ABSENT/unfetchable closed_at is UNKNOWN, not recent -> grandfather (fail-open). Guard explicitly:
           # GNU `date -d ""` yields midnight-today (a recent epoch, not an error), which would otherwise misread an
           # empty closed_at as a this-session close and BLOCK a historical close whose detail could not be fetched.
@@ -257,7 +271,7 @@ if [ "${STORY_BACKEND:-local}" = gitlab ]; then
           local _iss _max
           _iss="$(_gl_issue "$1" 2>/dev/null)" || return 0
           [ -n "$_iss" ] || return 0
-          _max="$(printf '%s' "$_iss" | jq -r '.labels[]? | select(startswith("kyklos:version::")) | sub("^kyklos:version::";"")' 2>/dev/null | kyklos_version_max)"
+          _max="$(printf '%s' "$_iss" | jq -r '.labels[]? | select(startswith("kyklos:version::")) | sub("^kyklos:version::";"")' 2>/dev/null | kyklos_version_max)" || _max=""
           [ -n "$_max" ] || return 1
           kyklos_version_ge "$_max" "$_PROOF_NOTE_MIN_VER"
       }
@@ -277,10 +291,51 @@ if [ "${STORY_BACKEND:-local}" = gitlab ]; then
               fi
           fi
       }
-      for _h in $(backend_done_handles "$STORIES_DIR" 2>/dev/null); do
+      # Only the closes this session made with `story close`, in this project: never every closed story of the project.
+      _sc_scope="$(session_close_scope_gitlab "${_GL_PID:-${STORY_GITLAB_PROJECT:-}}")"
+      # Judged once per proof, and latched ONLY on a clean verdict: the close judged in the previous iteration is latched
+      # when that iteration added no problem (a passed, waived or grandfathered proof). A refused proof, an unanswered
+      # bridge or any other problem leaves it unlatched, so the next Stop judges the same proof again and blocks again.
+      _sc_pend_h=""; _sc_pend_ph=""; _sc_pend_before=""
+      _sc_settle_gl() {
+          if [ -n "$_sc_pend_h" ] && [ "$gl_problems" = "$_sc_pend_before" ]; then
+              session_close_mark_judged "$_sc_scope" "$_sc_pend_h" "$_sc_pend_ph"
+          fi
+          _sc_pend_h=""
+      }
+      # The project has two spellings (its numeric id and its path): a close recorded under the other one (a bridge call
+      # that named the project by path while the session holds the id, or the reverse) is this project's too. The
+      # spellings are read from GitLab only when such a record exists.
+      # [no-fail-open] Under set -e a failed lookup in a bare assignment would end the hook silently and skip every check
+      # below (an unproven close would pass): the lookup runs inside an if, and when GitLab does not answer the session's
+      # own spelling is still judged, saying that the other spellings could not be checked this Stop. [CySec] CWE-636
+      _sc_scopes="$_sc_scope"
+      if session_close_has_other_gitlab "$_sc_scope"; then
+          _sc_id=""; _sc_path=""
+          if _sc_proj="$(gl_api GET "" 2>/dev/null)" \
+             && _sc_id="$(printf '%s' "$_sc_proj" | jq -r '.id // empty' 2>/dev/null)" \
+             && _sc_path="$(printf '%s' "$_sc_proj" | jq -r '.path_with_namespace // empty' 2>/dev/null)" \
+             && { [ -n "$_sc_id" ] || [ -n "$_sc_path" ]; }; then
+              if [ -n "$_sc_id" ]; then _sc_scopes="$_sc_scopes $(session_close_scope_gitlab "$_sc_id")"; fi
+              if [ -n "$_sc_path" ]; then _sc_scopes="$_sc_scopes $(session_close_scope_gitlab "$_sc_path")"; fi
+          else
+              echo "[kyklos] story-proof gate: GitLab did not answer the project's id and path, so a close recorded under the project's other spelling could not be checked this Stop; the closes recorded under '${_GL_PID:-${STORY_GITLAB_PROJECT:-}}' are judged." >&2
+          fi
+      fi
+      # shellcheck disable=SC2086 # the scopes are words without blanks
+      for _h in $(session_close_ids_any $_sc_scopes); do
+          _sc_settle_gl
           [ -n "$_h" ] || continue
+          # Still closed and completed (a story reopened since, or closed as dropped, is not judged); an issue that cannot
+          # be read now is left for the next Stop (a transient never blocks, and nothing is latched).
+          if backend_is_done "$STORIES_DIR" "$_h"; then :; else continue; fi
           _gl_proof_required "$_h" || continue   # skip a close that predates the proof-note regime
-          _proof="$(backend_proof_read "$STORIES_DIR" "$_h" 2>/dev/null)"
+          # A proof that cannot be read reads as none (the missing-proof check below then blocks), never as an exit.
+          _proof="$(backend_proof_read "$STORIES_DIR" "$_h" 2>/dev/null)" || _proof=""
+          _ph="$(printf '%s' "$_proof" | sha1sum 2>/dev/null | cut -c1-16)"
+          # A proof judged clean on an earlier Stop is not judged again (a new proof is judged anew).
+          session_close_judged "$_sc_scope" "$_h" "$_ph" && continue
+          _sc_pend_h="$_h"; _sc_pend_ph="$_ph"; _sc_pend_before="$gl_problems"
           _bridge_judged=0
           _gl_judge
           case "$_judge" in
@@ -288,8 +343,7 @@ if [ "${STORY_BACKEND:-local}" = gitlab ]; then
                   # Only a close of THIS session is asked: an earlier close was judged by the bridge's own close, and
                   # the bash path grandfathers it the same way (_gl_close_is_recent: an older or unknown close time).
                   _gl_close_is_recent "$_h" || continue
-                  # No marker skips this question: the marker folders are writable by the agent, so a file there
-                  # must never stand for the bridge's verdict. The bridge is asked on every Stop that sees the close.
+                  # A bridge that does not answer adds a problem, so the close stays unlatched and the next Stop asks again.
                   if [ "$_judge" = unreachable ]; then
                       gl_problems="${gl_problems}; issue #$_h is Done but its proof cannot be judged: the bridge's story stack was last 'on' and the bridge does not answer now. Start the bridge (relaunch the container) and stop again; the proof is never re-judged in bash"
                       continue
@@ -343,7 +397,6 @@ if [ "${STORY_BACKEND:-local}" = gitlab ]; then
           # [SHOWN-in-reply, gitlab] the "render the Proof table in the reply" rule applies here too: a gitlab proof lives as a NOTE the remote user never
           # sees in the TUI, so a THIS-SESSION close must have RENDERED its Proof table in the reply. Per-story,
           # marker-suppressed, fail-open. closed_at within the window => this session (else grandfather).
-          _ph="$(printf '%s' "$_proof" | sha1sum 2>/dev/null | cut -c1-16)"
           _mk="$_SHOWN_DIR/gl-${_h}-${_ph}"
           [ -f "$_mk" ] && continue
           if ! _gl_close_is_recent "$_h"; then
@@ -354,7 +407,7 @@ if [ "${STORY_BACKEND:-local}" = gitlab ]; then
           _kind=""
           command -v backend_get_kind >/dev/null 2>&1 && _kind="$(backend_get_kind "$STORIES_DIR" "$_h" 2>/dev/null || true)"
           command -v proof_kind_normalize >/dev/null 2>&1 && _kind="$(proof_kind_normalize "$_kind")"
-          _sid="$(backend_id_from_handle "$STORIES_DIR" "$_h" 2>/dev/null | grep -oE 'STORY-[0-9]+' | head -1)"
+          _sid="$(backend_id_from_handle "$STORIES_DIR" "$_h" 2>/dev/null | grep -oE 'STORY-[0-9]+' | head -1)" || _sid=""
           _shown=0; _readfail=0
           if _proof_shown_in_transcript "#$_h" "$_TPATH" "$_kind"; then _shown=1; elif [ "$?" = 2 ]; then _readfail=1; fi
           if [ "$_shown" = 0 ] && [ -n "$_sid" ]; then
@@ -485,7 +538,8 @@ if [ "${STORY_BACKEND:-local}" = gitlab ]; then
           # dimension's Metrics cell must cite every item/criteria id declared in its linked story section
           # (UC/FM/AC/R/RA/FAIL-*). Reads the issue body.
           if [ "$_bridge_judged" = 0 ] && command -v proof_correlation_problems >/dev/null 2>&1; then
-              _cbody="$(backend_body_read "$STORIES_DIR" "$_h" 2>/dev/null)"
+              _cbody="$(backend_body_read "$STORIES_DIR" "$_h" 2>/dev/null)" || _cbody=""
+              [ -n "$_cbody" ] || echo "[kyklos] WARNING: story-proof correlation check for issue #$_h SKIPPED this Stop: its body could not be read, so the items it declares are not checked against the Metrics cells." >&2
               while IFS= read -r _cp; do
                   [ -n "$_cp" ] && gl_problems="${gl_problems}; issue #$_h: $_cp"
               done < <(proof_correlation_problems "$_cbody" "$_proof" 2>/dev/null)
@@ -502,6 +556,7 @@ if [ "${STORY_BACKEND:-local}" = gitlab ]; then
           # that added a problem is NOT marked, so it is re-checked next Stop until fixed.
           [ "$gl_problems" = "$_probs_before" ] && touch "$_mk" 2>/dev/null || true
       done
+      _sc_settle_gl
       [ -z "$gl_problems" ] && exit 0
       _psg_block "$gl_problems"
     )
@@ -529,6 +584,16 @@ _ar="$(dirname "${BASH_SOURCE[0]}")/lib/ai-review-verdict.sh"; [ -f "$_ar" ] && 
 
 problems=""
 add() { problems="${problems}; $1"; }
+_SC_FS_SCOPE="$(session_close_scope_fs "$STORIES_DIR")"   # the closes `story close` recorded for this Stories folder
+# _sc_settle_fs -> latch the close judged in the previous iteration when that iteration added no problem (a clean
+# verdict); a refused proof stays unlatched and is judged again on the next Stop.
+_sc_pend_name=""; _sc_pend_ph=""; _sc_pend_before=""
+_sc_settle_fs() {
+    if [ -n "$_sc_pend_name" ] && [ "$problems" = "$_sc_pend_before" ]; then
+        session_close_mark_judged "$_SC_FS_SCOPE" "$_sc_pend_name" "$_sc_pend_ph"
+    fi
+    _sc_pend_name=""
+}
 
 # _close_is_recent <tasks-file> -> rc 0 iff this story was CLOSED THIS SESSION (its tasks.md is uncommitted-modified,
 # OR committed AFTER the session's first transcript timestamp AND within the recent absolute window); rc 1 = an OLD or
@@ -538,7 +603,7 @@ _close_is_recent() {
     local _t="$1" _tp _sess _ci _ss _cd _now _win
     [ -n "$_t" ] || return 1
     [ -n "$(git -C "$PROJECT_DIR" status --porcelain -- "$_t" 2>/dev/null)" ] && return 0   # uncommitted this-session close
-    _tp="$(printf '%s' "$INPUT" | sed -nE 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -1)"
+    _tp="$(printf '%s' "$INPUT" | sed -nE 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -1)" || _tp=""
     [ -n "$_tp" ] && [ -f "$_tp" ] || return 1
     _sess="$(head -n 1 "$_tp" 2>/dev/null | jq -r '.timestamp // empty' 2>/dev/null || true)"
     _ci="$(git -C "$PROJECT_DIR" log -1 --format=%cI -- "$_t" 2>/dev/null || true)"
@@ -551,6 +616,7 @@ _close_is_recent() {
 }
 
 for dir in "$STORIES_DIR"/STORY-*/; do
+    _sc_settle_fs
     [ -d "$dir" ] || continue
     name="$(basename "$dir")"
     tasks="$dir/tasks.md"
@@ -558,16 +624,25 @@ for dir in "$STORIES_DIR"/STORY-*/; do
     # Only enforce on stories the BACKLOG marks Done — i.e. being/already closed. Column-position independent
     # (the Status cell is field 3 in narrow infra tables but field 5 in the companion's wide tables; a hardcoded
     # $3 read Project there and silently skipped every Done story — bypassing this Tier-0 gate).
-    _row="$(grep -E '^\|' "$BACKLOG" 2>/dev/null | grep -F "$name" | head -1)"
+    _row="$(grep -E '^\|' "$BACKLOG" 2>/dev/null | grep -F "$name" | head -1)" || _row=""   # no row: not Done (never an exit)
     backlog_row_has_status "$_row" '[Dd]one' || continue
+    # Only a close this session made with `story close` is judged (lib/session-closes.sh); a story marked Done by hand,
+    # by anyone else or in an earlier session is never re-judged here.
+    session_close_is_this_session "$_SC_FS_SCOPE" "$name" || continue
+
+    # Extract the `## Proof` section (from its heading to the next `## ` or EOF); empty when there is no tasks.md.
+    proof=""
+    [ -f "$tasks" ] && proof="$(awk '/^##[[:space:]]+Proof([[:space:]]|$)/{f=1;next} /^##[[:space:]]/{f=0} f{print}' "$tasks")"
+    # A proof judged clean on an earlier Stop is not judged again (a new proof is judged anew); latched only on a clean
+    # verdict (_sc_settle_fs), so a refused proof blocks every Stop until it changes.
+    _sc_ph="$(printf '%s' "$proof" | sha1sum 2>/dev/null | cut -c1-16)"
+    session_close_judged "$_SC_FS_SCOPE" "$name" "$_sc_ph" && continue
+    _sc_pend_name="$name"; _sc_pend_ph="$_sc_ph"; _sc_pend_before="$problems"
 
     if [ ! -f "$tasks" ]; then
         add "$name is Done but has no tasks.md to hold a Proof table"
         continue
     fi
-
-    # Extract the `## Proof` section (from its heading to the next `## ` or EOF).
-    proof="$(awk '/^##[[:space:]]+Proof([[:space:]]|$)/{f=1;next} /^##[[:space:]]/{f=0} f{print}' "$tasks")"
 
     # No `## Proof` section at all. Two very different cases, and the OLD code grandfathered BOTH — the loophole:
     #   - a genuinely OLD story that predates the Proof gate -> grandfather (do NOT retroactively block).
@@ -639,12 +714,12 @@ for dir in "$STORIES_DIR"/STORY-*/; do
     # durable-marker rollout) suppresses re-checking — so the transition never re-flags a settled close.
     if [ -f "$marker" ] || [ -f "$_vol_state_dir/${name}-${proof_hash}" ]; then continue; fi
 
-    tpath="$(printf '%s' "$INPUT" | sed -nE 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -1)"
+    tpath="$(printf '%s' "$INPUT" | sed -nE 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -1)" || tpath=""
     if [ -z "$tpath" ] || [ ! -f "$tpath" ]; then
         touch "$marker" 2>/dev/null || true   # fail-open: cannot verify -> do not block
         continue
     fi
-    recent="$(tail -c 400000 "$tpath" 2>/dev/null | tr -d '\r')"
+    recent="$(tail -c 400000 "$tpath" 2>/dev/null | tr -d '\r')" || recent=""
     # Grandfather (robust): a story counts as CLOSED THIS SESSION only if its OWN tasks.md (which holds the Proof)
     # was CHANGED this session -- uncommitted in the worktree, OR committed after the session's first transcript
     # timestamp. Merely READING a doc that names it (BACKLOG.md lists every story) or mentioning it in passing does
@@ -707,7 +782,9 @@ for dir in "$STORIES_DIR"/STORY-*/; do
     # [correlation, FS] (PROOF_METRICS_CORRELATION, default on; opt out with =off) each PROVEN mapped dimension's
     # Metrics cell must cite every item/criteria id declared in its linked story section. Reads requirements.md.
     if command -v proof_correlation_problems >/dev/null 2>&1; then
-        _cbody="$(cat "$dir/requirements.md" 2>/dev/null)"
+        # A requirements file that cannot be read reads as no declared items (warned below), never as an exit.
+        _cbody="$(cat "$dir/requirements.md" 2>/dev/null)" || _cbody=""
+        [ -n "$_cbody" ] || echo "[kyklos] WARNING: story-proof correlation check for $name SKIPPED this Stop: its requirements.md could not be read, so the items it declares are not checked against the Metrics cells." >&2
         while IFS= read -r _cp; do
             if [ -n "$_cp" ]; then add "$name: $_cp"; session_ok=0; fi
         done < <(proof_correlation_problems "$_cbody" "$proof" 2>/dev/null)
@@ -721,7 +798,7 @@ for dir in "$STORIES_DIR"/STORY-*/; do
     # (e.g. fusing the seven NOT_PERTINENT rows into one cell) no longer passes. Routed through the SHARED
     # _proof_shown_in_transcript helper (one implementation for both backends; no drift). Marker-based fail-open
     # is unchanged, so this can never wedge the Stop loop; an unreadable transcript (rc 2) fail-opens too.
-    _sid="$(printf '%s' "$name" | grep -oE 'STORY-[0-9]+' | head -1)"
+    _sid="$(printf '%s' "$name" | grep -oE 'STORY-[0-9]+' | head -1)" || _sid=""
     _shown=""
     if [ -n "$_sid" ]; then
         if _proof_shown_in_transcript "$_sid" "$_TPATH" "$_fs_kind"; then _shown="yes"; elif [ "$?" = 2 ]; then _shown="yes"; fi
@@ -760,7 +837,7 @@ for dir in "$STORIES_DIR"/STORY-*/; do
     # NOT_PERTINENT requires an explicit recorded waiver — the agent may NEVER self-mark it N/A.
     if [ "$(proof_verdict_class "$ra_verdict" || true)" = NOT_PERTINENT ]; then
         # a no-risk-surface type (docs/test) may self-mark RA NOT_PERTINENT (profile default) — no waiver.
-        _stype="$(sed -nE 's/^[[:space:]]*[-*][[:space:]]*\*\*Story-Type:\*\*[[:space:]]*([A-Za-z_-]+).*/\1/p' "$dir/requirements.md" 2>/dev/null | head -1)"
+        _stype="$(sed -nE 's/^[[:space:]]*[-*][[:space:]]*\*\*Story-Type:\*\*[[:space:]]*([A-Za-z_-]+).*/\1/p' "$dir/requirements.md" 2>/dev/null | head -1)" || _stype=""
         if _type_waives_ra "$_stype"; then :; elif ! printf '%s' "$_ra_text" | grep -cE '^[[:space:]]*Risk-Assessment-Waived:[[:space:]]*\S' >/dev/null; then
             add "$name marks Risk Assessment NOT_PERTINENT but the agent may not self-waive it — only the user may (via a 'Risk-Assessment-Waived: <who/why>' line in the story's risk-assessment.md), OR set the story type to docs/test if it truly has no risk surface (see the ssdlc-risk-assessment skill)"
             session_ok=0
@@ -1016,6 +1093,7 @@ EOF_REPOS
 
     if [ "$session_ok" -eq 1 ]; then touch "$marker" 2>/dev/null || true; fi
 done
+_sc_settle_fs
 
 if [ -n "$problems" ]; then
     _psg_block "$problems"

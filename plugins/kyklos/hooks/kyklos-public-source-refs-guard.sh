@@ -33,6 +33,7 @@
 #                     git repo that adds a real marker.
 #
 # Wired: PreToolUse, matcher Edit|Write|MultiEdit.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 set +e -uo pipefail
 
 INPUT="$(cat || true)"
@@ -99,7 +100,7 @@ pat='STORY-[0-9]+|Story[0-9]+|source#[0-9]+|FOUND-[0-9]+|companion#[0-9]+'
 # block_with <reason> -> the hook's refusal, quoted for its JSON answer.
 block_with() {
     local reason="$1"
-    reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
+    reason="$(kyklos_json_escape "$reason")"
     printf '{"decision":"block","reason":"%s"}' "$reason"
 }
 

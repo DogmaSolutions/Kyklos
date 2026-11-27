@@ -19,6 +19,7 @@
 # Wired: PreToolUse, matcher Bash.
 # [json-answer-required] Every answer this hook reads goes through the JSON reader; without it a check would exit 127
 # and fall into a fail-open path, so the hook refuses by name instead (a broken install). [CySec] CWE-636
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
     printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
@@ -91,8 +92,8 @@ else
   # not serve): the close cannot be verified, so it is refused naming what the bridge said, never let through unchecked.
   # [CySec] Prevents CWE-636 "Not Failing Securely": no GitLab access never reads as "nothing to check".
   if [ "$_bridge_rc" != 4 ]; then
-    _why="$(coordination_read_reason | tr -d '"\\' | tr '\n' ' ')"
-    printf '{"decision":"block","reason":"BLOCKED (story-close-guard): cannot verify the close of issue %s: the bridge could not read it (%s). Retry once the bridge answers, or close the story with story close <id>.%s"}' "$IID" "${_why:-the bridge did not answer}" "$(kyklos_help_json_suffix story-close-blocked)"
+    _why="$(coordination_read_reason)"
+    printf '{"decision":"block","reason":"BLOCKED (story-close-guard): cannot verify the close of issue %s: the bridge could not read it (%s). Retry once the bridge answers, or close the story with story close <id>.%s"}' "$(kyklos_json_escape "$IID")" "$(kyklos_json_escape "${_why:-the bridge did not answer}")" "$(kyklos_help_json_suffix story-close-blocked)"
     exit 0
   fi
   coordination_read_fallback story-close-guard "the bridge has no coordination_show verb"
@@ -107,8 +108,8 @@ if [ "$_BRIDGE_READ" = 1 ]; then
 else
 . "$(dirname "${BASH_SOURCE[0]}")/lib/gitlab-api-base.sh"   # gitlab_api_base: the one API-base resolver
 API="$(gitlab_api_base STORY_GITLAB_API 2>/dev/null)" || {
-  _why="$(gitlab_api_base STORY_GITLAB_API 2>&1 >/dev/null | tr -d '"\\' | tr '\n' ' ')"
-  printf '{"decision":"block","reason":"BLOCKED (story-close-guard): cannot verify the close. %s%s"}' "$_why" "$(kyklos_help_json_suffix story-close-blocked)"
+  _why="$(gitlab_api_base STORY_GITLAB_API 2>&1 >/dev/null)"
+  printf '{"decision":"block","reason":"BLOCKED (story-close-guard): cannot verify the close. %s%s"}' "$(kyklos_json_escape "$_why")" "$(kyklos_help_json_suffix story-close-blocked)"
   exit 0
 }
 . "$(dirname "${BASH_SOURCE[0]}")/lib/gitlab-curl.sh"   # gitlab_curl / gitlab_pick_token: the token never leaves the helper
@@ -117,7 +118,7 @@ gitlab_pick_token TOKNAME "${KYKLOS_STORY_TOKEN_ENV:-}" "${STORY_GITLAB_TOKEN_EN
 # No bridge read and no token: the close cannot be verified, so it is refused naming the setting that would give
 # access (never a silent pass). [CySec] Prevents CWE-636 "Not Failing Securely".
 if [ -z "$TOKNAME" ]; then
-  printf '{"decision":"block","reason":"BLOCKED (story-close-guard): cannot verify the close of issue %s. %s Or close the story with story close <id>.%s"}' "$IID" "$(gitlab_access_missing_reason | tr -d '"\\')" "$(kyklos_help_json_suffix story-close-blocked)"
+  printf '{"decision":"block","reason":"BLOCKED (story-close-guard): cannot verify the close of issue %s. %s Or close the story with story close <id>.%s"}' "$(kyklos_json_escape "$IID")" "$(kyklos_json_escape "$(gitlab_access_missing_reason)")" "$(kyklos_help_json_suffix story-close-blocked)"
   exit 0
 fi
 
@@ -144,8 +145,8 @@ if ! printf '%s' "$ISSUE" | json_test '.iid'; then
   fi
   # An answer that is not an issue (a 404 body: the issue is unknown, or the token cannot see its project) cannot show
   # what is closed, so the close is refused naming the answer, never passed. [CySec] Prevents CWE-636.
-  _why="$(printf '%s' "$ISSUE" | jq -r '.message // .error // empty' 2>/dev/null | head -c 200 | tr -d '"\\' | tr '\n' ' ')"
-  printf '{"decision":"block","reason":"BLOCKED (story-close-guard): cannot verify the close of issue %s: GitLab did not answer with the issue (%s), so its proof cannot be checked (an unknown issue, or a token that cannot see its project). Check the project and issue number, or close the story with story close <id>.%s"}' "$IID" "${_why:-no issue in the answer}" "$(kyklos_help_json_suffix story-close-blocked)"
+  _why="$(printf '%s' "$ISSUE" | jq -r '.message // .error // empty' 2>/dev/null | head -c 200)"
+  printf '{"decision":"block","reason":"BLOCKED (story-close-guard): cannot verify the close of issue %s: GitLab did not answer with the issue (%s), so its proof cannot be checked (an unknown issue, or a token that cannot see its project). Check the project and issue number, or close the story with story close <id>.%s"}' "$(kyklos_json_escape "$IID")" "$(kyklos_json_escape "${_why:-no issue in the answer}")" "$(kyklos_help_json_suffix story-close-blocked)"
   exit 0
 fi
 # Any dev-work close: gate EVERY agent-initiated issue-close, NOT just story-labelled ones -
@@ -211,6 +212,6 @@ _parts="$_broken"
 if [ "$HAS_UNPROVEN" = 1 ]; then _parts="${_parts}${_parts:+ ; }the Proof note has an UNPROVEN Quality Dimension"
 elif [ "$HAS_PROOF" = 0 ]; then _parts="${_parts}${_parts:+ ; }no canonical Proof note (a note starting with the kyklos:story-proof marker)"; fi
 why="you are closing issue #$IID (project $PROJECT) as done, but it is NOT a conforming, proven SSDLC story (${_parts}). EVERY dev-work close must be a structured + proven story. RESTRUCTURE it (add the sections \`story structure $IID\` lists, fill every row \`story proof $IID\` generates, render the Proof table) and close via \`story close $IID\`; OR - if this is genuinely NOT development work - close it with its reason through the tool (\`story set $IID status=wontfix|duplicate|invalid\`), or, for a coordination issue, through \`agent-msg close\`; OR for a deliberate override ask the USER to apply the \`$_PO_LABEL\` label to the issue (there is no agent-touchable bypass - a close cannot be self-authorized)."
-why="${why//\\/\\\\}"; why="${why//\"/\\\"}"; why="$(printf '%s' "$why" | tr '\n' ' ')"
+why="$(kyklos_json_escape "$why")"
 printf '{"decision":"block","reason":"BLOCKED (story-close-guard): %s%s"}' "$why" "$(kyklos_help_json_suffix story-close-blocked)"
 exit 0

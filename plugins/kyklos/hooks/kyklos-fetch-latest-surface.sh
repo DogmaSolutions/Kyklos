@@ -18,6 +18,7 @@
 # FAIL-OPEN by construction: every git op is bounded + best-effort; a slow/large repo, a missing upstream, or an
 # auth failure just yields no warning for that repo -- session start is never stalled or blocked.
 # CONFIG: KYKLOS_FETCH_LATEST=on|off (default on). Wired: SessionStart.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 set +e -uo pipefail
 
 # shellcheck source=lib/control-switch.sh
@@ -66,7 +67,7 @@ if [ -n "$warn" ]; then
   if command -v jq >/dev/null 2>&1; then
     jq -nc --arg m "$_msg" '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$m}}'
   else
-    _msg="${_msg//\\/\\\\}"; _msg="${_msg//\"/\\\"}"
+    _msg="$(kyklos_json_escape "$_msg")"
     printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}' "$_msg"
   fi
 fi

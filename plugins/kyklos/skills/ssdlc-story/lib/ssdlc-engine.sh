@@ -460,7 +460,8 @@ ssdlc_cs_outcome() {
     # outcome, so it is dropped before comparing.
     text="$(bridge_mcp_text "$resp" | grep -v '^\[shadow\] ')"
     case "$verb" in
-        story_close) if [ "$text" = "closed" ]; then printf 'closed'; else printf '%s' "$text"; fi ;;
+        # The verb answers "closed" alone or "closed (<what the close judged>)", a note possibly on later lines.
+        story_close) if printf '%s\n' "$text" | head -1 | grep -cE '^closed($| \()' >/dev/null; then printf 'closed'; else printf '%s' "$text"; fi ;;
         story_set_status|story_resume) ssdlc_bash_status "$text" ;;
         story_phase) printf '%s' "$text" ;;
         proof_get|proof_set) ssdlc_proof_outcome "$(printf '%s' "$text" | ssdlc_proof_digest)" "$text" ;;

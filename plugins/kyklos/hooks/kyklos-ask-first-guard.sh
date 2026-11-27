@@ -43,6 +43,7 @@
 # the launcher, outside the agent's reach). It is never read from .claude/standards.env, which the agent can edit, and
 # an inline `KYKLOS_ASK_FIRST=off` in a command reaches only that command, never this hook.
 # Wired: PreToolUse, PostToolUse and PostToolUseFailure, matcher Bash|Edit|Write|MultiEdit|NotebookEdit.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 set +e -uo pipefail
 
 MODE="${1:-pre}"
@@ -62,7 +63,7 @@ ask_answer() {
     if command -v jq >/dev/null 2>&1; then
         jq -cn --arg r "$r" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"ask",permissionDecisionReason:$r}}'
     else
-        r="${r//\\/\\\\}"; r="${r//\"/\\\"}"; r="$(printf '%s' "$r" | tr '\n\t' '  ')"
+        r="$(kyklos_json_escape "$r")"
         printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}\n' "$r"
     fi
     exit 0

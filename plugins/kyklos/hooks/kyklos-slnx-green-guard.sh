@@ -28,6 +28,7 @@
 # Wired: PreToolUse, matcher Bash.
 # [json-answer-required] Every answer this hook reads goes through the JSON reader; without it a check would exit 127
 # and fall into a fail-open path, so the hook refuses by name instead (a broken install). [CySec] CWE-636
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
     printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
@@ -181,6 +182,6 @@ case "$(command -v build_execution_mode >/dev/null 2>&1 && build_execution_mode 
     *)      _route="BUILD_EXECUTION is not set (or not bridge or local), so the recorder cannot choose where to build: set it first (bridge builds on the host through the bridge, local builds in this container), then run the recorder." ;;
 esac
 reason="Push BLOCKED — the pushed $push_branch @ $PUSHED_SHA needs a recorded green full-solution build for ${#MISSING[@]} solution(s)$_scope_note:$_details A single-project build/test does NOT run the StyleCop solution-ruleset rules (SA1117 etc.); only a FULL-solution 'dotnet build <solution>.slnx' does — the same build CI's 'build' job runs. Two things count as that proof: (1) the recorder runs that build and, only on GREEN, records the current HEAD for that solution; (2) a green build the bridge itself made of exactly this commit, with no change to the tree since (its build verb on that solution, run on the committed tree; the bridge's build_state verb answers whether it is still current). Either one, then push. $_route For a single deliberate exception: bash $OVERRIDE_MARKER_CLI set $OK_NAME $OK_SCOPE_HINT"
-reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
+reason="$(kyklos_json_escape "$reason")"
 printf '{"decision":"block","reason":"%s%s"}' "$reason" "$(kyklos_help_json_suffix push-blocked-no-recorded-green-full-solution-build)"
 exit 0

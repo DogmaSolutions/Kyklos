@@ -18,6 +18,7 @@
 # DEFAULT-ON; the only opt-out is KYKLOS_PUBLIC_PUSH_GUARD=off (environment or .claude/standards.env).
 #
 # Wired: PreToolUse, matcher Bash.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 set +e -uo pipefail
 _PA_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$_PA_HERE/lib/git-cmd-detect.sh"   # git_cmd_invokes / git_target_repo_dir: command-position detection (shared)
@@ -43,7 +44,7 @@ kyklos_control_off "${KYKLOS_PUBLIC_PUSH_GUARD:-}" && { echo "[kyklos] public-pu
 
 _pa_block() {
     local r="$1"
-    r="${r//\\/\\\\}"; r="${r//\"/\\\"}"; r="$(printf '%s' "$r" | tr '\n\t' '  ')"
+    r="$(kyklos_json_escape "$r")"
     printf '{"decision":"block","reason":"%s"}' "$r"
     exit 0
 }

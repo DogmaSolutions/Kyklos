@@ -39,6 +39,7 @@
 # Wired: PreToolUse, matcher Bash, and matcher mcp__KyklosBridge__mr_auto_merge.
 # [json-answer-required] Every answer this hook reads goes through the JSON reader; without it a check would exit 127
 # and fall into a fail-open path, so the hook refuses by name instead (a broken install). [CySec] CWE-636
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
     printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
@@ -138,7 +139,7 @@ esac
 if [ -z "$_mode" ] && [ -n "$CMD_REAL" ]; then
     command -v script_reader_files >/dev/null 2>&1 || { printf '{"decision":"block","reason":"BLOCKED (%s): the script reader hooks/lib/script-reader.sh did not load (broken install), so a script this command runs cannot be checked. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"; exit 0; }
     if ! _sfiles="$(script_reader_files mr_command_segments any "$CMD_REAL" "$HOOK_CWD")"; then
-        printf '{"decision":"block","reason":"Auto-merge check BLOCKED: this command runs more than %s local scripts, so the guard cannot read them all for an auto-merge arm. Run them in separate commands.%s"}' "$SCRIPT_READER_MAX_FILES" "$(kyklos_help_json_suffix merge-or-arming-blocked-branch-behind-its-target)"
+        printf '{"decision":"block","reason":"Auto-merge check BLOCKED: this command runs more than %s local scripts, so the guard cannot read them all for an auto-merge arm. Run them in separate commands.%s"}' "$(kyklos_json_escape "$SCRIPT_READER_MAX_FILES")" "$(kyklos_help_json_suffix merge-or-arming-blocked-branch-behind-its-target)"
         exit 0
     fi
     while IFS= read -r _sf; do
@@ -152,9 +153,9 @@ fi
 
 block() {
     local reason="$1" help
-    reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
+    reason="$(kyklos_json_escape "$reason")"
     help="$(kyklos_help_json_suffix "$(_ac_help_anchor "$1")")"
-    if [ -n "${_AC_REFUSAL:-}" ]; then printf '{"decision":"block","reason":"%s%s","refusal":"%s"}' "$reason" "$help" "$_AC_REFUSAL"
+    if [ -n "${_AC_REFUSAL:-}" ]; then printf '{"decision":"block","reason":"%s%s","refusal":"%s"}' "$reason" "$help" "$(kyklos_json_escape "$_AC_REFUSAL")"
     else printf '{"decision":"block","reason":"%s%s"}' "$reason" "$help"; fi
     exit 0
 }

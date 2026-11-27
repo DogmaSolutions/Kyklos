@@ -12,6 +12,7 @@
 #                     is kept), and only an answer that carries a test result (`exitCode=` text) is judged.
 #
 # Config (optional .claude/standards.env): KYKLOS_STATE_DIR (default /tmp/kyklos-state).
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 set -euo pipefail
 
 # --- Kyklos: load optional per-project config ---
@@ -77,7 +78,7 @@ case "$MODE" in
       else
         reason="TEST RUN DID NOT COMPLETE — the output shows a build/compile error or an aborted run and NO test summary. A broken build is NOT 'zero failures'; it is an unfinished, failed run. Fix the build/root cause and re-run until the suite is actually green. Do NOT proceed on an unfinished test run."
       fi
-      printf '{"decision":"block","reason":"%s"}' "$reason"
+      printf '{"decision":"block","reason":"%s"}' "$(kyklos_json_escape "$reason")"
       exit 0
     fi
     # A run of part of the suite (a project file or folder, an assembly, a filter, the last build's binaries, ...) is
@@ -121,7 +122,7 @@ case "$MODE" in
       else
         reason="TEST RUN DID NOT COMPLETE (run_tests exitCode=${EXITCODE}, failed=0) — a build/compile error or aborted run, NOT zero failures. Use get_logs to find the root cause, fix it, and re-run until the suite is green."
       fi
-      printf '{"decision":"block","reason":"%s"}' "$reason"
+      printf '{"decision":"block","reason":"%s"}' "$(kyklos_json_escape "$reason")"
       exit 0
     fi
     # A partial run (named test projects, or the last build's binaries) is green only for what it covered: it says

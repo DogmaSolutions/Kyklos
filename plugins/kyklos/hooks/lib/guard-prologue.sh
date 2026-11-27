@@ -19,6 +19,7 @@
 # each guard covers it being missing or ending the shell, not it replacing that trap.
 # [CySec] Fails closed when a security check cannot run (CWE-636 Not Failing Securely). [RiskMitigation RA-03]
 
+. "$(dirname "${BASH_SOURCE[0]}")/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 _GUARD_PROLOGUE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 
 # shellcheck disable=SC2120  # WHAT is optional: a re-arm after a load keeps the name given first
@@ -55,7 +56,7 @@ _guard_on_exit() {
   if [ "${_KYKLOS_GUARD_STOPPED:-0}" = 1 ]; then
     r="BLOCKED: ${_KYKLOS_GUARD_WHAT:-a kyklos guard} was stopped before it decided (it ran past the hook's time limit), so this command is refused this time. Retry it; if it keeps happening, split the command (a long script it runs is read in full)."
     printf '[kyklos] %s\n' "$r" >&2
-    r="${r//\\/\\\\}"; r="${r//\"/\\\"}"
+    r="$(kyklos_json_escape "$r")"
     printf '{"decision":"block","reason":"%s"}' "$r"
     _KYKLOS_GUARD_DECIDED=1
     exit 0
@@ -63,7 +64,7 @@ _guard_on_exit() {
   [ -n "$why" ] || why="it ended before it decided (a library it loads ended the shell while loading)"
   r="BLOCKED (broken kyklos install): ${_KYKLOS_GUARD_WHAT:-a kyklos guard} cannot run its check: $why. Until it can, it refuses every command, because it can no longer tell a raw API write from any other command. Edit and Write still work, so a library can be repaired in place. Repair: relaunch the container so the kyklos plugin is installed again, or report the broken library to the kyklos owner."
   printf '[kyklos] %s\n' "$r" >&2
-  r="${r//\\/\\\\}"; r="${r//\"/\\\"}"; r="$(printf '%s' "$r" | tr '\n\t' '  ')"
+  r="$(kyklos_json_escape "$r")"
   printf '{"decision":"block","reason":"%s"}' "$r"
   _KYKLOS_GUARD_DECIDED=1
   exit 0

@@ -17,6 +17,7 @@
 #     escape: inline `// nth-ok: <reason>` on the same line for a genuine order-IS-behaviour case.
 #
 # Wired PreToolUse, matcher Edit|Write|MultiEdit.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 set -euo pipefail
 
 INPUT="$(cat || true)"
@@ -34,7 +35,7 @@ CONTENT="$(printf '%s' "$INPUT" | jq -r '
     ((.tool_input.edits // []) | map(.new_string // empty) | join("\n")) ]
   | join("\n")' 2>/dev/null || true)"
 
-block() { printf '{"decision":"block","reason":"%s"}' "$1"; exit 0; }
+block() { printf '{"decision":"block","reason":"%s"}' "$(kyklos_json_escape "$1")"; exit 0; }
 
 # Assert.Ignore = an unconditional skip; NEVER allowed (no escape).
 if printf '%s' "$CONTENT" | grep -cE 'Assert\.Ignore\b' >/dev/null; then

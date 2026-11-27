@@ -162,8 +162,8 @@ The logic lives in the Bridge, in `ProofDisciplineJudge` (the ruling) and `Proof
 ### The Bridge's signed copy of the section
 
 Next to each story, the [Bridge](COMPONENTS.md#kyklos-bridge) keeps one **note** that holds a signed copy of its Proof Discipline section. You will see it in the
-story's notes: it opens with a sentence saying what it is, and the data it holds is folded away under a small
-"Signed record" heading.
+story's notes: it opens with a short text saying what it is, with a link to this section, and the data it holds is folded away under a small
+"Signed record" heading, written indented so you can read it. Only the signature matters to the Bridge, never the layout.
 
 - **What it is:** the Bridge's own record of what the section said when it last accepted it. The Bridge needs it to tell a change
   made by the owner from any other change, because the issue tracker records who edited the story's description, and the

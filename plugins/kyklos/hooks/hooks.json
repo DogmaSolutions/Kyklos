@@ -292,6 +292,15 @@
         ]
       },
       {
+        "matcher": "mcp__KyklosBridge__story_close",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/kyklos-session-close-record.sh\""
+          }
+        ]
+      },
+      {
         "matcher": "Bash|mcp__KyklosBridge__(get_mutation|get_job_result)",
         "hooks": [
           {

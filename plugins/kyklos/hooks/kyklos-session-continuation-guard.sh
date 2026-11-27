@@ -8,6 +8,7 @@
 #   PostToolUse Read                          -> sets the "recently read" markers (never blocks)
 #   PreToolUse  Edit|Write|MultiEdit | Bash | Agent
 #                                             -> blocks until CLAUDE.md (+ optional context/AI_TOOLS) read
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 set -e +u -o pipefail
 
 _cfg="$(. "$(dirname "${BASH_SOURCE[0]}")/lib/repo-role.sh" 2>/dev/null && repo_companion_root "${CLAUDE_PROJECT_DIR:-$(pwd)}" || printf '%s' "${CLAUDE_PROJECT_DIR:-$(pwd)}")/.claude/standards.env"
@@ -112,9 +113,8 @@ if stale "$CLAUDE_MD_READ"; then
     creates_project_rules && exit 0
     _missing=""
     [ -e "$_claude_md" ] || [ -L "$_claude_md" ] || _missing=" This project has no CLAUDE.md yet: create it first (the Write tool on exactly $_claude_md, or one plain 'touch', ': >' or 'cp <file>' command onto that path), which this gate allows while the file does not exist, then read it."
-    _claude_md="${_claude_md//\\/\\\\}"; _claude_md="${_claude_md//\"/\\\"}"   # JSON-escape the path
-    _missing="${_missing//\\/\\\\}"; _missing="${_missing//\"/\\\"}"
-    printf '{"decision":"block","reason":"%s"}' "BLOCKED: the project rules have not been read recently (a fresh container, or >${STALE_MINUTES} min since the last read). Read the project's own CLAUDE.md at $_claude_md (the workspace root's, not a policy file outside the workspace) to reload the project rules before continuing.$_missing"
+    _rules_reason="BLOCKED: the project rules have not been read recently (a fresh container, or >${STALE_MINUTES} min since the last read). Read the project's own CLAUDE.md at $_claude_md (the workspace root's, not a policy file outside the workspace) to reload the project rules before continuing.$_missing"
+    printf '{"decision":"block","reason":"%s"}' "$(kyklos_json_escape "$_rules_reason")"
     exit 0
 fi
 
@@ -154,7 +154,7 @@ if [ -n "$CONTEXT_FILE" ] && stale "$PLAN_READ"; then
     else
         _reason="BLOCKED: task context ($CONTEXT_FILE) has not been read recently. Read it to restore task context.$_ctx_note"
     fi
-    printf '{"decision":"block","reason":"%s"}' "$_reason"
+    printf '{"decision":"block","reason":"%s"}' "$(kyklos_json_escape "$_reason")"
     exit 0
 fi
 

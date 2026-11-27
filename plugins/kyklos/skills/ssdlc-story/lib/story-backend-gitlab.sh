@@ -1635,11 +1635,19 @@ backend_done_handles() {  # <dir> — the iids of the DONE (closed + completed) 
     # looking Done and the proof gate wrongly demanded a Proof for an abandoned story. MUST mirror the Dropped set
     # in backend_status exactly, so the read-path and the close-guard agree.
     _gl_paged "issues?scope=all&state=closed&labels=$_GL_STORY_LABEL" \
-      | jq -r '.[]? | . as $i | ([$i.labels[]? | ascii_downcase]) as $l
-               | if ($l | any(. == "wontfix" or . == "duplicate" or . == "invalid"
-                              or . == "status::wontfix" or . == "status::duplicate" or . == "status::invalid"))
-                 then empty else ($i.iid|tostring) end' 2>/dev/null \
+      | jq -r "$_GL_DROPPED_JQ"' .[]? | if dropped then empty else (.iid|tostring) end' 2>/dev/null \
       | sort -n
+}
+# _GL_DROPPED_JQ -- the jq definition of a story closed as a non-development disposition (wontfix/duplicate/invalid, bare
+# or scoped): the one Dropped set backend_done_handles and backend_is_done share.
+_GL_DROPPED_JQ='def dropped: ([.labels[]? | ascii_downcase] | any(. == "wontfix" or . == "duplicate" or . == "invalid"
+                              or . == "status::wontfix" or . == "status::duplicate" or . == "status::invalid"));'
+backend_is_done() {  # <dir> <iid> -> rc 0 when the issue is closed and completed (not dropped); rc 1 when it is open or
+    # dropped; rc 3 when the issue cannot be read (a transient: the caller decides, never read as done).
+    local body
+    body="$(_gl_issue "$2" 2>/dev/null)" || return 3
+    printf '%s' "$body" | json_test '(.iid // empty) | numbers' || return 3
+    printf '%s' "$body" | json_test "$_GL_DROPPED_JQ"' (.state == "closed") and (dropped | not)'
 }
 
 # --- Risk Assessment register seam ---------------------------------------------------------------------------

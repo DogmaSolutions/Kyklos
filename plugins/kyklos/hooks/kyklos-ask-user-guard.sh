@@ -12,6 +12,7 @@
 # Wired: PreToolUse, matcher AskUserQuestion.
 # [json-answer-required] Every answer this hook reads goes through the JSON reader; without it a check would exit 127
 # and fall into a fail-open path, so the hook refuses by name instead (a broken install). [CySec] CWE-636
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
     printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
@@ -32,7 +33,7 @@ command -v jq >/dev/null 2>&1 || exit 0
 # One-shot override, spent only when this guard would block (a question that passes leaves it in place).
 ask_block() {
   override_take ask-user-ok "$(override_hook_scope "$INPUT")" "$INPUT" && { echo "[kyklos] ask-user gate: OVERRIDDEN once (ask-user-ok spent)." >&2; exit 0; }
-  printf '{"decision":"block","reason":"BLOCKED (ask-user-guard): %s"}' "$1"
+  printf '{"decision":"block","reason":"BLOCKED (ask-user-guard): %s"}' "$(kyklos_json_escape "$1")"
   exit 0
 }
 
@@ -56,7 +57,7 @@ else
 fi
 if [ "$_ask_hit" = 0 ]; then
   reason="this reads as a PRIORITIZATION / PREFERENCE question (which task next · in what order · your preference · keep-rolling-or · continue-autonomous-or-pause) — a DISGUISED stop. Naming an always-stop task as one of the options does NOT make it an always-stop question. The standing directive: YOU decide the sequence by DEPENDENCY + EFFICIENCY and KEEP ROLLING; the user does not rank your queue and intervenes proactively. If you genuinely must AUTHORIZE a SINGLE always-stop ACTION, ask a DIRECT yes/no on THAT action (never a which/prefer/next/order choice), or bash ${OVERRIDE_MARKER_CLI} set ask-user-ok <your-working-folder> in a SEPARATE prior step."
-  reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
+  reason="$(kyklos_json_escape "$reason")"
   ask_block "$reason"
 fi
 
@@ -75,5 +76,5 @@ fi
 
 reason="you are asking the user, but nothing here reads as a genuine ALWAYS-STOP decision (external/public publish, destructive GitLab admin, a public-bound push, or a NEW blocking gate that applies to every project) or an unresolvable hard blocker. The standing directive is PRIORITIZE AUTONOMOUSLY and KEEP ROLLING: decide it yourself and act — the user intervenes proactively, you do NOT defer via questions. If it TRULY is a blocker only the person can resolve, ask it in the owner-blocker form, which passes with no override: start the question with '${ASK_OWNER_BLOCKER_MARKER:-Blocked on you:} <what only the person can do, and why>' and end it with the question mark. For an always-stop decision you can also run: bash ${OVERRIDE_MARKER_CLI} set ask-user-ok <your-working-folder> in a SEPARATE prior step, then re-ask."
 # 3-step JSON escape (backslash, quote, flatten newlines) — same as the sibling guards.
-reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
+reason="$(kyklos_json_escape "$reason")"
 ask_block "$reason"

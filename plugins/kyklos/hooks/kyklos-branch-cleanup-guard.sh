@@ -25,6 +25,7 @@
 # Wired: Stop.  One-shot escape: bash hooks/lib/override-marker.sh set gitflow-ok <your-working-folder>.
 # [json-answer-required] Every answer this hook reads goes through the JSON reader; without it a check would exit 127
 # and fall into a fail-open path, so the hook refuses by name instead (a broken install). [CySec] CWE-636
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
     printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
@@ -261,6 +262,6 @@ else
 fi
 
 reason="GitFlow branch CLOSURE (closing a finished branch is LOCAL + REQUIRED and is NOT 'pushing' — never skip it because you cannot/should not push, and never defer it to a 'batch close'): ${problems} ${close_hint} One-shot escape if you must keep one open: bash $OVERRIDE_MARKER_CLI set $OK_NAME $OK_SCOPE_HINT"
-reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
+reason="$(kyklos_json_escape "$reason")"
 printf '{"decision":"block","reason":"%s"}' "$reason"
 exit 0

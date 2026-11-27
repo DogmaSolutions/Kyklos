@@ -19,6 +19,7 @@
 # Wired: PreToolUse, matcher Bash.
 # [json-answer-required] Every answer this hook reads goes through the JSON reader; without it a check would exit 127
 # and fall into a fail-open path, so the hook refuses by name instead (a broken install). [CySec] CWE-636
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
     printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
@@ -73,6 +74,6 @@ override_take "$OK_NAME" "$(override_scope_of "${TOP:-$PROJECT_DIR}")" "$INPUT" 
 
 findings="$(printf '%s\n' "$out" | grep -E ': SL[0-9]{3}: ' | grep -v '(allowed: ' | head -20)"
 reason="Push BLOCKED - the script formal check found problems in the scripts this branch changes (fix them, or add a reviewed entry <path>|<RULE>|<reason> to .script-lint-allow): $(printf '%s' "$findings" | tr '\n' ';' | sed 's/;/; /g') For a single deliberate exception: bash $OVERRIDE_MARKER_CLI set $OK_NAME $OK_SCOPE_HINT"
-reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n\t' '  ')"
+reason="$(kyklos_json_escape "$reason")"
 printf '{"decision":"block","reason":"%s"}' "$reason"
 exit 0

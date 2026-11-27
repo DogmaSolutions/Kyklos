@@ -168,7 +168,9 @@ to produce the managed policy.
   the item the branch's earlier commits cite, and never a story (the bridge's `story_get` says which items are
   stories; when it cannot answer, the commit is refused). Work for another item goes on that item's own branch, or it lands in
   this item's merge request, whose files are what the story's coverage token and close read. Refused at commit time
-  (`kyklos-commit-message-guard`) and at push time (`kyklos-no-push-guard`); off together with the footer rule.
+  (`kyklos-commit-message-guard`), for the agent's own new commit; a commit already in a branch's history that cites
+  another item (a fix the person made by hand) is never refused at push, arm, settle or close, and is reported at most
+  as information; off together with the footer rule.
 
 <!-- kyklos:rule topologies -->
 ## Project structure — the four project topologies (companion / nested model)

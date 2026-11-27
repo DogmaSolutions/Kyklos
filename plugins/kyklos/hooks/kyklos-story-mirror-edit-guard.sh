@@ -22,6 +22,7 @@
 # Wired: PreToolUse, matcher Edit|Write|MultiEdit.
 # [json-answer-required] Every answer this hook reads goes through the JSON reader; without it a check would exit 127
 # and fall into a fail-open path, so the hook refuses by name instead (a broken install). [CySec] CWE-636
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 . "$(dirname "${BASH_SOURCE[0]}")/lib/json-answer.sh" 2>/dev/null
 if ! command -v json_test >/dev/null 2>&1; then
     printf '{"decision":"block","reason":"BLOCKED (%s): the JSON reader hooks/lib/json-answer.sh did not load (broken install), so this check cannot run. Reinstall or repin the kyklos plugin.%s"}\n' "$(basename "$0")" "$(. "$(dirname "${BASH_SOURCE[0]}")/lib/help-link.sh" 2>/dev/null && kyklos_help_json_suffix broken-install)"
@@ -84,6 +85,6 @@ fi
 
 base="$(basename "$fp")"
 reason="BLOCKED: '$base' is a GENERATED MIRROR of the GitLab story source-of-truth (STORY_BACKEND=gitlab). Hand-editing it makes the on-disk backlog diverge from the issues and is silently overwritten on the next refresh - so a hand-authored backlog is NOT real work and gets lost. Do NOT author it by hand; use the story commands (story --help, or the SessionStart tool catalog, lists them with their flags): story new to open a story, story requirements <id> --file <f> to author its spec, story set for a field, story proof for the proof, story close to close it. Re-project the on-disk mirror from GitLab with: story refresh (or story materialize <id>). Tool-first norm (GOVERNANCE F10): look before you leap -- use the story tool, do not hand-craft. Deliberate one-off exception: bash $OVERRIDE_MARKER_CLI set $OK_NAME $OK_SCOPE_HINT in a SEPARATE prior step, then retry."
-reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
+reason="$(kyklos_json_escape "$reason")"
 printf '{"decision":"block","reason":"%s"}' "$reason"
 exit 0

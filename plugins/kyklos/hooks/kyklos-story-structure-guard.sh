@@ -22,6 +22,7 @@
 # Honors stop_hook_active (stop mode), so it can never wedge the Stop loop. Regression-locked by
 # test-story-min-structure.sh / test-story-structure-parity.sh (the check) + test-story-structure-guard.sh (block-vs-allow).
 # Wired: PreToolUse (Edit|Write|MultiEdit, arg "edit"; Bash, arg "bash") + Stop (arg "stop").
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 set +e -uo pipefail
 
 MODE="${1:-stop}"
@@ -76,7 +77,7 @@ if out="$(CLAUDE_PROJECT_DIR="$PROJECT_DIR" bash "$STORY" structure 2>&1)"; then
 [ "$rc" -eq 1 ] || exit 0
 
 reason="$out"
-reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
+reason="$(kyklos_json_escape "$reason")"
 if [ "$MODE" = edit ]; then
   printf '{"decision":"block","reason":"BLOCKED (structure-gate, RESTRUCTURE-BEFORE-WORK): %s The In-progress story is structurally INCOMPLETE - you must RESTRUCTURE it NOW (add the missing section(s), see the ssdlc-story _TEMPLATE) BEFORE writing any work code. Per the user directive, the refactor happens immediately after reading the story, before working. Disable with KYKLOS_STRUCTURE_GATE=0."}' "$reason"
 elif [ "$MODE" = bash ]; then

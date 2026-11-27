@@ -4,6 +4,7 @@
 # which solutions to target. Covers the bridge's build/test MCP tools AND raw `dotnet test|build|run`.
 # No-op in any project without `scenarios/` (single-repo / non-.NET are unaffected). See the scenario schema
 # (the working-scenario model) + validate-scenario.sh.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 set -e +u -o pipefail
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
@@ -35,7 +36,7 @@ block() {
     # multi-line `ls` of scenario paths; a raw newline would make the emitted JSON invalid and the block
     # would be silently dropped. Matches the other guards' escape.
     local reason="$1"
-    reason="${reason//\\/\\\\}"; reason="${reason//\"/\\\"}"; reason="$(printf '%s' "$reason" | tr '\n' ' ')"
+    reason="$(kyklos_json_escape "$reason")"
     printf '{"decision":"block","reason":"%s"}' "$reason"
     exit 0
 }

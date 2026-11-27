@@ -63,7 +63,7 @@ guard_load_optional "$_AMG_HERE/lib/gitlab-curl.sh" || true       # gitlab_curl:
 _amg_cwd="$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null || true)"
 [ -n "$_amg_cwd" ] && [ -d "$_amg_cwd" ] || _amg_cwd="${CLAUDE_PROJECT_DIR:-$PWD}"
 if ! _amg_files="$(script_reader_files iad_split_segments shell "$cmd" "$_amg_cwd")"; then
-    printf '{"decision":"block","reason":"BLOCKED: this command runs more than %s local scripts, so the raw-issue-write check cannot read them all. Run them in separate commands."}' "$SCRIPT_READER_MAX_FILES"
+    printf '{"decision":"block","reason":"BLOCKED: this command runs more than %s local scripts, so the raw-issue-write check cannot read them all. Run them in separate commands."}' "$(kyklos_json_escape "$SCRIPT_READER_MAX_FILES")"
     guard_done
 fi
 if [ -n "$_amg_files" ]; then
@@ -80,7 +80,7 @@ cmd="$(iad_normalize_cmd "$cmd")"
 # top-level command the hook sees carries no client keyword).
 printf '%s' "$cmd" | grep -Ec "$IAD_CLIENT_RE" >/dev/null || guard_done
 
-block(){ local r="$1"; r="${r//\\/\\\\}"; r="${r//\"/\\\"}"; r="$(printf '%s' "$r" | tr '\n' ' ')"; printf '{"decision":"block","reason":"%s"}' "$r"; guard_done; }
+block(){ local r="$1"; r="$(kyklos_json_escape "$r")"; printf '{"decision":"block","reason":"%s"}' "$r"; guard_done; }
 
 # FRONT GATE: creating an issue is refused BEFORE any escape is read, so no marker or variable can admit it. Per shell
 # statement (the client, the issues collection and the write co-occur), plus a python/node program split at its own `;`. [CySec] Enforces the

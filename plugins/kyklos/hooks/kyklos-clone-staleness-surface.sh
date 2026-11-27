@@ -11,6 +11,7 @@
 #   3. SURFACE it to THIS session via additionalContext -- Claude loads hooks once at start, so the running session
 #      may still hold the old guards; the agent is told to restart to load the current guards.
 # Also clears / honours the launcher's on-failure marker. Fail-open everywhere: any error -> silent, never a block.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/json-escape.sh" 2>/dev/null || true   # kyklos_json_escape: the one escaper for text inside a JSON answer
 set +e -uo pipefail
 
 MKT="${KYKLOS_MARKETPLACE_CLONE:-$HOME/.claude/plugins/marketplaces/dogmasolutions}"
@@ -65,7 +66,7 @@ if [ -n "$behind" ] || [ -n "$cache_stale" ] || [ -f "$MARKER" ]; then
     if command -v jq >/dev/null 2>&1; then
         jq -nc --arg m "$_msg" '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$m}}'
     else
-        printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}' "$_msg"
+        printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}' "$(kyklos_json_escape "$_msg")"
     fi
 fi
 exit 0
